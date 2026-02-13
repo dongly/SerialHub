@@ -1,0 +1,27 @@
+{
+  "name": "serialhub",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bidirectional bridge between serial ports and network connections (telnet/AI)",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "serve": "bun run src/server.ts",
+    "mcp": "bun run src/index.ts mcp",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@serialport/serialport": "^12.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0"
+  }
+}
