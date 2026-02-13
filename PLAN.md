@@ -8,8 +8,10 @@
 
 ## 开发流程（每步必须完成）
 ```
-开发 → code-simplefy 精简 → bun run typecheck → bun run lint → bun test → git commit
+subagent 开发 → code-simplefy 精简 → bun run typecheck → bun run lint → bun test → git commit
 ```
+
+**重要**: 每个步骤由独立的 subagent (general-purpose) 处理，确保步骤隔离和独立性。
 
 ---
 
@@ -63,6 +65,12 @@
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
+```
+
+### Subagent 执行
+```bash
+# 使用 general-purpose agent 执行此步骤
+task(subagent_type="general-purpose", prompt="执行 SerialHub 步骤 1: 项目配置...")
 ```
 
 ### 验证
