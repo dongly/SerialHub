@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
  * SerialHub HTTP 服务入口
- * 启动 MCP HTTP+SSE 服务
+ * 启动 MCP HTTP+SSE 服务、Telnet 服务和数据桥接
  */
 
 import { SerialHubMCP } from "./mcp/index.js";
 import { SerialManager } from "./serial/SerialManager.js";
+import { TelnetServer } from "./telnet/TelnetServer.js";
+import { DataBridge } from "./bridge/DataBridge.js";
 import { loadConfig } from "./config/index.js";
 import {
   createHttpServer,
@@ -18,7 +20,9 @@ import {
  */
 let serverResult: HttpServerResult | null = null;
 let serial: SerialManager | null = null;
+let telnet: TelnetServer | null = null;
 let mcp: SerialHubMCP | null = null;
+let bridge: DataBridge | null = null;
 
 /**
  * 显示帮助信息
@@ -33,6 +37,7 @@ SerialHub HTTP 服务 - 启动 MCP HTTP+SSE 服务
 选项:
   --serial-port <port>   串口名，如 COM9 或 /dev/ttyUSB0
   --baud-rate <rate>     波特率，默认 115200
+  --telnet-port <port>   Telnet 端口，默认 2323
   --mcp-port <port>      HTTP 服务端口，默认 3000
   --host <host>          监听地址，默认 127.0.0.1
   --stateful             启用有状态模式（支持会话）
@@ -42,9 +47,10 @@ SerialHub HTTP 服务 - 启动 MCP HTTP+SSE 服务
   --debug                启用调试模式
 
 示例:
-  serialhub serve                              # 启动服务，默认端口 3000
-  serialhub serve --mcp-port 8080              # 使用 8080 端口
+  serialhub serve                              # 启动服务，默认端口
   serialhub serve --serial-port COM9           # 启动时连接串口
+  serialhub serve --mcp-port 8080              # 使用 8080 端口
+  serialhub serve --telnet-port 2323           # Telnet 端口 2323
   serialhub serve --host 0.0.0.0               # 监听所有网络接口
   serialhub serve --stateful                   # 启用有状态模式
 `);
@@ -107,6 +113,18 @@ function setupGracefulShutdown(): void {
     console.error(`\n[SerialHub] 收到 ${signal} 信号，正在关闭...`);
 
     try {
+      // 停止数据桥接
+      if (bridge) {
+        bridge.stop();
+        console.error("[SerialHub] 数据桥接已停止");
+      }
+
+      // 关闭 Telnet 服务
+      if (telnet?.isRunning) {
+        await telnet.stop();
+        console.error("[SerialHub] Telnet 服务已关闭");
+      }
+
       // 关闭 HTTP 服务
       if (serverResult) {
         await serverResult.close();
@@ -154,14 +172,35 @@ async function main(): Promise<void> {
   // 创建串口管理器
   serial = new SerialManager(config.serial);
 
+  // 创建 Telnet 服务器
+  telnet = new TelnetServer();
+
   // 创建 MCP 服务
   mcp = new SerialHubMCP(serial, {
     name: "SerialHub",
     version: "0.1.0",
   });
 
+  // 创建数据桥接
+  bridge = new DataBridge(serial, telnet, mcp, {
+    debugLog: config.debug,
+  });
+
   // 设置优雅关闭
   setupGracefulShutdown();
+
+  // 启动 Telnet 服务
+  try {
+    await telnet.start(config.telnet.port);
+    console.error(`[SerialHub] Telnet 服务已启动: 端口 ${config.telnet.port}`);
+  } catch (error) {
+    console.error(`[SerialHub] 启动 Telnet 服务失败: ${error}`);
+    // Telnet 失败不阻塞主服务
+  }
+
+  // 启动数据桥接
+  bridge.start();
+  console.error("[SerialHub] 数据桥接已启动");
 
   // 自动连接串口（如果配置了）
   if (config.serial.port) {
@@ -200,6 +239,7 @@ async function main(): Promise<void> {
   console.error(`[SerialHub] 端点:`);
   console.error(`  - MCP: POST http://${serveArgs.host}:${config.mcp.httpPort}/mcp`);
   console.error(`  - Health: GET http://${serveArgs.host}:${config.mcp.httpPort}/health`);
+  console.error(`  - Telnet: telnet ${serveArgs.host} ${config.telnet.port}`);
 }
 
 // 启动
