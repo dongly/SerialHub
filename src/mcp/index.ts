@@ -51,6 +51,8 @@ export interface SerialHubMCPConfig {
   name?: string;
   /** 服务版本 */
   version?: string;
+  /** 自动设置数据监听器，默认 true。设为 false 时由 DataBridge 控制数据流 */
+  autoDataListener?: boolean;
 }
 
 /**
@@ -62,6 +64,7 @@ export class SerialHubMCP {
   private serial: SerialManager;
   private dataBuffer: DataBuffer;
   private dataListener: ((data: Buffer) => void) | null = null;
+  private autoDataListener: boolean;
 
   /**
    * 创建 SerialHub MCP 服务实例
@@ -71,6 +74,7 @@ export class SerialHubMCP {
   constructor(serial: SerialManager, config: SerialHubMCPConfig = {}) {
     this.serial = serial;
     this.dataBuffer = new DataBuffer();
+    this.autoDataListener = config.autoDataListener ?? true;
 
     // 创建 MCP Server
     this.server = new McpServer({
@@ -81,8 +85,10 @@ export class SerialHubMCP {
     // 注册工具
     this.registerTools();
 
-    // 设置数据监听器
-    this.setupDataListener();
+    // 设置数据监听器（可选）
+    if (this.autoDataListener) {
+      this.setupDataListener();
+    }
   }
 
   /**
