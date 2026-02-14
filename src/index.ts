@@ -84,7 +84,9 @@ async function showVersion(): Promise<void> {
   // 读取 package.json
   const fs = await import("fs");
   const path = await import("path");
-  const packageJsonPath = path.join(import.meta.dir, "..", "package.json");
+  const url = await import("url");
+  const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+  const packageJsonPath = path.join(__dirname, "..", "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
   console.log(`SerialHub v${packageJson.version}`);
 }
