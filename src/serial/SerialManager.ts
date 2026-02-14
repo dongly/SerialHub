@@ -126,6 +126,7 @@ export class SerialManager extends EventEmitter {
 
         // 设置数据监听器
         this.serialPort.on("data", (data: Buffer) => {
+          console.log("[SerialManager] 收到数据:", data.length, "bytes:", data.toString("utf-8"));
           this.emit("data", data);
         });
 

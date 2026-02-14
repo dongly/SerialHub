@@ -169,12 +169,14 @@ export async function createHttpServer(
         parsedBody = await parseBody(req);
       }
 
+      console.error(`[SerialHub] MCP 请求: ${req.method} ${req.url}`, parsedBody);
+
       // 让 transport 处理请求
       await transport.handleRequest(req, res, parsedBody);
     } catch (error) {
       console.error("[SerialHub] 处理请求错误:", error);
       if (!res.headersSent) {
-        sendError(res, 500, "Internal Server Error");
+        sendError(res, 500, `Internal Server Error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   });

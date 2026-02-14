@@ -197,7 +197,7 @@ class SerialManager extends EventEmitter {
 
 ### 硬件验证
 - 连接 COM9 (115200, 8N1)
-- 发送 `help` 命令，验证收到 MCU 响应
+- 发送 `help<回车>` 命令，验证收到 MCU 响应
 
 ### 验证
 - `code-simplefy` 精简代码

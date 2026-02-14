@@ -35,24 +35,26 @@ SerialHub HTTP 服务 - 启动 MCP HTTP+SSE 服务
   serialhub serve [选项]
 
 选项:
-  --serial-port <port>   串口名，如 COM9 或 /dev/ttyUSB0
-  --baud-rate <rate>     波特率，默认 115200
-  --telnet-port <port>   Telnet 端口，默认 2323
-  --mcp-port <port>      HTTP 服务端口，默认 3000
-  --host <host>          监听地址，默认 127.0.0.1
-  --stateful             启用有状态模式（支持会话）
-  --no-cors              禁用 CORS
-  --cors-origin <origin> CORS 允许的来源，默认 "*"
-  --config <path>        配置文件路径
-  --debug                启用调试模式
+  -p, --serial-port <port>   串口名，如 COM9 或 /dev/ttyUSB0
+  -b, --baud-rate <rate>     波特率，默认 115200
+  -d, --data-bits <bits>     数据位，可选 5/6/7/8，默认 8
+  --parity <type>            校验位，可选 none/even/odd，默认 none
+  -s, --stop-bits <bits>     停止位，可选 1/2，默认 1
+  -t, --telnet-port <port>   Telnet 端口，默认 2323
+  -m, --mcp-port <port>      HTTP 服务端口，默认 5000
+  --host <host>              监听地址，默认 127.0.0.1
+  --no-cors                  禁用 CORS
+  --cors-origin <origin>     CORS 允许的来源，默认 "*"
+  -c, --config <path>        配置文件路径
+  -D, --debug                启用调试模式
 
 示例:
   serialhub serve                              # 启动服务，默认端口
-  serialhub serve --serial-port COM9           # 启动时连接串口
-  serialhub serve --mcp-port 8080              # 使用 8080 端口
-  serialhub serve --telnet-port 2323           # Telnet 端口 2323
+  serialhub serve -p COM8                      # 启动时连接串口
+  serialhub serve -p COM8 -b 9600 --parity even
+  serialhub serve -m 8080                      # 使用 8080 端口
+  serialhub serve -t 2323                      # Telnet 端口 2323
   serialhub serve --host 0.0.0.0               # 监听所有网络接口
-  serialhub serve --stateful                   # 启用有状态模式
 `);
 }
 
@@ -62,7 +64,6 @@ SerialHub HTTP 服务 - 启动 MCP HTTP+SSE 服务
 function parseServeArgs(): {
   showHelp: boolean;
   host: string;
-  stateful: boolean;
   enableCors: boolean;
   corsOrigin: string;
 } {
@@ -70,7 +71,6 @@ function parseServeArgs(): {
   const result = {
     showHelp: false,
     host: "127.0.0.1",
-    stateful: false,
     enableCors: true,
     corsOrigin: "*",
   };
@@ -87,9 +87,6 @@ function parseServeArgs(): {
         if (args[i + 1]) {
           result.host = args[++i];
         }
-        break;
-      case "--stateful":
-        result.stateful = true;
         break;
       case "--no-cors":
         result.enableCors = false;
@@ -223,13 +220,9 @@ async function main(): Promise<void> {
 
   console.error(`[SerialHub] 正在启动 HTTP 服务...`);
 
-  if (serveArgs.stateful) {
-    serverResult = await createHttpServerStateful(mcp.getServer(), httpConfig);
-  } else {
-    serverResult = await createHttpServer(mcp.getServer(), httpConfig);
-  }
+  // 默认使用有状态模式
+  serverResult = await createHttpServerStateful(mcp.getServer(), httpConfig);
 
-  console.error(`[SerialHub] 服务模式: ${serveArgs.stateful ? "有状态" : "无状态"}`);
   console.error(`[SerialHub] CORS: ${serveArgs.enableCors ? `已启用 (${serveArgs.corsOrigin})` : "已禁用"}`);
 
   if (config.debug) {

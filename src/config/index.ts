@@ -34,7 +34,7 @@ export interface TelnetConfig {
  * MCP 配置
  */
 export interface MCPConfig {
-  /** MCP HTTP 端口，默认 3000 */
+  /** MCP HTTP 端口，默认 5000 */
   httpPort: number;
 }
 
@@ -63,7 +63,7 @@ const DEFAULT_CONFIG: Config = {
     port: 2323,
   },
   mcp: {
-    httpPort: 3000,
+    httpPort: 5000,
   },
   debug: false,
 };
@@ -123,12 +123,14 @@ export function parseCliArgs(): Partial<Config> & { configPath?: string } {
     const arg = args[i];
 
     switch (arg) {
+      case "-p":
       case "--serial-port":
         if (args[i + 1]) {
           result.serial = { ...result.serial, port: args[++i] } as SerialConfig;
         }
         break;
 
+      case "-b":
       case "--baud-rate":
         if (args[i + 1]) {
           const baudRate = parseInt(args[++i], 10);
@@ -138,6 +140,36 @@ export function parseCliArgs(): Partial<Config> & { configPath?: string } {
         }
         break;
 
+      case "-d":
+      case "--data-bits":
+        if (args[i + 1]) {
+          const dataBits = parseInt(args[++i], 10) as 5 | 6 | 7 | 8;
+          if ([5, 6, 7, 8].includes(dataBits)) {
+            result.serial = { ...result.serial, dataBits } as SerialConfig;
+          }
+        }
+        break;
+
+      case "--parity":
+        if (args[i + 1]) {
+          const parity = args[++i] as "none" | "even" | "odd";
+          if (["none", "even", "odd"].includes(parity)) {
+            result.serial = { ...result.serial, parity } as SerialConfig;
+          }
+        }
+        break;
+
+      case "-s":
+      case "--stop-bits":
+        if (args[i + 1]) {
+          const stopBits = parseInt(args[++i], 10) as 1 | 2;
+          if ([1, 2].includes(stopBits)) {
+            result.serial = { ...result.serial, stopBits } as SerialConfig;
+          }
+        }
+        break;
+
+      case "-t":
       case "--telnet-port":
         if (args[i + 1]) {
           const port = parseInt(args[++i], 10);
@@ -147,6 +179,7 @@ export function parseCliArgs(): Partial<Config> & { configPath?: string } {
         }
         break;
 
+      case "-m":
       case "--mcp-port":
         if (args[i + 1]) {
           const httpPort = parseInt(args[++i], 10);
@@ -156,12 +189,14 @@ export function parseCliArgs(): Partial<Config> & { configPath?: string } {
         }
         break;
 
+      case "-c":
       case "--config":
         if (args[i + 1]) {
           result.configPath = args[++i];
         }
         break;
 
+      case "-D":
       case "--debug":
         result.debug = true;
         break;

@@ -6,22 +6,28 @@
   "author": "",
   "license": "MIT",
   "bin": {
-    "serialhub": "./src/index.ts"
+    "serialhub": "./dist/index.js"
   },
   "scripts": {
     "start": "bun run src/index.ts",
     "serve": "bun run src/server.ts",
     "mcp": "bun run src/index.ts mcp",
+    "start:node": "tsx src/index.ts",
+    "serve:node": "tsx src/server.ts",
+    "mcp:node": "tsx src/index.ts mcp",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "bun test"
   },
   "dependencies": {
-    "serialport": "^12.0.0",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "serialport": "13"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.0.0",
     "eslint": "^8.57.0",
     "@typescript-eslint/parser": "^6.21.0",
