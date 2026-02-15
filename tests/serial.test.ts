@@ -252,9 +252,10 @@ describe("SerialPortInfo 接口", () => {
   });
 });
 
-// 集成测试（需要硬件）
-// 运行方式: bun test tests/serial.test.ts --grep "集成测试"
-describe("集成测试（需要硬件）", () => {
+// 集成测试（需要硬件 + Node.js）
+// 注意: Bun 与 serialport 在 Windows USB CDC 设备上有兼容性问题
+// 运行方式: npx tsx tests/hardware-test.ts
+describe.skip("集成测试（需要硬件）", () => {
   const hardwareConfig: SerialConfig = {
     port: "COM9",
     baudRate: 115200,
@@ -263,8 +264,7 @@ describe("集成测试（需要硬件）", () => {
     stopBits: 1,
   };
 
-  // 跳过此测试，除非显式启用
-  test.skip("连接 COM9 并发送 help 命令", async () => {
+  test("连接 COM9 并发送 help 命令", async () => {
     const manager = new SerialManager(hardwareConfig);
 
     // 监听数据事件
@@ -273,23 +273,33 @@ describe("集成测试（需要硬件）", () => {
       receivedData = Buffer.concat([receivedData, data]);
     });
 
-    // 连接串口
-    await manager.connect();
-    expect(manager.isConnected).toBe(true);
-    expect(manager.currentPort).toBe("COM9");
+    try {
+      // 连接串口（带超时保护）
+      const connectPromise = manager.connect();
+      const connectTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("连接超时")), 5000)
+      );
+      await Promise.race([connectPromise, connectTimeout]);
 
-    // 发送 help 命令
-    await manager.writeLine("help");
+      expect(manager.isConnected).toBe(true);
+      expect(manager.currentPort).toBe("COM9");
 
-    // 等待响应（最多 2 秒）
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+      // 发送 help 命令
+      await manager.writeLine("help");
 
-    // 验证收到响应
-    expect(receivedData.length).toBeGreaterThan(0);
-    console.log("收到响应:", receivedData.toString("utf-8"));
+      // 等待响应（最多 2 秒）
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // 断开连接
-    await manager.disconnect();
+      // 验证收到响应
+      expect(receivedData.length).toBeGreaterThan(0);
+      console.log("收到响应:", receivedData.toString("utf-8"));
+    } finally {
+      // 确保断开连接
+      if (manager.isConnected) {
+        await manager.disconnect();
+      }
+    }
+
     expect(manager.isConnected).toBe(false);
     expect(manager.currentPort).toBe(null);
   });

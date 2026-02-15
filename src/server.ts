@@ -10,7 +10,6 @@ import { TelnetServer } from "./telnet/TelnetServer.js";
 import { DataBridge } from "./bridge/DataBridge.js";
 import { loadConfig } from "./config/index.js";
 import {
-  createHttpServer,
   createHttpServerStateful,
   HttpServerResult,
 } from "./mcp/transport/http-sse.js";

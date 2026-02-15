@@ -25,7 +25,7 @@ describe("配置模块", () => {
       expect(config.serial.parity).toBe("none");
       expect(config.serial.stopBits).toBe(1);
       expect(config.telnet.port).toBe(2323);
-      expect(config.mcp.httpPort).toBe(3000);
+      expect(config.mcp.httpPort).toBe(5000);
       expect(config.debug).toBe(false);
     });
 
@@ -245,7 +245,7 @@ describe("配置模块", () => {
       expect(config.serial.stopBits).toBe(2);
       expect(config.telnet.port).toBe(8023);
       // 默认值应保留
-      expect(config.mcp.httpPort).toBe(3000);
+      expect(config.mcp.httpPort).toBe(5000);
     });
 
     test("文件配置不存在时应返回默认配置", () => {
@@ -285,7 +285,7 @@ describe("配置模块", () => {
 
       expect(config.telnet.port).toBe(9999);
       expect(config.serial.baudRate).toBe(115200); // 默认值
-      expect(config.mcp.httpPort).toBe(3000); // 默认值
+      expect(config.mcp.httpPort).toBe(5000); // 默认值
     });
   });
 });

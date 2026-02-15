@@ -143,7 +143,7 @@ describe("配置加载测试", () => {
     expect(config.serial).toBeDefined();
     expect(config.serial.baudRate).toBe(115200);
     expect(config.telnet.port).toBe(2323);
-    expect(config.mcp.httpPort).toBe(3000);
+    expect(config.mcp.httpPort).toBe(5000);
   });
 
   test("应该能够解析 CLI 参数", async () => {
