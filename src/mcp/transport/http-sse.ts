@@ -1,331 +1,238 @@
-/**
- * MCP HTTP+SSE 传输层
- * 使用 StreamableHTTPServerTransport 实现
- */
-
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from "node:http";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { randomUUID } from "node:crypto";
+import { SerialHubMCP } from "../index.js";
+import { z } from "zod";
 
-/**
- * HTTP 服务配置
- */
+import type { ToolDef } from "../index.js";
+
 export interface HttpServerConfig {
-  /** 监听端口，默认 3000 */
   port?: number;
-  /** 主机地址，默认 127.0.0.1 */
   host?: string;
-  /** 是否启用 CORS，默认 true */
   enableCors?: boolean;
-  /** CORS 允许的来源，默认 "*" */
   corsOrigin?: string | string[];
 }
 
-/**
- * HTTP 服务结果
- */
 export interface HttpServerResult {
-  /** HTTP 服务器实例 */
   server: HttpServer;
-  /** 传输实例 */
-  transport: StreamableHTTPServerTransport;
-  /** 关闭服务的函数 */
   close: () => Promise<void>;
 }
 
-/**
- * CORS 头配置
- */
-function setCorsHeaders(
-  res: ServerResponse,
-  origin: string | string[] = "*"
-): void {
-  const allowOrigin = Array.isArray(origin)
-    ? origin.join(", ")
-    : origin;
+interface JsonRpcRequest {
+  jsonrpc: "2.0";
+  method: string;
+  params?: Record<string, unknown>;
+  id?: string | number | null;
+}
 
-  res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+interface JsonRpcSuccessResponse {
+  jsonrpc: "2.0";
+  result: unknown;
+  id: string | number | null;
+}
+
+interface JsonRpcErrorResponse {
+  jsonrpc: "2.0";
+  error: { code: number; message: string };
+  id: string | number | null;
+}
+
+type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
+
+function setCorsHeaders(res: ServerResponse, origin: string | string[] = "*"): void {
+  res.setHeader("Access-Control-Allow-Origin", Array.isArray(origin) ? origin.join(", ") : origin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
-/**
- * 处理 OPTIONS 预检请求
- */
-function handleOptions(req: IncomingMessage, res: ServerResponse, corsOrigin: string | string[]): boolean {
-  if (req.method === "OPTIONS") {
-    setCorsHeaders(res, corsOrigin);
-    res.writeHead(204);
-    res.end();
-    return true;
-  }
-  return false;
-}
-
-/**
- * 处理健康检查请求
- */
-function handleHealthCheck(req: IncomingMessage, res: ServerResponse): boolean {
-  const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  
-  if (url.pathname === "/health" && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }));
-    return true;
-  }
-  return false;
-}
-
-/**
- * 解析请求体
- */
-async function parseBody(req: IncomingMessage): Promise<unknown> {
+function parseBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    
-    req.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    
-    req.on("end", () => {
-      const body = Buffer.concat(chunks).toString("utf-8");
-      if (!body) {
-        resolve(undefined);
-        return;
-      }
-      
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        resolve(body);
-      }
-    });
-    
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
 }
 
-/**
- * 发送错误响应
- */
-function sendError(res: ServerResponse, statusCode: number, message: string): void {
-  res.writeHead(statusCode, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: message }));
+function jsonResponse(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
 }
 
-/**
- * 创建 MCP HTTP 服务器
- * @param mcpServer MCP Server 实例
- * @param config HTTP 服务配置
- * @returns 服务结果
- */
-export async function createHttpServer(
-  mcpServer: McpServer,
+export async function createMcpHttpServer(
+  mcp: SerialHubMCP,
   config: HttpServerConfig = {}
 ): Promise<HttpServerResult> {
-  const {
-    port = 3000,
-    host = "127.0.0.1",
-    enableCors = true,
-    corsOrigin = "*",
-  } = config;
+  const { port = 5000, host = "127.0.0.1", enableCors = true, corsOrigin = "*" } = config;
+  const tools = mcp.getToolsList();
 
-  // 创建 StreamableHTTP 传输
-  // 使用 stateless 模式（不保持会话状态）
-  // 启用 JSON 响应模式（适合简单请求/响应场景）
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless 模式
-    enableJsonResponse: true, // 启用 JSON 响应
-  });
-
-  // 连接 MCP Server 和传输
-  await mcpServer.connect(transport);
-
-  // 创建 HTTP 服务器
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // 处理 CORS 预检
-    if (enableCors && handleOptions(req, res, corsOrigin)) {
-      return;
-    }
-
-    // 设置 CORS 头
-    if (enableCors) {
+    if (enableCors && req.method === "OPTIONS") {
       setCorsHeaders(res, corsOrigin);
-    }
-
-    // 处理健康检查
-    if (handleHealthCheck(req, res)) {
+      res.writeHead(204);
+      res.end();
       return;
     }
 
-    // 所有 MCP 请求都通过 transport 处理
-    // StreamableHTTPServerTransport 支持所有路径
-    try {
-      // 解析请求体（仅 POST 请求）
-      let parsedBody: unknown;
-      if (req.method === "POST") {
-        parsedBody = await parseBody(req);
-      }
+    if (enableCors) setCorsHeaders(res, corsOrigin);
 
-      console.error(`[SerialHub] MCP 请求: ${req.method} ${req.url}`, parsedBody);
+    const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-      // 让 transport 处理请求
-      await transport.handleRequest(req, res, parsedBody);
-    } catch (error) {
-      console.error("[SerialHub] 处理请求错误:", error);
-      if (!res.headersSent) {
-        sendError(res, 500, `Internal Server Error: ${error instanceof Error ? error.message : String(error)}`);
-      }
+    if (url.pathname === "/health" && req.method === "GET") {
+      jsonResponse(res, 200, { status: "ok", timestamp: new Date().toISOString() });
+      return;
     }
+
+    if (url.pathname === "/shutdown" && req.method === "POST") {
+      jsonResponse(res, 200, { status: "shutting down" });
+      process.kill(process.pid, "SIGTERM");
+      return;
+    }
+
+    if (url.pathname === "/mcp" && req.method === "POST") {
+      await handleHttpRequest(mcp, tools, req, res);
+      return;
+    }
+
+    jsonResponse(res, 404, { error: "Not found" });
   });
 
-  // 返回结果
-  const result: HttpServerResult = {
-    server,
-    transport,
-    close: async () => {
-      await transport.close();
-      return new Promise((resolve, reject) => {
-        server.close((err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-    },
-  };
-
-  return new Promise((resolve, reject) => {
+  return new Promise<HttpServerResult>((resolve, reject) => {
     server.listen(port, host, () => {
-      console.error(`[SerialHub] HTTP 服务已启动: http://${host}:${port}`);
-      resolve(result);
+      console.error(`[SerialHub] MCP HTTP 服务已启动: http://${host}:${port}`);
+      resolve({ server, close: () => new Promise((res, rej) => server.close(e => e ? rej(e) : res())) });
     });
-
-    server.on("error", (err) => {
-      console.error("[SerialHub] HTTP 服务错误:", err);
-      reject(err);
-    });
+    server.on("error", reject);
   });
 }
 
-/**
- * 创建 MCP HTTP 服务器（有状态模式）
- * @param mcpServer MCP Server 实例
- * @param config HTTP 服务配置
- * @returns 服务结果
- */
-export async function createHttpServerStateful(
-  mcpServer: McpServer,
-  config: HttpServerConfig = {}
-): Promise<HttpServerResult> {
-  const {
-    port = 3000,
-    host = "127.0.0.1",
-    enableCors = true,
-    corsOrigin = "*",
-  } = config;
+async function handleHttpRequest(
+  mcp: SerialHubMCP,
+  tools: ToolDef[],
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  let body: string;
+  try {
+    body = await parseBody(req);
+  } catch {
+    jsonResponse(res, 400, { error: "Invalid request body" });
+    return;
+  }
 
-  // 创建有状态的传输
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(), // 有状态模式
-    enableJsonResponse: true, // 启用 JSON 响应
-  });
+  let parsed: JsonRpcRequest;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    jsonResponse(res, 200, { jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null });
+    return;
+  }
 
-  // 连接 MCP Server 和传输
-  await mcpServer.connect(transport);
+  if (!parsed.jsonrpc || !parsed.method) {
+    jsonResponse(res, 200, { jsonrpc: "2.0", error: { code: -32600, message: "Invalid Request" }, id: parsed?.id ?? null });
+    return;
+  }
 
-  // 存储会话和传输的映射
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
-
-  // 创建 HTTP 服务器
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // 处理 CORS 预检
-    if (enableCors && handleOptions(req, res, corsOrigin)) {
-      return;
-    }
-
-    // 设置 CORS 头
-    if (enableCors) {
-      setCorsHeaders(res, corsOrigin);
-    }
-
-    // 处理健康检查
-    if (handleHealthCheck(req, res)) {
-      return;
-    }
-
-    try {
-      // 解析请求体
-      let parsedBody: unknown;
-      if (req.method === "POST") {
-        parsedBody = await parseBody(req);
-      }
-
-      // 获取会话 ID（如果有）
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-      // 如果有会话 ID，使用对应的传输
-      if (sessionId && sessions.has(sessionId)) {
-        const sessionTransport = sessions.get(sessionId)!;
-        await sessionTransport.handleRequest(req, res, parsedBody);
-        return;
-      }
-
-      // 否则使用主传输
-      await transport.handleRequest(req, res, parsedBody);
-
-      // 如果传输分配了新会话 ID，保存它
-      if (transport.sessionId && !sessions.has(transport.sessionId)) {
-        sessions.set(transport.sessionId, transport);
-      }
-    } catch (error) {
-      console.error("[SerialHub] 处理请求错误:", error);
-      if (!res.headersSent) {
-        sendError(res, 500, "Internal Server Error");
-      }
-    }
-  });
-
-  // 返回结果
-  const result: HttpServerResult = {
-    server,
-    transport,
-    close: async () => {
-      // 关闭所有会话
-      for (const sessionTransport of sessions.values()) {
-        await sessionTransport.close();
-      }
-      sessions.clear();
-      
-      await transport.close();
-      return new Promise((resolve, reject) => {
-        server.close((err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-    },
-  };
-
-  return new Promise((resolve, reject) => {
-    server.listen(port, host, () => {
-      console.error(`[SerialHub] HTTP 服务已启动（有状态模式）: http://${host}:${port}`);
-      resolve(result);
+  try {
+    const result = await handleJsonRpc(mcp, tools, parsed);
+    jsonResponse(res, 200, result);
+  } catch (e) {
+    jsonResponse(res, 200, {
+      jsonrpc: "2.0",
+      error: { code: -32603, message: e instanceof Error ? e.message : String(e) },
+      id: parsed.id ?? null,
     });
-
-    server.on("error", (err) => {
-      console.error("[SerialHub] HTTP 服务错误:", err);
-      reject(err);
-    });
-  });
+  }
 }
 
-// 导出类型
-export { StreamableHTTPServerTransport };
+async function handleJsonRpc(
+  mcp: SerialHubMCP,
+  tools: ToolDef[],
+  msg: JsonRpcRequest
+): Promise<JsonRpcResponse> {
+  const { method, params, id } = msg;
+  const rpcId = id ?? null;
+
+  switch (method) {
+    case "initialize":
+      return {
+        jsonrpc: "2.0",
+        result: {
+          protocolVersion: "2024-11-05",
+          capabilities: { tools: {} },
+          serverInfo: { name: "SerialHub", version: "0.1.0" },
+        },
+        id: rpcId,
+      };
+
+    case "notifications/initialized":
+      return { jsonrpc: "2.0", result: {}, id: rpcId };
+
+    case "ping":
+      return { jsonrpc: "2.0", result: {}, id: rpcId };
+
+    case "tools/list":
+      return {
+        jsonrpc: "2.0",
+        result: {
+          tools: tools.map(t => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: buildInputSchema(t.inputSchema),
+          })),
+        },
+        id: rpcId,
+      };
+
+    case "tools/call": {
+      const toolName = params?.name as string;
+      const toolArgs = (params?.arguments as Record<string, unknown>) ?? {};
+
+      if (!toolName) {
+        return { jsonrpc: "2.0", error: { code: -32602, message: "Missing tool name" }, id: rpcId };
+      }
+
+      const result = await mcp.callTool(toolName, toolArgs);
+      return {
+        jsonrpc: "2.0",
+        result: {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        },
+        id: rpcId,
+      };
+    }
+
+    default:
+      return { jsonrpc: "2.0", error: { code: -32601, message: `Method not found: ${method}` }, id: rpcId };
+  }
+}
+
+function buildInputSchema(schema: Record<string, z.ZodTypeAny>): Record<string, unknown> {
+  if (!schema || Object.keys(schema).length === 0) {
+    return { type: "object", properties: {} };
+  }
+
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+
+  for (const [key, val] of Object.entries(schema)) {
+    const unwrapped = val instanceof z.ZodOptional ? val.unwrap() : val;
+    const prop: Record<string, unknown> = {};
+
+    if (unwrapped instanceof z.ZodString) prop.type = "string";
+    else if (unwrapped instanceof z.ZodNumber) prop.type = "number";
+    else if (unwrapped instanceof z.ZodBoolean) prop.type = "boolean";
+    else if (unwrapped instanceof z.ZodArray) prop.type = "array";
+    else prop.type = "string";
+
+    const desc = (val as { description?: string }).description;
+    if (desc) prop.description = desc;
+
+    properties[key] = prop;
+
+    if (!(val instanceof z.ZodOptional)) {
+      required.push(key);
+    }
+  }
+
+  return { type: "object", properties, required: required.length > 0 ? required : undefined };
+}

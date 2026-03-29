@@ -10,9 +10,13 @@ import { TelnetServer } from "./telnet/TelnetServer.js";
 import { DataBridge } from "./bridge/DataBridge.js";
 import { loadConfig } from "./config/index.js";
 import {
-  createHttpServerStateful,
-  HttpServerResult,
+  createMcpHttpServer,
+  type HttpServerResult,
 } from "./mcp/transport/http-sse.js";
+import { TrayManager } from "./tray/TrayManager.js";
+import { hideConsole, isWindows } from "./tray/console.js";
+import { writeServiceStatus } from "./service-manager.js";
+
 
 /**
  * 服务运行时状态
@@ -65,6 +69,7 @@ function parseServeArgs(): {
   host: string;
   enableCors: boolean;
   corsOrigin: string;
+  noTray: boolean;
 } {
   const args = process.argv.slice(2);
   const result = {
@@ -72,6 +77,7 @@ function parseServeArgs(): {
     host: "127.0.0.1",
     enableCors: true,
     corsOrigin: "*",
+    noTray: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -86,6 +92,9 @@ function parseServeArgs(): {
         if (args[i + 1]) {
           result.host = args[++i];
         }
+        break;
+      case "--no-tray":
+        result.noTray = true;
         break;
       case "--no-cors":
         result.enableCors = false;
@@ -219,8 +228,9 @@ async function main(): Promise<void> {
 
   console.error(`[SerialHub] 正在启动 HTTP 服务...`);
 
-  // 默认使用有状态模式
-  serverResult = await createHttpServerStateful(mcp.getServer(), httpConfig);
+  serverResult = await createMcpHttpServer(mcp, httpConfig);
+
+  writeServiceStatus(config.mcp.httpPort);
 
   console.error(`[SerialHub] CORS: ${serveArgs.enableCors ? `已启用 (${serveArgs.corsOrigin})` : "已禁用"}`);
 
@@ -232,6 +242,21 @@ async function main(): Promise<void> {
   console.error(`  - MCP: POST http://${serveArgs.host}:${config.mcp.httpPort}/mcp`);
   console.error(`  - Health: GET http://${serveArgs.host}:${config.mcp.httpPort}/health`);
   console.error(`  - Telnet: telnet ${serveArgs.host} ${config.telnet.port}`);
+
+  if (isWindows && !serveArgs.noTray) {
+    const tray = new TrayManager(serial, {
+      telnetPort: config.telnet.port,
+      mcpPort: config.mcp.httpPort,
+    });
+    await tray.start();
+
+    serial.on("connected", () => tray.updateState("connected"));
+    serial.on("disconnected", () => tray.updateState("idle"));
+    serial.on("error", () => tray.updateState("error"));
+
+    console.error("[SerialHub] 系统托盘已启动");
+    hideConsole();
+  }
 }
 
 // 启动

@@ -29,6 +29,7 @@ MCU ←→ 串口 ←→ SerialHub
 | 语言 | TypeScript |
 | 串口 | @serialport |
 | AI 接口 | MCP (Model Context Protocol) |
+| 系统托盘 | tray-hook (Rust daemon) |
 | 测试 | Bun test |
 | 代码规范 | ESLint + Prettier |
 
@@ -64,16 +65,19 @@ serialhub serve --mcp-port 3000
 | `serial_list` | 列出可用串口 | 无 |
 | `serial_connect` | 连接串口 | port, baudRate? |
 | `serial_disconnect` | 断开串口 | 无 |
-| `serial_write` | 发送数据 | data, encoding? |
-| `serial_read` | 读取数据 | timeout? |
+| `serial_write` | 发送数据 | data, addNewline? |
+| `serial_read` | 读取数据 | timeout?, maxSize? |
+| `serial_read_stream` | 阻塞式流读取 | timeout?, maxSize?, continuous? |
 | `serial_status` | 获取状态 | 无 |
+| `serial_subscribe` | 订阅数据流 | 无 |
+| `serial_unsubscribe` | 取消订阅 | 无 |
 
 ## 文件结构
 
 ```
 src/
 ├── index.ts              # stdio MCP 入口
-├── server.ts             # HTTP 服务入口
+├── server.ts             # HTTP 服务入口（含托盘集成）
 ├── config/
 │   └── index.ts          # 配置管理
 ├── serial/
@@ -86,8 +90,11 @@ src/
 │   │   ├── stdio.ts      # stdio 传输
 │   │   └── http-sse.ts   # HTTP+SSE 传输
 │   └── tools/            # MCP 工具实现
-└── bridge/
-    └── DataBridge.ts     # 数据桥接
+├── bridge/
+│   └── DataBridge.ts     # 数据桥接
+└── tray/
+    ├── TrayManager.ts    # 系统托盘管理
+    └── console.ts        # Windows 控制台窗口控制（Bun.FFI）
 ```
 
 ## 开发流程

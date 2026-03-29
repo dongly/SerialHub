@@ -75,6 +75,12 @@ export async function executeSerialWrite(
  */
 export const serialWriteTool = {
   name: "serial_write",
-  description: "向串口发送数据",
+  description:
+    "向已连接的串口发送数据/命令。" +
+    "使用场景：1) 向 MCU 发送 Shell 命令（如 help、version、 reboot）；2) 发送调试指令；3) 输入配置参数。" +
+    "前提条件：必须先调用 serial_connect 成功连接串口；若未连接会返回错误提示。" +
+    "典型工作流：连接后 → serial_write 发送命令 → 立即 serial_read 读取响应。" +
+    "参数说明：data 为要发送的文本内容；addNewline 默认 true（自动追加换行符，适用于大多数 Shell 命令），设为 false 用于发送原始数据。" +
+    "注意：写入操作立即返回成功与否，但设备响应需要单独调用 serial_read 获取。",
   inputSchema: serialWriteSchema,
 };

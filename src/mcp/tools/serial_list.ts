@@ -31,6 +31,10 @@ export async function executeSerialList(
  */
 export const serialListTool = {
   name: "serial_list",
-  description: "列出系统中所有可用的串口",
-  inputSchema: {}, // 无参数
+  description:
+    "列出系统中所有可用的串口设备。" +
+    "使用场景：1) 首次连接前查找可用串口；2) 确认目标设备连接的端口号；3) 排查串口识别问题。" +
+    "典型工作流：先调用 serial_list 获取可用串口列表 → 根据厂商ID(如 USB 设备的 vendorId/productId)识别目标设备 → 使用 serial_connect 连接。" +
+    "返回值包含串口路径、厂商信息、硬件ID等，帮助识别正确的串口。",
+  inputSchema: {},
 };

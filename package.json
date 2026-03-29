@@ -9,27 +9,26 @@
     "serialhub": "./dist/index.js"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
-    "serve": "bun run src/server.ts",
-    "mcp": "bun run src/index.ts mcp",
-    "start:node": "tsx src/index.ts",
-    "serve:node": "tsx src/server.ts",
-    "mcp:node": "tsx src/index.ts mcp",
+    "start": "tsx src/index.ts",
+    "serve": "tsx src/server.ts",
+    "mcp": "tsx src/index.ts mcp",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
-    "test": "bun test"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "serialport": "13"
+    "koffi": "^2.15.2",
+    "serialport": "13",
+    "tray-hook": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "eslint": "^8.57.0",
-    "tsx": "^4.19.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   }
 }

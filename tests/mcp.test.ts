@@ -11,12 +11,18 @@ import {
   serialWriteTool,
   serialReadTool,
   serialStatusTool,
+  serialSubscribeTool,
+  serialUnsubscribeTool,
+  serialReadStreamTool,
   executeSerialList,
   executeSerialConnect,
   executeSerialDisconnect,
   executeSerialWrite,
   executeSerialRead,
   executeSerialStatus,
+  executeSerialSubscribe,
+  executeSerialUnsubscribe,
+  executeSerialReadStream,
   DataBuffer,
 } from "../src/mcp/index.js";
 import { SerialManager } from "../src/serial/SerialManager.js";
@@ -149,6 +155,23 @@ describe("工具定义", () => {
     expect(serialStatusTool.name).toBe("serial_status");
     expect(serialStatusTool.description).toContain("状态");
     expect(serialStatusTool.inputSchema).toEqual({});
+  });
+
+  test("serial_subscribe 工具定义正确", () => {
+    expect(serialSubscribeTool.name).toBe("serial_subscribe");
+    expect(serialSubscribeTool.description).toContain("订阅");
+  });
+
+  test("serial_unsubscribe 工具定义正确", () => {
+    expect(serialUnsubscribeTool.name).toBe("serial_unsubscribe");
+    expect(serialUnsubscribeTool.description).toContain("取消订阅");
+  });
+
+  test("serial_read_stream 工具定义正确", () => {
+    expect(serialReadStreamTool.name).toBe("serial_read_stream");
+    expect(serialReadStreamTool.description).toContain("流读取");
+    expect(serialReadStreamTool.inputSchema).toHaveProperty("timeout");
+    expect(serialReadStreamTool.inputSchema).toHaveProperty("maxSize");
   });
 });
 
@@ -395,5 +418,91 @@ describe("SerialHubMCP", () => {
     // dispose 后不再接收数据
     mockManager.emit("data", Buffer.from("more"));
     expect(mcp.getDataBuffer().length).toBe(0);
+  });
+});
+
+describe("executeSerialSubscribe", () => {
+  test("首次订阅成功", async () => {
+    let subscribed = false;
+    const result = await executeSerialSubscribe(
+      () => {
+        subscribed = true;
+      },
+      false
+    );
+    expect(result.success).toBe(true);
+    expect(result.subscribed).toBe(true);
+    expect(subscribed).toBe(true);
+  });
+
+  test("重复订阅返回已订阅状态", async () => {
+    const result = await executeSerialSubscribe(() => {}, true);
+    expect(result.success).toBe(true);
+    expect(result.subscribed).toBe(true);
+    expect(result.message).toContain("已订阅");
+  });
+});
+
+describe("executeSerialUnsubscribe", () => {
+  test("取消订阅成功", async () => {
+    let subscribed = true;
+    const result = await executeSerialUnsubscribe(
+      () => {
+        subscribed = false;
+      },
+      true
+    );
+    expect(result.success).toBe(true);
+    expect(result.subscribed).toBe(false);
+    expect(subscribed).toBe(false);
+  });
+
+  test("未订阅时取消返回未订阅状态", async () => {
+    const result = await executeSerialUnsubscribe(() => {}, false);
+    expect(result.success).toBe(true);
+    expect(result.subscribed).toBe(false);
+    expect(result.message).toContain("未订阅");
+  });
+});
+
+describe("executeSerialReadStream", () => {
+  let mockManager: SerialManager;
+  let dataBuffer: DataBuffer;
+
+  beforeEach(() => {
+    mockManager = createMockSerialManager();
+    dataBuffer = new DataBuffer();
+  });
+
+  test("阻塞读取数据", async () => {
+    await mockManager.connect("COM9");
+    dataBuffer.append(Buffer.from("stream data"));
+
+    const result = await executeSerialReadStream(mockManager, dataBuffer, {
+      timeout: 100,
+    });
+    expect(result.data).toBe("stream data");
+    expect(result.bytes).toBe(11);
+    expect(result.timedOut).toBe(false);
+  });
+
+  test("超时返回空数据", async () => {
+    await mockManager.connect("COM9");
+
+    const result = await executeSerialReadStream(mockManager, dataBuffer, {
+      timeout: 100,
+    });
+    expect(result.data).toBe("");
+    expect(result.bytes).toBe(0);
+    expect(result.timedOut).toBe(true);
+  });
+
+  test("未连接时返回空数据", async () => {
+    const result = await executeSerialReadStream(mockManager, dataBuffer, {
+      timeout: 100,
+    });
+    expect(result.data).toBe("");
+    expect(result.bytes).toBe(0);
+    expect(result.timedOut).toBe(false);
   });
 });

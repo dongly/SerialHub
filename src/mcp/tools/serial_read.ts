@@ -10,8 +10,18 @@ import { SerialManager } from "../../serial/SerialManager.js";
  * 输入参数 Schema
  */
 export const serialReadSchema = {
-  timeout: z.number().int().min(0).optional().describe("超时时间(ms)，默认 1000"),
-  maxSize: z.number().int().min(1).optional().describe("最大读取字节数，默认 4096"),
+  timeout: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("超时时间(ms)，默认 1000，0 表示无限等待"),
+  maxSize: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("最大读取字节数，默认 4096"),
 };
 
 /**
@@ -30,6 +40,7 @@ export interface SerialReadResult {
   encoding: string;
   timestamp: number;
   bytes: number;
+  timedOut: boolean;
 }
 
 /**
@@ -96,6 +107,7 @@ export class DataBuffer {
 
 /**
  * 执行 serial_read 工具
+ * 阻塞等待数据到达，timeout=0 表示无限等待
  * @param serialManager 串口管理器实例
  * @param dataBuffer 数据缓冲区
  * @param input 输入参数
@@ -115,13 +127,27 @@ export async function executeSerialRead(
       encoding: "utf-8",
       timestamp: Date.now(),
       bytes: 0,
+      timedOut: false,
     };
   }
 
-  // 等待数据或超时
+  // 等待数据
   const startTime = Date.now();
-  while (dataBuffer.length === 0 && Date.now() - startTime < timeout) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  const checkInterval = 50;
+  const hasTimeout = timeout > 0;
+
+  while (dataBuffer.length === 0) {
+    // 检查超时
+    if (hasTimeout && Date.now() - startTime >= timeout) {
+      return {
+        data: "",
+        encoding: "utf-8",
+        timestamp: Date.now(),
+        bytes: 0,
+        timedOut: true,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, checkInterval));
   }
 
   // 读取数据
@@ -133,6 +159,7 @@ export async function executeSerialRead(
     encoding: "utf-8",
     timestamp,
     bytes: data.length,
+    timedOut: false,
   };
 }
 
@@ -141,6 +168,13 @@ export async function executeSerialRead(
  */
 export const serialReadTool = {
   name: "serial_read",
-  description: "读取串口缓冲区中的数据",
+  description:
+    "阻塞式读取串口返回的数据。" +
+    "使用场景：1) 发送命令后获取设备响应；2) 监视设备输出日志；3) 等待特定事件/数据到达。" +
+    "前提条件：必须先 serial_connect 连接串口。" +
+    "典型工作流：serial_write 发送命令 → 立即 serial_read 获取响应 → 解析输出内容。" +
+    "参数策略：timeout=0 表示无限等待（适用于不确定响应时间的场景）；timeout=1000~5000 适合常规命令响应；timeout=100 适合快速检查是否有数据。" +
+    "返回值说明：data 为读取的文本内容；timedOut=true 表示超时未收到数据（不是错误，只是无数据）；bytes 为实际读取字节数。" +
+    "重要提示：读取操作会清空缓冲区已读数据，多次调用可分段读取长输出；若设备持续输出，可循环调用 serial_read 获取完整内容。",
   inputSchema: serialReadSchema,
 };

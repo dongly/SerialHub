@@ -126,7 +126,6 @@ export class SerialManager extends EventEmitter {
 
         // 设置数据监听器
         this.serialPort.on("data", (data: Buffer) => {
-          console.log("[SerialManager] 收到数据:", data.length, "bytes:", data.toString("utf-8"));
           this.emit("data", data);
         });
 
@@ -213,20 +212,15 @@ export class SerialManager extends EventEmitter {
         return;
       }
 
-      this.serialPort.write(buffer, (error) => {
+      const success = this.serialPort.write(buffer, (error) => {
         if (error) {
           reject(new Error(`写入串口失败: ${error.message}`));
-          return;
         }
-
-        this.serialPort!.drain((drainError) => {
-          if (drainError) {
-            reject(new Error(`刷新串口缓冲区失败: ${drainError.message}`));
-            return;
-          }
-          resolve(buffer.length);
-        });
       });
+
+      if (success !== false) {
+        resolve(buffer.length);
+      }
     });
   }
 

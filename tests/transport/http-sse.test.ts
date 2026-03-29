@@ -7,8 +7,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { SerialManager } from "../../src/serial/SerialManager.js";
 import { SerialHubMCP } from "../../src/mcp/index.js";
 import {
-  createHttpServer,
-  createHttpServerStateful,
+  createMcpHttpServer,
   HttpServerConfig,
 } from "../../src/mcp/transport/http-sse.js";
 
@@ -84,7 +83,7 @@ function createMockSerialManager(): SerialManager {
 }
 
 describe("HTTP+SSE 传输", () => {
-  describe("createHttpServer", () => {
+  describe("createMcpHttpServer", () => {
     let mockSerial: SerialManager;
     let mcp: SerialHubMCP;
     let port: number;
@@ -100,13 +99,11 @@ describe("HTTP+SSE 传输", () => {
     });
 
     test("应该创建 HTTP 服务器并监听指定端口", async () => {
-      const result = await createHttpServer(mcp.getServer(), { port });
+      const result = await createMcpHttpServer(mcp, { port });
 
       expect(result.server).toBeDefined();
-      expect(result.transport).toBeDefined();
       expect(result.close).toBeDefined();
 
-      // 验证服务器正在监听
       const address = result.server.address();
       expect(address).not.toBeNull();
       if (address && typeof address !== "string") {
@@ -117,50 +114,22 @@ describe("HTTP+SSE 传输", () => {
     });
 
     test("应该使用默认配置", async () => {
-      const result = await createHttpServer(mcp.getServer());
+      const result = await createMcpHttpServer(mcp);
 
       const address = result.server.address();
       if (address && typeof address !== "string") {
-        expect(address.port).toBe(3000); // 默认端口
+        expect(address.port).toBe(5000);
       }
 
       await result.close();
     });
 
     test("应该能够关闭服务器", async () => {
-      const result = await createHttpServer(mcp.getServer(), { port });
+      const result = await createMcpHttpServer(mcp, { port });
 
       await result.close();
 
-      // 关闭后服务器地址应为 null
       expect(result.server.address()).toBeNull();
-    });
-  });
-
-  describe("createHttpServerStateful", () => {
-    let mockSerial: SerialManager;
-    let mcp: SerialHubMCP;
-    let port: number;
-
-    beforeEach(() => {
-      mockSerial = createMockSerialManager();
-      mcp = new SerialHubMCP(mockSerial);
-      port = getNextPort();
-    });
-
-    afterEach(() => {
-      mcp.dispose();
-    });
-
-    test("应该创建有状态模式的 HTTP 服务器", async () => {
-      const result = await createHttpServerStateful(mcp.getServer(), { port });
-
-      expect(result.server).toBeDefined();
-      expect(result.transport).toBeDefined();
-      // 有状态模式会生成 session ID
-      expect(result.transport.sessionId).toBeUndefined(); // 初始时为 undefined
-
-      await result.close();
     });
   });
 });
@@ -176,7 +145,7 @@ describe("HTTP 端点测试", () => {
     mcp = new SerialHubMCP(mockSerial);
     port = getNextPort();
 
-    const result = await createHttpServer(mcp.getServer(), {
+    const result = await createMcpHttpServer(mcp, {
       port,
       host: "127.0.0.1",
       enableCors: true,
@@ -261,7 +230,7 @@ describe("CORS 配置测试", () => {
     mcp = new SerialHubMCP(mockSerial);
     port = getNextPort();
 
-    const result = await createHttpServer(mcp.getServer(), {
+    const result = await createMcpHttpServer(mcp, {
       port,
       host: "127.0.0.1",
       enableCors: false,
@@ -277,7 +246,7 @@ describe("CORS 配置测试", () => {
     mcp = new SerialHubMCP(mockSerial);
     port = getNextPort();
 
-    const result = await createHttpServer(mcp.getServer(), {
+    const result = await createMcpHttpServer(mcp, {
       port,
       host: "127.0.0.1",
       enableCors: true,
@@ -301,7 +270,7 @@ describe("MCP 协议测试", () => {
     mcp = new SerialHubMCP(mockSerial);
     port = getNextPort();
 
-    const result = await createHttpServer(mcp.getServer(), {
+    const result = await createMcpHttpServer(mcp, {
       port,
       host: "127.0.0.1",
     });
@@ -346,13 +315,11 @@ describe("MCP 协议测试", () => {
     expect(body.result.serverInfo.name).toBe("SerialHub");
   });
 
-  test("工具列表请求（批量初始化）", async () => {
-    // 测试批量请求格式
+  test("工具列表请求", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Accept": "text/event-stream, application/json",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -362,9 +329,13 @@ describe("MCP 协议测试", () => {
       }),
     });
 
-    // 在 stateless 模式下，未初始化的请求可能返回错误
-    // 这是预期行为，测试重点是传输层正常工作
-    expect([200, 400, 403]).toContain(response.status);
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.result).toBeDefined();
+    expect(body.result.tools).toBeDefined();
+    expect(Array.isArray(body.result.tools)).toBe(true);
   });
 });
 
@@ -379,7 +350,7 @@ describe("错误处理测试", () => {
     mcp = new SerialHubMCP(mockSerial);
     port = getNextPort();
 
-    const result = await createHttpServer(mcp.getServer(), {
+    const result = await createMcpHttpServer(mcp, {
       port,
       host: "127.0.0.1",
     });
