@@ -39,3 +39,4 @@ Thumbs.db
 # Temporary
 *.tmp
 .temp/
+nul
