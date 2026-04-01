@@ -1,0 +1,6 @@
+=== RUN   TestBridgeStartStop
+--- PASS: TestBridgeStartStop (0.05s)
+=== RUN   TestBridgeStop_Idempotent
+--- PASS: TestBridgeStop_Idempotent (0.00s)
+=== RUN   TestSerialForwarding_Both
+--- PASS: TestSerialForwarding_Both (0.15s)

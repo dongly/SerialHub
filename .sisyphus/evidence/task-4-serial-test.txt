@@ -1,0 +1,64 @@
+=== RUN   TestNewSerialManager
+=== RUN   TestNewSerialManager/姝ｅ父鍒涘缓
+=== RUN   TestNewSerialManager/浣跨敤榛樿閰嶇疆
+=== RUN   TestNewSerialManager/nil閰嶇疆
+=== RUN   TestNewSerialManager/绌虹鍙?--- PASS: TestNewSerialManager (0.00s)
+    --- PASS: TestNewSerialManager/姝ｅ父鍒涘缓 (0.00s)
+    --- PASS: TestNewSerialManager/浣跨敤榛樿閰嶇疆 (0.00s)
+    --- PASS: TestNewSerialManager/nil閰嶇疆 (0.00s)
+    --- PASS: TestNewSerialManager/绌虹鍙?(0.00s)
+=== RUN   TestConnect_MockSuccess
+--- PASS: TestConnect_MockSuccess (0.00s)
+=== RUN   TestConnect_MockFailure
+--- PASS: TestConnect_MockFailure (0.00s)
+=== RUN   TestConnect_AlreadyConnected
+--- PASS: TestConnect_AlreadyConnected (0.00s)
+=== RUN   TestDisconnect
+time="2026-04-01T22:34:48+08:00" level=info msg="[SerialHub] 涓插彛宸叉柇寮€: MOCK1"
+--- PASS: TestDisconnect (0.06s)
+=== RUN   TestWrite
+--- PASS: TestWrite (0.00s)
+=== RUN   TestWriteLine
+--- PASS: TestWriteLine (0.00s)
+=== RUN   TestListPorts
+    manager_test.go:289: 鍙戠幇 2 涓覆鍙?    manager_test.go:291:   - COM3
+    manager_test.go:291:   - COM9
+--- PASS: TestListPorts (0.00s)
+=== RUN   TestUpdateConfig
+--- PASS: TestUpdateConfig (0.00s)
+=== RUN   TestClose
+--- PASS: TestClose (0.00s)
+=== RUN   TestConcurrentReadWrite
+--- PASS: TestConcurrentReadWrite (2.00s)
+=== RUN   TestConfigToMode
+=== RUN   TestConfigToMode/姝ｅ父閰嶇疆
+=== RUN   TestConfigToMode/9600_娉㈢壒鐜?=== RUN   TestConfigToMode/Even_鏍￠獙
+=== RUN   TestConfigToMode/Odd_鏍￠獙
+=== RUN   TestConfigToMode/2_鍋滄浣?=== RUN   TestConfigToMode/7_鏁版嵁浣?=== RUN   TestConfigToMode/鏃犳晥娉㈢壒鐜?=== RUN   TestConfigToMode/鏃犳晥鏁版嵁浣?=== RUN   TestConfigToMode/鏃犳晥鏍￠獙浣?=== RUN   TestConfigToMode/鏃犳晥鍋滄浣?--- PASS: TestConfigToMode (0.00s)
+    --- PASS: TestConfigToMode/姝ｅ父閰嶇疆 (0.00s)
+    --- PASS: TestConfigToMode/9600_娉㈢壒鐜?(0.00s)
+    --- PASS: TestConfigToMode/Even_鏍￠獙 (0.00s)
+    --- PASS: TestConfigToMode/Odd_鏍￠獙 (0.00s)
+    --- PASS: TestConfigToMode/2_鍋滄浣?(0.00s)
+    --- PASS: TestConfigToMode/7_鏁版嵁浣?(0.00s)
+    --- PASS: TestConfigToMode/鏃犳晥娉㈢壒鐜?(0.00s)
+    --- PASS: TestConfigToMode/鏃犳晥鏁版嵁浣?(0.00s)
+    --- PASS: TestConfigToMode/鏃犳晥鏍￠獙浣?(0.00s)
+    --- PASS: TestConfigToMode/鏃犳晥鍋滄浣?(0.00s)
+=== RUN   TestConfigString
+--- PASS: TestConfigString (0.00s)
+=== RUN   TestParsePort
+=== RUN   TestParsePort/绠€鍗曠鍙ｅ悕
+=== RUN   TestParsePort/甯︽尝鐗圭巼
+=== RUN   TestParsePort/绌哄瓧绗︿覆
+=== RUN   TestParsePort/鏃犳晥娉㈢壒鐜?=== RUN   TestParsePort/Linux_璁惧
+--- PASS: TestParsePort (0.00s)
+    --- PASS: TestParsePort/绠€鍗曠鍙ｅ悕 (0.00s)
+    --- PASS: TestParsePort/甯︽尝鐗圭巼 (0.00s)
+    --- PASS: TestParsePort/绌哄瓧绗︿覆 (0.00s)
+    --- PASS: TestParsePort/鏃犳晥娉㈢壒鐜?(0.00s)
+    --- PASS: TestParsePort/Linux_璁惧 (0.00s)
+=== RUN   TestGetConfig
+--- PASS: TestGetConfig (0.00s)
+PASS
+ok  	github.com/yourname/serialhub/pkg/serial	(cached)

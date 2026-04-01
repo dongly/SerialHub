@@ -1,0 +1,126 @@
+=== RUN   TestAssertContains
+--- PASS: TestAssertContains (0.00s)
+=== RUN   TestAssertNotContains
+--- PASS: TestAssertNotContains (0.00s)
+=== RUN   TestAssertEqual
+--- PASS: TestAssertEqual (0.00s)
+=== RUN   TestAssertNotEqual
+--- PASS: TestAssertNotEqual (0.00s)
+=== RUN   TestAssertNil
+--- PASS: TestAssertNil (0.00s)
+=== RUN   TestAssertNotNil
+--- PASS: TestAssertNotNil (0.00s)
+=== RUN   TestAssertError
+--- PASS: TestAssertError (0.00s)
+=== RUN   TestAssertNoError
+--- PASS: TestAssertNoError (0.00s)
+=== RUN   TestAssertBytesEqual
+--- PASS: TestAssertBytesEqual (0.00s)
+=== RUN   TestWaitForChannel_Success
+--- PASS: TestWaitForChannel_Success (0.01s)
+=== RUN   TestNewTempDir
+--- PASS: TestNewTempDir (0.00s)
+=== RUN   TestNewTempFile
+--- PASS: TestNewTempFile (0.00s)
+=== RUN   TestWriteTempFile
+--- PASS: TestWriteTempFile (0.00s)
+=== RUN   TestReadFile
+--- PASS: TestReadFile (0.00s)
+=== RUN   TestFileExists
+--- PASS: TestFileExists (0.00s)
+=== RUN   TestAssertFileExists
+--- PASS: TestAssertFileExists (0.00s)
+=== RUN   TestAssertFileNotExists
+--- PASS: TestAssertFileNotExists (0.00s)
+=== RUN   TestAssertFileContains
+--- PASS: TestAssertFileContains (0.01s)
+=== RUN   TestTempFileInDir
+--- PASS: TestTempFileInDir (0.00s)
+=== RUN   TestJoinPath
+--- PASS: TestJoinPath (0.00s)
+=== RUN   TestMustGetwd
+--- PASS: TestMustGetwd (0.00s)
+=== RUN   TestMockConn_Read_Success
+--- PASS: TestMockConn_Read_Success (0.00s)
+=== RUN   TestMockConn_Read_EOF
+--- PASS: TestMockConn_Read_EOF (0.00s)
+=== RUN   TestMockConn_Read_Partial
+--- PASS: TestMockConn_Read_Partial (0.00s)
+=== RUN   TestMockConn_Read_Error
+--- PASS: TestMockConn_Read_Error (0.00s)
+=== RUN   TestMockConn_Read_Closed
+--- PASS: TestMockConn_Read_Closed (0.00s)
+=== RUN   TestMockConn_Write
+--- PASS: TestMockConn_Write (0.00s)
+=== RUN   TestMockConn_Write_Error
+--- PASS: TestMockConn_Write_Error (0.00s)
+=== RUN   TestMockConn_Write_Closed
+--- PASS: TestMockConn_Write_Closed (0.00s)
+=== RUN   TestMockConn_Close
+--- PASS: TestMockConn_Close (0.00s)
+=== RUN   TestMockConn_Close_Idempotent
+--- PASS: TestMockConn_Close_Idempotent (0.00s)
+=== RUN   TestMockConn_Close_ClosesChannel
+--- PASS: TestMockConn_Close_ClosesChannel (0.00s)
+=== RUN   TestMockConn_LocalAddr
+--- PASS: TestMockConn_LocalAddr (0.00s)
+=== RUN   TestMockConn_RemoteAddr
+--- PASS: TestMockConn_RemoteAddr (0.00s)
+=== RUN   TestMockConn_SetDeadline
+--- PASS: TestMockConn_SetDeadline (0.00s)
+=== RUN   TestMockConn_SetReadDeadline
+--- PASS: TestMockConn_SetReadDeadline (0.00s)
+=== RUN   TestMockConn_SetWriteDeadline
+--- PASS: TestMockConn_SetWriteDeadline (0.00s)
+=== RUN   TestMockConn_Reset
+--- PASS: TestMockConn_Reset (0.00s)
+=== RUN   TestMockConn_ConcurrentReadWrite
+--- PASS: TestMockConn_ConcurrentReadWrite (0.00s)
+=== RUN   TestMockAddr
+--- PASS: TestMockAddr (0.00s)
+=== RUN   TestMockAddr_NetConnInterface
+--- PASS: TestMockAddr_NetConnInterface (0.00s)
+=== RUN   TestMockSerialPort_Read_Success
+--- PASS: TestMockSerialPort_Read_Success (0.00s)
+=== RUN   TestMockSerialPort_Read_EOF
+--- PASS: TestMockSerialPort_Read_EOF (0.00s)
+=== RUN   TestMockSerialPort_Read_Partial
+--- PASS: TestMockSerialPort_Read_Partial (0.00s)
+=== RUN   TestMockSerialPort_Read_Error
+--- PASS: TestMockSerialPort_Read_Error (0.00s)
+=== RUN   TestMockSerialPort_Read_Closed
+--- PASS: TestMockSerialPort_Read_Closed (0.00s)
+=== RUN   TestMockSerialPort_Write
+--- PASS: TestMockSerialPort_Write (0.00s)
+=== RUN   TestMockSerialPort_Write_Error
+--- PASS: TestMockSerialPort_Write_Error (0.00s)
+=== RUN   TestMockSerialPort_Write_Closed
+--- PASS: TestMockSerialPort_Write_Closed (0.00s)
+=== RUN   TestMockSerialPort_Close
+--- PASS: TestMockSerialPort_Close (0.00s)
+=== RUN   TestMockSerialPort_Close_Idempotent
+--- PASS: TestMockSerialPort_Close_Idempotent (0.00s)
+=== RUN   TestMockSerialPort_SetMode
+--- PASS: TestMockSerialPort_SetMode (0.00s)
+=== RUN   TestMockSerialPort_Drain
+--- PASS: TestMockSerialPort_Drain (0.00s)
+=== RUN   TestMockSerialPort_ResetInputBuffer
+--- PASS: TestMockSerialPort_ResetInputBuffer (0.00s)
+=== RUN   TestMockSerialPort_ResetOutputBuffer
+--- PASS: TestMockSerialPort_ResetOutputBuffer (0.00s)
+=== RUN   TestMockSerialPort_SetDTR
+--- PASS: TestMockSerialPort_SetDTR (0.00s)
+=== RUN   TestMockSerialPort_SetRTS
+--- PASS: TestMockSerialPort_SetRTS (0.00s)
+=== RUN   TestMockSerialPort_GetModemStatusBits
+--- PASS: TestMockSerialPort_GetModemStatusBits (0.00s)
+=== RUN   TestMockSerialPort_SetReadTimeout
+--- PASS: TestMockSerialPort_SetReadTimeout (0.00s)
+=== RUN   TestMockSerialPort_Break
+--- PASS: TestMockSerialPort_Break (0.00s)
+=== RUN   TestMockSerialPort_Reset
+--- PASS: TestMockSerialPort_Reset (0.00s)
+=== RUN   TestMockSerialPort_GetWriteData_Copy
+--- PASS: TestMockSerialPort_GetWriteData_Copy (0.00s)
+PASS
+ok  	github.com/yourname/serialhub/internal/testutil	(cached)

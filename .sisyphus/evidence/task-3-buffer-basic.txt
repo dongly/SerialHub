@@ -1,0 +1,12 @@
+=== RUN   TestBuffer_Append
+--- PASS: TestBuffer_Append (0.00s)
+=== RUN   TestBuffer_Read
+--- PASS: TestBuffer_Read (0.00s)
+=== RUN   TestBuffer_Read_Partial
+--- PASS: TestBuffer_Read_Partial (0.00s)
+=== RUN   TestBuffer_Peek
+--- PASS: TestBuffer_Peek (0.00s)
+=== RUN   TestBuffer_Clear
+--- PASS: TestBuffer_Clear (0.00s)
+PASS
+ok  	github.com/yourname/serialhub/internal/buffer	0.450s

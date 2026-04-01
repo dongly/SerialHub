@@ -1,0 +1,5 @@
+=== RUN   TestConfigMerge
+time="2026-04-01T23:06:34+08:00" level=info msg="[SerialHub] ??????: C:\\Users\\dongl\\AppData\\Local\\Temp\\TestConfigMerge3565425495\\001\\partial.json"
+--- PASS: TestConfigMerge (0.10s)
+PASS
+ok  	github.com/yourname/serialhub/pkg/config	0.840s

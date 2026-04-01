@@ -1,0 +1,6 @@
+=== RUN   TestStartStop
+time="2026-04-01T23:13:58+08:00" level=info msg="[SerialHub] Telnet 鏈嶅姟鍣ㄥ凡鍚姩: 127.0.0.1:2323"
+time="2026-04-01T23:13:58+08:00" level=info msg="[SerialHub] Telnet 鏈嶅姟鍣ㄥ凡鍋滄: 127.0.0.1:2323"
+--- PASS: TestStartStop (0.07s)
+PASS
+ok  	github.com/yourname/serialhub/pkg/telnet	0.600s

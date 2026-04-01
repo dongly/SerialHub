@@ -1,0 +1,10 @@
+=== RUN   TestLoadConfig
+time="2026-04-01T23:06:34+08:00" level=info msg="[SerialHub] ??????: C:\\Users\\dongl\\AppData\\Local\\Temp\\TestLoadConfig2636869776\\001\\config.json"
+--- PASS: TestLoadConfig (0.05s)
+=== RUN   TestLoadConfig_FileNotFound
+time="2026-04-01T23:06:34+08:00" level=warning msg="[SerialHub] ???????: C:\\Users\\dongl\\AppData\\Local\\Temp\\TestLoadConfig_FileNotFound314678757\\001\\nonexistent.json"
+--- PASS: TestLoadConfig_FileNotFound (0.00s)
+=== RUN   TestLoadConfig_InvalidJSON
+--- PASS: TestLoadConfig_InvalidJSON (0.01s)
+PASS
+ok  	github.com/yourname/serialhub/pkg/config	0.809s

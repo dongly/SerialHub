@@ -1,7 +1,7 @@
 # SerialHub - AI 代理指南
 
 ## 项目概述
-SerialHub 是一个串口（MCU）与网络连接（Telnet/AI）之间的双向桥接器。
+SerialHub 是一个串口（MCU）与网络连接（Telnet/AI）之间的双向桥接器，使用 Go 语言实现。
 
 ### 核心架构
 **Telnet 和 AI 接口同时连接同一个串口**：
@@ -17,145 +17,192 @@ MCU ←→ 串口 ←→ SerialHub
 
 ## 技术栈
 
-| 组件 | 技术 |
+| 组件 | Go 库 |
 |------|------|
-| 运行时 | Node.js (tsx) |
-| 语言 | TypeScript (ES2022, strict, ESM) |
-| 串口 | serialport@13 |
-| AI 接口 | MCP (@modelcontextprotocol/sdk) |
-| 验证 | Zod |
-| 系统托盘 | tray-hook (Rust daemon) + koffi (FFI) |
-| 测试 | Bun test |
-| 代码规范 | ESLint |
+| 运行时 | Go 1.24+ |
+| 串口 | go.bug.st/serial (842⭐) |
+| AI 接口 | github.com/modelcontextprotocol/go-sdk (官方 v1.4.1) |
+| Telnet | net 标准库 |
+| HTTP+SSE | github.com/joshuafuller/sse/v3 + net/http |
+| CLI | github.com/spf13/cobra |
+| 配置 | github.com/spf13/viper |
+| 系统托盘 | github.com/getlantern/systray |
+| 验证 | struct tags + github.com/go-playground/validator |
+| 测试 | testing 标准库 |
+| 日志 | github.com/sirupsen/logrus |
 
 ## 构建 / 检查 / 测试命令
 
 ```bash
-npm run typecheck          # TypeScript 类型检查（零错误）
-npm run lint               # ESLint 检查 src/（零警告）
-npm test                   # 运行所有测试
-npm run build              # 编译到 dist/
-npm run serve              # 启动开发服务器
+# 开发运行
+go run ./cmd/serialhub              # 运行 CLI（MCP stdio 模式）
+go run ./cmd/serve                  # 运行 HTTP 服务
 
-# 运行单个测试文件
-bun test tests/serial.test.ts
-bun test tests/mcp.test.ts
+# 构建命令
+go build -o bin/serialhub.exe ./cmd/serialhub
+go build -o bin/serve.exe ./cmd/serve
 
-# 运行匹配名称的测试
-bun test -t "应正确创建实例"
+# 测试命令
+go test ./...                       # 运行所有测试
+go test ./pkg/serial                # 运行单个包测试
+go test -v ./pkg/serial             # 详细输出
+go test -run TestConnect ./pkg/serial  # 运行单个测试函数
+go test -cover ./...                # 测试覆盖率
 
-# 硬件集成测试（需要 Node.js，Bun 与 serialport 不兼容）
-npx tsx tests/hardware-test.ts
+# 代码检查
+go vet ./...                        # 静态分析（零错误）
+golangci-lint run                   # 完整 lint（需安装）
+
+# 类型检查（编译时自动）
+go build ./...                      # 编译检查类型错误
+
+# 依赖管理
+go mod tidy                         # 整理依赖
+go get go.bug.st/serial@latest      # 更新依赖
 ```
 
 ## 文件结构
 
 ```
-src/
-├── index.ts              # CLI 入口 + MCP stdio 模式
-├── server.ts             # HTTP 服务入口（含托盘集成）
-├── service-manager.ts    # 服务进程状态管理（PID/端口文件）
-├── config/
-│   └── index.ts          # 配置管理（JSON 文件 + CLI 参数）
-├── serial/
-│   └── SerialManager.ts  # 串口管理（EventEmitter）
-├── telnet/
-│   └── TelnetServer.ts   # Telnet 服务（EventEmitter）
-├── mcp/
-│   ├── index.ts          # MCP 服务入口 + DataBuffer + 工具注册
-│   ├── transport/
-│   │   └── http-sse.ts   # HTTP+SSE JSON-RPC 传输
-│   └── tools/            # MCP 工具（每个文件一个工具）
-├── bridge/
-│   └── DataBridge.ts     # 数据桥接（串口↔Telnet↔MCP）
-└── tray/
-    ├── TrayManager.ts    # 系统托盘管理
-    └── console.ts        # Windows 控制台窗口控制（koffi FFI）
+github.com/yourname/serialhub/
+├── cmd/
+│   ├── serialhub/           # CLI 主入口 + MCP stdio 模式
+│   │   └── main.go
+│   └── serve/               # HTTP 服务入口（含托盘集成）
+│       └── main.go
+├── pkg/
+│   ├── serial/              # 串口管理
+│   │   ├── manager.go       # SerialManager（channel 通信）
+│   │   └── config.go        # 串口配置结构
+│   ├── telnet/              # Telnet 服务
+│   │   ├── server.go        # TelnetServer（net 标准库）
+│   │   └── client.go        # 客户端管理
+│   ├── mcp/                 # MCP 服务
+│   │   ├── server.go        # MCP 服务入口 + 工具注册
+│   │   ├── transport/
+│   │   │   ├── stdio.go     # Stdio 传输（内置）
+│   │   │   └── httpsse.go   # HTTP+SSE JSON-RPC 传输
+│   │   └── tools/           # MCP 工具（每个文件一个工具）
+│   │       ├── serial_list.go
+│   │       ├── serial_connect.go
+│   │       ├── serial_disconnect.go
+│   │       ├── serial_write.go
+│   │       ├── serial_read.go
+│   │       └── serial_status.go
+│   ├── bridge/              # 数据桥接
+│   │   ├── bridge.go        # DataBridge（串口↔Telnet↔MCP）
+│   │   └── events.go        # Channel 定义
+│   ├── config/              # 配置管理
+│   │   └── config.go        # Viper 配置（JSON 文件 + CLI 参数）
+│   └── tray/                # 系统托盘
+│       └── tray.go          # Systray 管理（跨平台）
+├── internal/
+│   ├── buffer/              # DataBuffer
+│   │   └── buffer.go        # 数据缓冲区
+│   └── service/             # 服务状态管理
+│       └── manager.go       # PID/端口文件
+├── go.mod
+├── go.sum
+├── Makefile                 # 构建脚本
+└── README.md
 ```
 
 ## 代码风格
 
-### 导入
-```typescript
-// 1. Node.js 内置（使用 node: 前缀）
-import { createServer } from "node:http";
-import { EventEmitter } from "events";
+### 导入顺序
+```go
+// 1. 标准库
+import (
+    "context"
+    "fmt"
+    "net"
+)
 
-// 2. 第三方包（无扩展名）
-import { z } from "zod";
-import { SerialPort } from "serialport";
+// 2. 第三方库
+import (
+    "go.bug.st/serial"
+    "github.com/spf13/cobra"
+)
 
-// 3. 本地模块（相对路径 + .js 扩展名）
-import { SerialManager } from "../serial/SerialManager.js";
-import type { ToolDef } from "../index.js";  // 类型导入用 import type
+// 3. 本地模块
+import (
+    "github.com/yourname/serialhub/pkg/config"
+    "github.com/yourname/serialhub/pkg/bridge"
+)
 ```
 
 ### 命名规范
 
 | 元素 | 规范 | 示例 |
 |------|------|------|
-| 类 | PascalCase | `SerialManager`, `DataBridge` |
-| 接口 | PascalCase | `SerialConfig`, `TelnetClient` |
-| 类型别名 | PascalCase | `TrayState = "idle" \| "connected" \| "error"` |
-| 常量 | UPPER_SNAKE_CASE | `DEFAULT_CONFIG`, `SW_HIDE` |
-| 私有字段（getter 后备） | `_` 前缀 + camelCase | `_isConnected`, `_isRunning` |
-| 其他私有字段 | camelCase | `serialPort`, `config`, `server` |
-| 公有方法 | camelCase | `connect()`, `writeLine()`, `broadcast()` |
+| 包名 | lowercase，单个单词 | `serial`, `telnet`, `mcp` |
+| 结构体 | PascalCase | `SerialManager`, `DataBridge` |
+| 接口 | PascalCase + `er` 后缀 | `Connector`, `DataReader` |
+| 公有方法 | PascalCase | `Connect()`, `WriteLine()`, `Broadcast()` |
+| 私有方法 | camelCase | `handleSerialData()`, `readLoop()` |
+| 常量 | camelCase 或 PascalCase | `DefaultBaudRate`, `maxBufferSize` |
+| 导出字段 | PascalCase | `Port`, `BaudRate` |
+| 私有字段 | camelCase | `port`, `baudRate`, `stopChan` |
+| Channel | camelCase + `Chan` 后缀 | `dataChan`, `errChan` |
 | 工具函数 | `execute` 前缀 | `executeSerialWrite()` |
-| Schema 对象 | camelCase + `Schema` 后缀 | `serialWriteSchema` |
-| 工具定义 | camelCase + `Tool` 后缀 | `serialWriteTool` |
-| 事件映射接口 | PascalCase + `Events` 后缀 | `SerialManagerEvents` |
 
 ### 导出
-- **仅使用命名导出**，不用 `default export`
-- 接口/类/函数/常量用 `export` 内联声明
-- 模块聚合用 `export { ... }` 块
+- **仅导出必要的内容**，最小化公开 API
+- 结构体字段按需导出，使用 struct tags 标注
 
 ### 类型风格
-- 对象形状用 `interface`，联合类型用 `type`
-- 类型与使用处分开定义（文件顶部或类之前）
-- Zod schema 和对应的 TypeScript 类型**手动并列定义**（不用 `z.infer<>`）
+- 对象形状用 `struct`，行为用 `interface`
+- 类型与使用处分开定义（文件顶部）
+- 使用 struct tags 进行验证和配置映射
 - 所有公有方法**显式标注返回类型**
 
 ### 错误处理
-- 用户错误消息使用**中文**：`throw new Error("串口未连接")`
-- MCP 工具**不抛异常**，返回 `{ success: false, message: "..." }`
-- 检查 error 类型：`error instanceof Error ? error.message : String(error)`
-- 非关键操作静默捕获：`catch { /* 忽略关闭错误 */ }`
-- EventEmitter 错误：`this.emit("error", error)`
+- 用户错误消息使用**中文**：`return fmt.Errorf("串口未连接")`
+- MCP 工具**不返回 error**，返回 `ToolResult` 结构：
+  ```go
+  type ToolResult struct {
+      Success bool   `json:"success"`
+      Message string `json:"message"`
+      Data    any    `json:"data,omitempty"`
+  }
+  ```
+- 错误包装：`fmt.Errorf("连接失败: %w", err)`
+- 非关键操作静默处理：`defer port.Close()`
 
 ### 注释
-- 文件顶部 `/** 模块名 - 简述 */`
-- 所有公有方法/接口/属性用 **JSDoc**（中文）
+- 文件顶部 `// Package xxx 提供功能描述`
+- 所有公有类型/方法用 **Go 文档注释**（中文）
 - 行内注释用 `//`（中文）
-- 测试描述用中文：`test("应正确创建实例", ...)`
+- 测试描述用中文：`func Test应正确创建实例(t *testing.T)`
 
 ### 其他约定
 - **不做注释**（除非用户要求）——保持代码精简
-- 构造函数对 config 做**浅拷贝**：`this.config = { ...config }`
-- getter 访问器暴露状态，`getConfig()` 返回副本
-- 事件处理器**预绑定**以便清理：`this.boundHandleSerialData = this.handleSerialData.bind(this)`
-- 运行时日志用 `console.error()` + `[SerialHub]` 前缀，`console.log()` 仅用于用户输出
-- 清理方法命名为 `dispose()`
-- 用 `??` 而非 `||` 做默认值
+- 构造函数返回 error：`func NewSerialManager(cfg *Config) (*SerialManager, error)`
+- Getter 方法命名：`GetConfig()` 返回副本，`IsConnected()` 返回布尔值
+- 使用 `context.Context` 控制超时和取消
+- 运行时日志用 `logrus` + `[SerialHub]` 前缀
+- 清理方法命名为 `Close()` 或 `Stop()`
+- Channel 初始化：`make(chan []byte, bufferSize)`
+- 使用 `select` 监听多个 channel
 
 ## 架构原则
 
-1. **关注点分离**：串口、Telnet、MCP 各自独立模块
-2. **EventEmitter 模式**：核心类继承 EventEmitter，通过事件解耦
+1. **关注点分离**：串口、Telnet、MCP 各自独立包
+2. **Channel 模式**：模块通过 channel 通信，替代 EventEmitter
 3. **错误恢复力**：串口/Telnet/MCP 任一故障不影响其他模块
 4. **配置驱动**：所有端口、超时、缓冲区大小可配置
-5. **MCP 工具模式**：每个工具文件导出 schema + type + result interface + execute 函数 + tool 定义
+5. **MCP 工具模式**：每个工具文件定义 Input struct + execute 函数 + ToolResult
+6. **Context 传递**：所有阻塞操作接收 `context.Context`
 
 ## 开发流程
 
 ```
-开发 → typecheck → lint → test → commit
+开发 → go vet → go build → go test → commit
 ```
 
 ### 检查清单
-- [ ] `npm run typecheck` — 零错误
-- [ ] `npm run lint` — 零警告
-- [ ] 在 `.test.ts` 文件中添加/更新测试
-- [ ] `bun test` — 所有测试通过
+- [ ] `go vet ./...` — 零错误
+- [ ] `go build ./...` — 编译成功
+- [ ] 在 `_test.go` 文件中添加/更新测试
+- [ ] `go test ./...` — 所有测试通过
 - [ ] `git commit` 提交更改
