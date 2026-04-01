@@ -3,6 +3,7 @@ package tools
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -381,6 +382,11 @@ func TestSerialStatus_NotConnected(t *testing.T) {
 }
 
 // TestHW2_MCPTools MCP工具硬件集成测试
+// 环境变量配置：
+//
+//	SERIALHUB_HARDWARE_TEST=1    - 启用硬件测试
+//	SERIALHUB_TEST_PORT=COM9     - 串口号（默认 COM9）
+//	SERIALHUB_TEST_BAUD=115200   - 波特率（默认 115200）
 func TestHW2_MCPTools(t *testing.T) {
 	if os.Getenv("SERIALHUB_HARDWARE_TEST") != "1" {
 		t.Skip("硬件测试未启用，设置 SERIALHUB_HARDWARE_TEST=1 启用")
@@ -390,6 +396,15 @@ func TestHW2_MCPTools(t *testing.T) {
 	if testPort == "" {
 		testPort = "COM9"
 	}
+
+	baudRate := 115200
+	if baud := os.Getenv("SERIALHUB_TEST_BAUD"); baud != "" {
+		if b, err := strconv.Atoi(baud); err == nil {
+			baudRate = b
+		}
+	}
+
+	t.Logf("硬件测试配置: port=%s, baud=%d", testPort, baudRate)
 
 	cfg := serial.DefaultConfig()
 	cfg.Port = testPort
@@ -410,7 +425,7 @@ func TestHW2_MCPTools(t *testing.T) {
 
 	// 1. serial_connect
 	t.Log("步骤1: serial_connect...")
-	connectInput := ConnectInput{Port: testPort, BaudRate: 115200}
+	connectInput := ConnectInput{Port: testPort, BaudRate: baudRate}
 	connectResult := ExecuteSerialConnect(sm, connectInput)
 	if !connectResult.Success {
 		t.Fatalf("serial_connect 失败: %s", connectResult.Message)

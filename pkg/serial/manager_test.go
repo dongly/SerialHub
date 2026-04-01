@@ -4,6 +4,7 @@ package serial
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -690,23 +691,60 @@ func TestParsePort(t *testing.T) {
 }
 
 // TestHW1_SerialManager 硬件集成测试
+// 环境变量配置：
+//
+//	SERIALHUB_HARDWARE_TEST=1    - 启用硬件测试
+//	SERIALHUB_TEST_PORT=COM9     - 串口号（默认 COM9）
+//	SERIALHUB_TEST_BAUD=115200   - 波特率（默认 115200）
+//	SERIALHUB_TEST_DATABITS=8    - 数据位（默认 8）
+//	SERIALHUB_TEST_PARITY=none   - 校验位（默认 none）
+//	SERIALHUB_TEST_STOPBITS=1    - 停止位（默认 1）
 func TestHW1_SerialManager(t *testing.T) {
 	if os.Getenv("SERIALHUB_HARDWARE_TEST") != "1" {
 		t.Skip("硬件测试未启用，设置 SERIALHUB_HARDWARE_TEST=1 启用")
 	}
 
-	// 获取测试端口（默认 COM9）
+	// 从环境变量读取配置
 	testPort := os.Getenv("SERIALHUB_TEST_PORT")
 	if testPort == "" {
 		testPort = "COM9"
 	}
 
+	baudRate := 115200
+	if baud := os.Getenv("SERIALHUB_TEST_BAUD"); baud != "" {
+		if b, err := strconv.Atoi(baud); err == nil {
+			baudRate = b
+		}
+	}
+
+	dataBits := 8
+	if db := os.Getenv("SERIALHUB_TEST_DATABITS"); db != "" {
+		if d, err := strconv.Atoi(db); err == nil {
+			dataBits = d
+		}
+	}
+
+	parity := os.Getenv("SERIALHUB_TEST_PARITY")
+	if parity == "" {
+		parity = "none"
+	}
+
+	stopBits := float32(1)
+	if sb := os.Getenv("SERIALHUB_TEST_STOPBITS"); sb != "" {
+		if s, err := strconv.ParseFloat(sb, 32); err == nil {
+			stopBits = float32(s)
+		}
+	}
+
+	t.Logf("硬件测试配置: port=%s, baud=%d, dataBits=%d, parity=%s, stopBits=%.0f",
+		testPort, baudRate, dataBits, parity, stopBits)
+
 	cfg := &Config{
 		Port:     testPort,
-		BaudRate: 115200,
-		DataBits: 8,
-		Parity:   "none",
-		StopBits: 1,
+		BaudRate: baudRate,
+		DataBits: dataBits,
+		Parity:   parity,
+		StopBits: stopBits,
 	}
 
 	sm, err := NewSerialManager(cfg)
