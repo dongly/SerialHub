@@ -3,6 +3,8 @@ package serial
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -456,7 +458,7 @@ loop:
 		}
 	}
 
-// readLoop 不在测试中启动，跳过接收验证
+	// readLoop 不在测试中启动，跳过接收验证
 
 	wg.Wait()
 }
@@ -685,6 +687,141 @@ func TestParsePort(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHW1_SerialManager 硬件集成测试
+func TestHW1_SerialManager(t *testing.T) {
+	if os.Getenv("SERIALHUB_HARDWARE_TEST") != "1" {
+		t.Skip("硬件测试未启用，设置 SERIALHUB_HARDWARE_TEST=1 启用")
+	}
+
+	// 获取测试端口（默认 COM9）
+	testPort := os.Getenv("SERIALHUB_TEST_PORT")
+	if testPort == "" {
+		testPort = "COM9"
+	}
+
+	cfg := &Config{
+		Port:     testPort,
+		BaudRate: 115200,
+		DataBits: 8,
+		Parity:   "none",
+		StopBits: 1,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// 确保清理
+	t.Cleanup(func() {
+		if sm.IsConnected() {
+			sm.Disconnect()
+		}
+	})
+
+	// 连接串口
+	if err := sm.Connect(); err != nil {
+		t.Fatalf("Connect() failed: %v", err)
+	}
+
+	if !sm.IsConnected() {
+		t.Fatal("连接后 IsConnected() 应该返回 true")
+	}
+
+	t.Logf("已连接到串口: %s", sm.CurrentPort())
+
+	// 清空残留数据
+	sm.WriteLine("")
+	time.Sleep(500 * time.Millisecond)
+
+	// 丢弃缓冲区中的数据
+	select {
+	case <-sm.dataChan:
+	default:
+	}
+
+	// 发送 help 命令
+	t.Log("发送 help 命令...")
+	if err := sm.WriteLine("help"); err != nil {
+		t.Fatalf("WriteLine('help') failed: %v", err)
+	}
+
+	// 读取响应（5秒超时），累积数据直到收到完整响应
+	var helpResponse strings.Builder
+	helpTimeout := time.After(5 * time.Second)
+	helpDone := false
+	for !helpDone {
+		select {
+		case data := <-sm.dataChan:
+			helpResponse.Write(data)
+			t.Logf("收到数据块: %q", string(data))
+			// 检查是否已收到完整响应
+			if strings.Contains(helpResponse.String(), "RT-Thread shell commands:") {
+				helpDone = true
+			}
+		case <-helpTimeout:
+			helpDone = true
+		}
+	}
+
+	t.Logf("help 完整响应: %s", helpResponse.String())
+	if !strings.Contains(helpResponse.String(), "RT-Thread shell commands:") {
+		t.Errorf("help 响应不包含预期内容")
+	}
+
+	// 清空残留
+	time.Sleep(500 * time.Millisecond)
+	for {
+		select {
+		case <-sm.dataChan:
+		default:
+			goto cleared1
+		}
+	}
+cleared1:
+
+	// 发送 version 命令
+	t.Log("发送 version 命令...")
+	if err := sm.WriteLine("version"); err != nil {
+		t.Fatalf("WriteLine('version') failed: %v", err)
+	}
+
+	// 读取响应
+	var versionResponse strings.Builder
+	versionTimeout := time.After(5 * time.Second)
+	versionDone := false
+	for !versionDone {
+		select {
+		case data := <-sm.dataChan:
+			versionResponse.Write(data)
+			t.Logf("收到数据块: %q", string(data))
+			// 检查是否已收到完整响应
+			if strings.Contains(versionResponse.String(), "Thread Operating System") {
+				versionDone = true
+			}
+		case <-versionTimeout:
+			versionDone = true
+		}
+	}
+
+	t.Logf("version 完整响应: %s", versionResponse.String())
+	if !strings.Contains(versionResponse.String(), "Thread Operating System") {
+		t.Errorf("version 响应不包含预期内容")
+	}
+
+	// 断开连接
+	if err := sm.Disconnect(); err != nil {
+		t.Errorf("Disconnect() failed: %v", err)
+	}
+
+	if sm.IsConnected() {
+		t.Error("断开后 IsConnected() 应该返回 false")
+	}
+
+	t.Log("硬件集成测试通过")
 }
 
 // TestGetConfig 测试获取配置
