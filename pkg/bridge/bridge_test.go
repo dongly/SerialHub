@@ -472,10 +472,10 @@ func TestHW3_DataBridge(t *testing.T) {
 	})
 
 	// 启动 TelnetServer
-	if err := telnetSrv.Start("", 0); err != nil {
+	if err := telnetSrv.Start(); err != nil {
 		t.Fatalf("TelnetServer.Start failed: %v", err)
 	}
-	t.Logf("TelnetServer 已启动，端口: %d", telnetSrv.Port())
+	t.Log("TelnetServer 已启动")
 
 	// 启动 DataBridge
 	bridge.Start()
