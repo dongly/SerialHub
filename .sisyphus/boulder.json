@@ -1,24 +1,12 @@
 {
-  "active_plan": "D:\\Develop\\SerialHub\\.sisyphus\\plans\\serialhub-go.md",
-  "started_at": "2026-04-01T13:58:20.953Z",
+  "active_plan": "D:\\Develop\\SerialHub\\.sisyphus\\plans\\tray-menu-enhancement.md",
+  "started_at": "2026-04-02T11:57:40.686Z",
   "session_ids": [
     "ses_2b6b70186ffec3AZfR02GhhInG",
-    "ses_2b6a8651affeSWNojdXPPzHmJ5",
-    "ses_2b6a36b1dffefuxJU4i2zwyH3N",
-    "ses_2b69b2815ffesRkCVyDwFl3Ows",
-    "ses_2b69acf9dffecJyXNNc2cS912r",
-    "ses_2b67e5bd8ffe3c2uuLHFCkIfTu",
-    "ses_2b6796477ffevUTKm9XYLjCGUY",
-    "ses_2b69b5122ffeTjcqKNc7oSLNz9",
-    "ses_2b67963c8ffeFyjhss9W3BZJsh",
-    "ses_2b65d3f85ffeCf77rtlUY3i05q",
-    "ses_2b6796394ffe4J176aH6penkoO",
-    "ses_2b657bf6effeJLuzPbv1zzh9ND",
-    "ses_2b651fbc8ffeFpINbTjqPUw3pM",
-    "ses_2b308883affeQwlb7xwUIzMlv2",
-    "ses_2b2b844c9ffefOeCAn3tSdmct2"
+    "ses_2b1e4e219ffenx6t2IOXlz7bT3",
+    "ses_2b1e0f284ffe4AQpPoTEhx5VAa"
   ],
-  "plan_name": "serialhub-go",
+  "plan_name": "tray-menu-enhancement",
   "agent": "atlas",
   "task_sessions": {}
 }
