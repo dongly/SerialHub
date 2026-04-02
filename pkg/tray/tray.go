@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/getlantern/systray"
 	"github.com/sirupsen/logrus"
@@ -33,7 +34,6 @@ type TrayManager struct {
 	mSelectPort    *systray.MenuItem
 	mRefresh       *systray.MenuItem
 	mPortItems     map[string]*systray.MenuItem
-	mSerialConfig  *systray.MenuItem
 	mBaudRate      *systray.MenuItem
 	mBaudRateItems map[int]*systray.MenuItem
 	mDataBits      *systray.MenuItem
@@ -94,62 +94,83 @@ func (t *TrayManager) onReady() {
 }
 
 func (t *TrayManager) createMenu() {
+	// 1. 串口连接/断开
 	t.mSerial = systray.AddMenuItem(t.getSerialMenuTitle(), "串口连接")
 
-	t.mSelectPort = systray.AddMenuItem("选择串口", "选择串口")
+	// 2. 选择串口子菜单
+	t.mSelectPort = systray.AddMenuItem("选择串口 ▶", "选择串口")
 	t.mRefresh = t.mSelectPort.AddSubMenuItem("刷新列表", "刷新串口列表")
-	systray.AddSeparator()
+	t.mSelectPort.AddSubMenuItem("──────────", "分隔线").Disable()
 
-	t.mSerialConfig = systray.AddMenuItem("串口参数", "串口参数")
-
-	t.mBaudRate = t.mSerialConfig.AddSubMenuItem("波特率", "选择波特率")
+	// 3. 串口参数子菜单
+	t.mBaudRate = systray.AddMenuItem(fmt.Sprintf("波特率: %d ▶", t.config.Serial.BaudRate), "选择波特率")
 	for _, rate := range baudRates {
-		item := t.mBaudRate.AddSubMenuItem(strconv.Itoa(rate), fmt.Sprintf("波特率 %d", rate))
+		label := strconv.Itoa(rate)
+		if rate == t.config.Serial.BaudRate {
+			label = "✓ " + label
+		}
+		item := t.mBaudRate.AddSubMenuItem(label, fmt.Sprintf("波特率 %d", rate))
 		t.mBaudRateItems[rate] = item
 	}
 
-	t.mDataBits = t.mSerialConfig.AddSubMenuItem("数据位", "选择数据位")
+	t.mDataBits = systray.AddMenuItem(fmt.Sprintf("数据位: %d ▶", t.config.Serial.DataBits), "选择数据位")
 	for _, bits := range dataBitsList {
-		item := t.mDataBits.AddSubMenuItem(strconv.Itoa(bits), fmt.Sprintf("数据位 %d", bits))
+		label := strconv.Itoa(bits)
+		if bits == t.config.Serial.DataBits {
+			label = "✓ " + label
+		}
+		item := t.mDataBits.AddSubMenuItem(label, fmt.Sprintf("数据位 %d", bits))
 		t.mDataBitsItems[bits] = item
 	}
 
-	t.mStopBits = t.mSerialConfig.AddSubMenuItem("停止位", "选择停止位")
+	t.mStopBits = systray.AddMenuItem(fmt.Sprintf("停止位: %.0f ▶", float64(t.config.Serial.StopBits)), "选择停止位")
 	for _, bits := range stopBitsList {
 		label := fmt.Sprintf("%.0f", bits)
 		if bits == 1.5 {
 			label = "1.5"
 		}
+		if int(bits) == t.config.Serial.StopBits {
+			label = "✓ " + label
+		}
 		item := t.mStopBits.AddSubMenuItem(label, fmt.Sprintf("停止位 %s", label))
 		t.mStopBitsItems[bits] = item
 	}
 
-	t.mParity = t.mSerialConfig.AddSubMenuItem("校验位", "选择校验位")
+	t.mParity = systray.AddMenuItem(fmt.Sprintf("校验位: %s ▶", t.config.Serial.Parity), "选择校验位")
 	for _, p := range parityList {
-		item := t.mParity.AddSubMenuItem(p, fmt.Sprintf("校验位 %s", p))
+		label := p
+		if strings.EqualFold(p, t.config.Serial.Parity) {
+			label = "✓ " + label
+		}
+		item := t.mParity.AddSubMenuItem(label, fmt.Sprintf("校验位 %s", p))
 		t.mParityItems[p] = item
 	}
 
-	t.mCurrentConfig = t.mSerialConfig.AddSubMenuItem(t.getConfigSummary(), "当前配置")
+	// 4. 当前配置显示
+	t.mCurrentConfig = systray.AddMenuItem(t.getConfigSummary(), "当前配置")
 	t.mCurrentConfig.Disable()
 
 	systray.AddSeparator()
 
+	// 5. 网络状态
 	t.mNetworkStatus = systray.AddMenuItem(t.getNetworkStatus(), "网络状态")
 	t.mNetworkStatus.Disable()
 
 	systray.AddSeparator()
 
+	// 6. 显示日志
 	t.mShowLog = systray.AddMenuItem("显示日志", "显示日志窗口")
 
 	systray.AddSeparator()
 
+	// 7. 版本
 	mVersion := systray.AddMenuItem(fmt.Sprintf("版本 %s", t.version), "版本")
 	mVersion.Disable()
 
 	systray.AddSeparator()
 
-	mQuit := systray.AddMenuItem("退出", "退出 SerialHub")
+	// 8. 退出
+	mQuit := systray.AddMenuItem("❌ 退出", "退出 SerialHub")
 
 	go func() {
 		<-mQuit.ClickedCh
@@ -158,35 +179,28 @@ func (t *TrayManager) createMenu() {
 }
 
 func (t *TrayManager) setupEventHandlers() {
-	go t.handleRefresh()
-	go t.handleSerialToggle()
-	go t.handleShowLog()
-	go t.handleBaudRateSelection()
-	go t.handleDataBitsSelection()
-	go t.handleStopBitsSelection()
-	go t.handleParitySelection()
-	go t.handlePortSelection()
-}
+	// 串口连接/断开
+	go func() {
+		for range t.mSerial.ClickedCh {
+			t.toggleSerial()
+		}
+	}()
 
-func (t *TrayManager) handleRefresh() {
-	for range t.mRefresh.ClickedCh {
-		t.refreshPortList()
-	}
-}
+	// 刷新列表
+	go func() {
+		for range t.mRefresh.ClickedCh {
+			t.refreshPortList()
+		}
+	}()
 
-func (t *TrayManager) handleSerialToggle() {
-	for range t.mSerial.ClickedCh {
-		t.toggleSerial()
-	}
-}
+	// 显示日志
+	go func() {
+		for range t.mShowLog.ClickedCh {
+			ShowConsole()
+		}
+	}()
 
-func (t *TrayManager) handleShowLog() {
-	for range t.mShowLog.ClickedCh {
-		ShowConsole()
-	}
-}
-
-func (t *TrayManager) handleBaudRateSelection() {
+	// 波特率选择
 	for rate, item := range t.mBaudRateItems {
 		go func(r int, i *systray.MenuItem) {
 			for range i.ClickedCh {
@@ -194,9 +208,8 @@ func (t *TrayManager) handleBaudRateSelection() {
 			}
 		}(rate, item)
 	}
-}
 
-func (t *TrayManager) handleDataBitsSelection() {
+	// 数据位选择
 	for bits, item := range t.mDataBitsItems {
 		go func(b int, i *systray.MenuItem) {
 			for range i.ClickedCh {
@@ -204,9 +217,8 @@ func (t *TrayManager) handleDataBitsSelection() {
 			}
 		}(bits, item)
 	}
-}
 
-func (t *TrayManager) handleStopBitsSelection() {
+	// 停止位选择
 	for bits, item := range t.mStopBitsItems {
 		go func(b float64, i *systray.MenuItem) {
 			for range i.ClickedCh {
@@ -214,25 +226,14 @@ func (t *TrayManager) handleStopBitsSelection() {
 			}
 		}(bits, item)
 	}
-}
 
-func (t *TrayManager) handleParitySelection() {
+	// 校验位选择
 	for parity, item := range t.mParityItems {
 		go func(p string, i *systray.MenuItem) {
 			for range i.ClickedCh {
 				t.setParity(p)
 			}
 		}(parity, item)
-	}
-}
-
-func (t *TrayManager) handlePortSelection() {
-	for port, item := range t.mPortItems {
-		go func(p string, i *systray.MenuItem) {
-			for range i.ClickedCh {
-				t.setPort(p)
-			}
-		}(port, item)
 	}
 }
 
@@ -243,17 +244,21 @@ func (t *TrayManager) refreshPortList() {
 		return
 	}
 
+	// 清除旧的串口菜单项
 	for _, item := range t.mPortItems {
 		item.Hide()
 	}
 	t.mPortItems = make(map[string]*systray.MenuItem)
 
+	// 添加新的串口菜单项
 	for _, port := range ports {
-		item := t.mSelectPort.AddSubMenuItem(port, fmt.Sprintf("选择串口 %s", port))
-		t.mPortItems[port] = item
+		label := port
 		if port == t.config.Serial.Port {
-			item.Check()
+			label = "✓ " + port
 		}
+		item := t.mSelectPort.AddSubMenuItem(label, fmt.Sprintf("选择串口 %s", port))
+		t.mPortItems[port] = item
+
 		go func(p string, i *systray.MenuItem) {
 			for range i.ClickedCh {
 				t.setPort(p)
@@ -270,11 +275,12 @@ func (t *TrayManager) setPort(port string) {
 		return
 	}
 
+	// 更新选中标记
 	for p, item := range t.mPortItems {
 		if p == port {
-			item.Check()
+			item.SetTitle("✓ " + port)
 		} else {
-			item.Uncheck()
+			item.SetTitle(p)
 		}
 	}
 
@@ -288,15 +294,17 @@ func (t *TrayManager) setBaudRate(rate int) {
 		return
 	}
 
+	// 更新选中标记
 	for r, item := range t.mBaudRateItems {
 		if r == rate {
-			item.Check()
+			item.SetTitle("✓ " + strconv.Itoa(rate))
 		} else {
-			item.Uncheck()
+			item.SetTitle(strconv.Itoa(rate))
 		}
 	}
 
 	t.config.Serial.BaudRate = rate
+	t.mBaudRate.SetTitle(fmt.Sprintf("波特率: %d ▶", rate))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置波特率: %d", rate)
 }
@@ -307,15 +315,17 @@ func (t *TrayManager) setDataBits(bits int) {
 		return
 	}
 
+	// 更新选中标记
 	for b, item := range t.mDataBitsItems {
 		if b == bits {
-			item.Check()
+			item.SetTitle("✓ " + strconv.Itoa(bits))
 		} else {
-			item.Uncheck()
+			item.SetTitle(strconv.Itoa(bits))
 		}
 	}
 
 	t.config.Serial.DataBits = bits
+	t.mDataBits.SetTitle(fmt.Sprintf("数据位: %d ▶", bits))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置数据位: %d", bits)
 }
@@ -326,17 +336,27 @@ func (t *TrayManager) setStopBits(bits float64) {
 		return
 	}
 
+	// 更新选中标记
 	for b, item := range t.mStopBitsItems {
+		label := fmt.Sprintf("%.0f", b)
+		if b == 1.5 {
+			label = "1.5"
+		}
 		if b == bits {
-			item.Check()
+			item.SetTitle("✓ " + label)
 		} else {
-			item.Uncheck()
+			item.SetTitle(label)
 		}
 	}
 
 	t.config.Serial.StopBits = int(bits)
+	label := fmt.Sprintf("%.0f", bits)
+	if bits == 1.5 {
+		label = "1.5"
+	}
+	t.mStopBits.SetTitle(fmt.Sprintf("停止位: %s ▶", label))
 	t.updateConfigDisplay()
-	logrus.Infof("[SerialHub] 设置停止位: %.1f", bits)
+	logrus.Infof("[SerialHub] 设置停止位: %s", label)
 }
 
 func (t *TrayManager) setParity(parity string) {
@@ -345,15 +365,17 @@ func (t *TrayManager) setParity(parity string) {
 		return
 	}
 
+	// 更新选中标记
 	for p, item := range t.mParityItems {
-		if p == parity {
-			item.Check()
+		if strings.EqualFold(p, parity) {
+			item.SetTitle("✓ " + p)
 		} else {
-			item.Uncheck()
+			item.SetTitle(p)
 		}
 	}
 
 	t.config.Serial.Parity = parity
+	t.mParity.SetTitle(fmt.Sprintf("校验位: %s ▶", parity))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置校验位: %s", parity)
 }
@@ -379,12 +401,12 @@ func (t *TrayManager) getConfigSummary() string {
 }
 
 func (t *TrayManager) getNetworkStatus() string {
-	return fmt.Sprintf("127.0.0.1 | Telnet:%d | MCP:%d", t.telnetPort, t.mcpPort)
+	return fmt.Sprintf("Telnet: %d | MCP: %d", t.telnetPort, t.mcpPort)
 }
 
 func (t *TrayManager) getSerialMenuTitle() string {
 	if t.serial.IsConnected() {
-		return fmt.Sprintf("断开 %s", t.serial.CurrentPort())
+		return fmt.Sprintf("已连接 %s @ %d", t.serial.CurrentPort(), t.config.Serial.BaudRate)
 	}
 	return fmt.Sprintf("连接 %s", t.config.Serial.Port)
 }
