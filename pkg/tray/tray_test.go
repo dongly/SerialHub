@@ -19,10 +19,16 @@ func TestTrayState(t *testing.T) {
 }
 
 func TestNewTrayManager(t *testing.T) {
-	serialMgr := serial.NewSerialManager(serial.DefaultConfig())
-	cfg := config.GetDefault()
+	cfg := serial.DefaultConfig()
+	cfg.Port = "COM9"
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	config := config.GetDefault()
 
-	tray := NewTrayManager(serialMgr, cfg, 2323, 5000, "0.1.0")
+	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0")
 	if tray == nil {
 		t.Fatal("NewTrayManager 返回 nil")
 	}
@@ -42,9 +48,15 @@ func TestNewTrayManager(t *testing.T) {
 }
 
 func TestUpdateState(t *testing.T) {
-	serialMgr := serial.NewSerialManager(serial.DefaultConfig())
-	cfg := config.GetDefault()
-	tray := NewTrayManager(serialMgr, cfg, 2323, 5000, "0.1.0")
+	cfg := serial.DefaultConfig()
+	cfg.Port = "COM9"
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	config := config.GetDefault()
+	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0")
 
 	tray.UpdateState(TrayConnected)
 	if tray.state != TrayConnected {

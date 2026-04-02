@@ -12,11 +12,11 @@ import (
 
 // HTTPHandler wraps MCP HTTP+SSE handler
 type HTTPHandler struct {
-	mcpServer *mcpsdk.Server
+	mcpServer  *mcpsdk.Server
 	sseHandler *mcpsdk.SSEHandler
 	httpServer *http.Server
-	mux       *http.ServeMux
-	logger    *logrus.Logger
+	mux        *http.ServeMux
+	logger     *logrus.Logger
 }
 
 // NewHTTPHandler creates a new HTTP+SSE handler for MCP communication
@@ -26,12 +26,12 @@ func NewHTTPHandler(mcpServer *mcpsdk.Server, addr string, logger *logrus.Logger
 	}
 
 	mux := http.NewServeMux()
-	
+
 	// Create SSE handler
-	sseHandler := mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server {
+	sseHandler := mcpsdk.NewSSEHandler(func(r *http.Request) *mcpsdk.Server {
 		return mcpServer
 	}, &mcpsdk.SSEOptions{})
-	
+
 	// Setup routes
 	mux.Handle("/mcp", sseHandler)
 	mux.HandleFunc("/health", handleHealth)
@@ -105,7 +105,7 @@ func withCORS(handler http.Handler) http.Handler {
 func (h *HTTPHandler) Close(server *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	h.logger.Infoln("[SerialHub] HTTP+SSE 服务器关闭中...")
 	return server.Shutdown(ctx)
 }

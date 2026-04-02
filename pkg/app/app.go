@@ -1,8 +1,8 @@
-// Package app 提供统一的 App 生命周期管理
 package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/yourname/serialhub/internal/buffer"
-	"github.com/yourname/serialhub/internal/service"
 	"github.com/yourname/serialhub/pkg/bridge"
 	"github.com/yourname/serialhub/pkg/config"
 	"github.com/yourname/serialhub/pkg/serial"
@@ -18,7 +17,6 @@ import (
 	"github.com/yourname/serialhub/pkg/tray"
 )
 
-// App 统一管理所有组件生命周期
 type App struct {
 	Version string
 	Serial  *serial.SerialManager
@@ -27,78 +25,89 @@ type App struct {
 	Buffer  *buffer.DataBuffer
 	Tray    *tray.TrayManager
 	Config  *config.Config
-	Service *service.ServiceManager
 	cancel  context.CancelFunc
 }
 
-// NewApp 创建 App 实例
-func NewApp(version string, cfg *config.Config) *App {
+func NewApp(version string, cfg *config.Config) (*App, error) {
 	buf := buffer.NewDataBuffer()
-	serialMgr := serial.NewSerialManager(cfg.Serial)
-	telnetSrv := telnet.NewTelnetServer()
+
+	var sm *serial.SerialManager
+	if cfg.Serial.Port != "" {
+		serialCfg := configToSerialConfig(&cfg.Serial)
+		var err error
+		sm, err = serial.NewSerialManager(serialCfg)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &App{
 		Version: version,
-		Serial:  serialMgr,
-		Telnet:  telnetSrv,
+		Serial:  sm,
 		Buffer:  buf,
 		Config:  cfg,
-		Service: service.NewServiceManager(),
+	}, nil
+}
+
+func configToSerialConfig(cfg *config.SerialConfig) *serial.Config {
+	return &serial.Config{
+		Port:     cfg.Port,
+		BaudRate: cfg.BaudRate,
+		DataBits: cfg.DataBits,
+		Parity:   cfg.Parity,
+		StopBits: float32(cfg.StopBits),
 	}
 }
 
-// RunMCP 运行 MCP stdio 模式
-func (a *App) RunMCP(ctx context.Context) error {
-	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", a.Version)
-	logrus.Info("[SerialHub] 运行模式: mcp stdio")
-
-	// TODO: 实现 MCP stdio 模式
-	return nil
-}
-
-// RunServe 运行 serve 模式（HTTP+SSE + Telnet + Tray）
-func (a *App) RunServe(ctx context.Context, telnetPort, mcpPort int) error {
+func (a *App) RunServe(ctx context.Context, telnetPort, mcpPort int, noTray bool) error {
 	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", a.Version)
 	logrus.Info("[SerialHub] 运行模式: serve")
 
-	// 创建 DataBridge
-	a.Bridge = bridge.NewDataBridge(a.Serial, a.Telnet, a.Buffer, bridge.BridgeOptions{
-		EnableTelnet: true,
-		EnableMCP:    true,
-		DebugLog:     a.Config.Debug,
-	})
+	host := "127.0.0.1"
 
-	// 启动 Telnet
-	if err := a.Telnet.Start(ctx, telnetPort); err != nil {
-		return err
+	var err error
+	a.Telnet, err = telnet.NewTelnetServer(host, telnetPort)
+	if err != nil {
+		return fmt.Errorf("创建 Telnet 服务失败: %w", err)
+	}
+
+	if a.Serial != nil && a.Buffer != nil {
+		a.Bridge, err = bridge.NewDataBridge(a.Serial, a.Telnet, a.Buffer)
+		if err != nil {
+			return fmt.Errorf("创建数据桥接失败: %w", err)
+		}
+	}
+
+	if err := a.Telnet.Start(); err != nil {
+		return fmt.Errorf("启动 Telnet 服务失败: %w", err)
 	}
 	logrus.Infof("[SerialHub] Telnet 服务已启动，端口: %d", telnetPort)
 
-	// 启动 DataBridge
-	a.Bridge.Start(ctx)
-	logrus.Info("[SerialHub] 数据桥接已启动")
-
-	// 写入服务状态
-	if err := a.Service.WriteStatus(mcpPort); err != nil {
-		logrus.Warnf("[SerialHub] 写入服务状态失败: %v", err)
+	if a.Bridge != nil {
+		a.Bridge.Start()
+		logrus.Info("[SerialHub] 数据桥接已启动")
 	}
 
-	// 创建系统托盘
-	a.Tray = tray.NewTrayManager(a.Serial, a.Config, telnetPort, mcpPort, a.Version)
+	if a.Serial != nil && !noTray {
+		a.Tray = tray.NewTrayManager(a.Serial, a.Config, telnetPort, mcpPort, a.Version)
+		go a.Tray.Run(ctx)
+	}
 
-	// 启动系统托盘（在主 goroutine）
-	go a.Tray.Run(ctx)
+	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s:%d/mcp", host, mcpPort)
+	logrus.Infof("[SerialHub] 健康检查: http://%s:%d/health", host, mcpPort)
+	logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
+	logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
 
-	logrus.Infof("[SerialHub] MCP HTTP 服务已启动: http://localhost:%d", mcpPort)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
 
+	logrus.Info("[SerialHub] 正在关闭...")
+	a.Close()
 	return nil
 }
 
-// Close 按序关闭所有组件
 func (a *App) Close() {
-	logrus.Info("[SerialHub] 正在关闭...")
-
-	// 按序关闭：Bridge → Telnet → Serial → Tray → Service
 	if a.Bridge != nil {
 		a.Bridge.Stop()
 	}
@@ -107,14 +116,8 @@ func (a *App) Close() {
 		a.Telnet.Stop()
 	}
 
-	a.Serial.Close()
-
-	if a.Tray != nil {
-		// Tray 会在主 goroutine 退出时自动关闭
-	}
-
-	if a.Service != nil {
-		a.Service.ClearStatus()
+	if a.Serial != nil {
+		a.Serial.Close()
 	}
 
 	if a.cancel != nil {
@@ -122,17 +125,4 @@ func (a *App) Close() {
 	}
 
 	logrus.Info("[SerialHub] 已关闭")
-}
-
-// SetupSignalHandler 设置信号处理
-func (a *App) SetupSignalHandler() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		logrus.Infof("[SerialHub] 收到 %s 信号，正在关闭...", sig)
-		a.Close()
-		os.Exit(0)
-	}()
 }

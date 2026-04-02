@@ -1,4 +1,3 @@
-// Package app App 结构体测试
 package app
 
 import (
@@ -7,46 +6,45 @@ import (
 	"github.com/yourname/serialhub/pkg/config"
 )
 
-func TestNewApp(t *testing.T) {
+func TestNewApp_NoPort(t *testing.T) {
 	cfg := config.GetDefault()
-	app := NewApp("0.1.0", cfg)
+	app, err := NewApp("0.1.0", cfg)
 
+	if err != nil {
+		t.Fatalf("NewApp 返回错误: %v", err)
+	}
 	if app == nil {
 		t.Fatal("NewApp 返回 nil")
 	}
-
 	if app.Version != "0.1.0" {
 		t.Errorf("Version = %s, want 0.1.0", app.Version)
 	}
-
-	if app.Serial == nil {
-		t.Error("Serial 未初始化")
+	if app.Serial != nil {
+		t.Error("无串口配置时 Serial 应为 nil")
 	}
-
-	if app.Telnet == nil {
-		t.Error("Telnet 未初始化")
-	}
-
 	if app.Buffer == nil {
 		t.Error("Buffer 未初始化")
 	}
-
 	if app.Config != cfg {
 		t.Error("Config 未正确设置")
 	}
 }
 
-func TestApp_Close_Order(t *testing.T) {
+func TestNewApp_WithPort(t *testing.T) {
 	cfg := config.GetDefault()
-	app := NewApp("0.1.0", cfg)
+	cfg.Serial.Port = "COM_NONEXISTENT"
+	app, err := NewApp("0.1.0", cfg)
 
-	// 关闭不应 panic
-	app.Close()
+	if err != nil {
+		t.Fatalf("NewApp 不应在创建阶段报错: %v", err)
+	}
+	if app.Serial == nil {
+		t.Fatal("有串口配置时 Serial 不应为 nil")
+	}
 }
 
-func TestApp_LogOutput(t *testing.T) {
-	// 验证日志输出到 stderr
-	// 这里简化处理，实际应该捕获 stderr
+func TestApp_Close(t *testing.T) {
 	cfg := config.GetDefault()
-	_ = NewApp("0.1.0", cfg)
+	app, _ := NewApp("0.1.0", cfg)
+	app.Close()
 }

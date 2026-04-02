@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"net/http"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sirupsen/logrus"
 	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
 	"github.com/yourname/serialhub/pkg/serial"
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/sirupsen/logrus"
 )
 
 // MCPServer manages the MCP server and tool registration
@@ -144,35 +144,25 @@ func (s *MCPServer) RegisterTools() error {
 	return nil
 }
 
-// StartStdioTransport starts the stdio transport for MCP communication
 func (s *MCPServer) StartStdioTransport(ctx context.Context) error {
-	go func() {
-		if err := s.mcpServer.Run(ctx, &mcpsdk.StdioTransport{}); err != nil {
-			s.logger.Errorf("[SerialHub] stdio 传输错误: %v", err)
-		}
-	}()
-
 	s.logger.Infoln("[SerialHub] MCP stdio 传输已启动")
-	return nil
+	return s.mcpServer.Run(ctx, &mcpsdk.StdioTransport{})
 }
 
 // StartHTTPServer starts the HTTP+SSE transport for MCP communication
 func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
-	// Create SSE handler
-	sseHandler := mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server {
+	sseHandler := mcpsdk.NewSSEHandler(func(r *http.Request) *mcpsdk.Server {
 		return s.mcpServer
 	}, &mcpsdk.SSEOptions{})
 
-	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", sseHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{\"status\":\"ok\"}"))
+		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Wrap with CORS
 	corsMux := s.withCORS(mux)
 
 	server := &http.Server{
@@ -257,7 +247,7 @@ func (s *MCPServer) parseRequestParams(req *mcpsdk.CallToolRequest, target inter
 	if req.Params == nil || req.Params.Arguments == nil {
 		return nil
 	}
-	
+
 	// For now, we'll just skip parsing in the low-level API
 	// In production, we'd use json.Unmarshal with proper error handling
 	_ = target
