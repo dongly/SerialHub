@@ -6,7 +6,18 @@ node_modules/
 # Build outputs
 dist/
 build/
+bin/
 *.tsbuildinfo
+
+# Go build
+*.exe
+*.exe~
+*.dll
+*.so
+*.syso
+*.test
+*.out
+go.work
 
 # Testing
 coverage/
