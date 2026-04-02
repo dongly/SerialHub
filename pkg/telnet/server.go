@@ -13,27 +13,28 @@ import (
 
 // TelnetServer manages Telnet server and client connections.
 type TelnetServer struct {
-	host        string
-	port        int
-	listener    net.Listener
-	clients     map[string]*TelnetClient
-	dataChan    chan []byte
-	stopChan    chan struct{}
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	logger      *logrus.Logger
+	host          string
+	port          int
+	listener      net.Listener
+	clients       map[string]*TelnetClient
+	dataChan      chan []byte
+	stopChan      chan struct{}
+	mu            sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	logger        *logrus.Logger
+	getSerialInfo func() string
 }
 
 // NewTelnetServer creates a new Telnet server.
-func NewTelnetServer(host string, port int) (*TelnetServer, error) {
+func NewTelnetServer(host string, port int, getSerialInfo ...func() string) (*TelnetServer, error) {
 	if port < 0 || port > 65535 {
 		return nil, fmt.Errorf("端口号必须在 0-65535 范围内")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &TelnetServer{
+	ts := &TelnetServer{
 		host:     host,
 		port:     port,
 		clients:  make(map[string]*TelnetClient),
@@ -42,7 +43,13 @@ func NewTelnetServer(host string, port int) (*TelnetServer, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 		logger:   logrus.New(),
-	}, nil
+	}
+
+	if len(getSerialInfo) > 0 && getSerialInfo[0] != nil {
+		ts.getSerialInfo = getSerialInfo[0]
+	}
+
+	return ts, nil
 }
 
 // Start starts the Telnet server.
@@ -236,7 +243,14 @@ func (ts *TelnetServer) acceptLoop() {
 			ts.mu.Unlock()
 
 			// Send welcome message
-			welcomeMsg := "Connected to SerialHub\r\n"
+			welcomeMsg := "Connected to SerialHub"
+			if ts.getSerialInfo != nil {
+				serialInfo := ts.getSerialInfo()
+				if serialInfo != "" {
+					welcomeMsg += " - Serial: " + serialInfo
+				}
+			}
+			welcomeMsg += "\r\n"
 			client.Send([]byte(welcomeMsg))
 
 			// Start client

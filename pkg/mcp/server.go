@@ -144,11 +144,6 @@ func (s *MCPServer) RegisterTools() error {
 	return nil
 }
 
-func (s *MCPServer) StartStdioTransport(ctx context.Context) error {
-	s.logger.Infoln("[SerialHub] MCP stdio 传输已启动")
-	return s.mcpServer.Run(ctx, &mcpsdk.StdioTransport{})
-}
-
 // StartHTTPServer starts the HTTP+SSE transport for MCP communication
 func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 	sseHandler := mcpsdk.NewSSEHandler(func(r *http.Request) *mcpsdk.Server {

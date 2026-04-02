@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/yourname/serialhub/internal/buffer"
+	"github.com/yourname/serialhub/internal/service"
 	"github.com/yourname/serialhub/pkg/bridge"
 	"github.com/yourname/serialhub/pkg/config"
 	"github.com/yourname/serialhub/pkg/mcp"
@@ -24,6 +24,10 @@ var (
 	baudRate   int
 	configPath string
 	debugMode  bool
+	telnetPort int
+	mcpPort    int
+	host       string
+	noTray     bool
 )
 
 func main() {
@@ -31,90 +35,28 @@ func main() {
 		Use:   "serialhub",
 		Short: "SerialHub - 串口与网络连接的双向桥接器",
 		Long:  "SerialHub 将 MCU 串口数据同时转发到 Telnet（人工监视）和 MCP（AI 工具程序化访问）。",
+		RunE:  runServe,
+		Args:  cobra.NoArgs,
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&serialPort, "serial-port", "p", "", "串口名（如 COM9 或 /dev/ttyUSB0）")
 	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, "波特率")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, "启用调试模式")
+	rootCmd.Flags().IntVarP(&telnetPort, "telnet-port", "t", 2323, "Telnet 服务端口")
+	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
+	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
+	rootCmd.Flags().BoolVar(&noTray, "no-tray", false, "禁用系统托盘")
 
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", version))
-
-	mcpCmd := &cobra.Command{
-		Use:   "mcp",
-		Short: "启动 MCP stdio 服务（供 AI 工具作为子进程调用）",
-		RunE:  runMCP,
-	}
-
-	var telnetPort int
-	var mcpPort int
-	var host string
-	var noTray bool
-
-	serveCmd := &cobra.Command{
-		Use:   "serve",
-		Short: "启动 HTTP+SSE + Telnet 服务器",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(host, telnetPort, mcpPort, noTray)
-		},
-	}
-	serveCmd.Flags().IntVarP(&telnetPort, "telnet-port", "t", 2323, "Telnet 服务端口")
-	serveCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
-	serveCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
-	serveCmd.Flags().BoolVar(&noTray, "no-tray", false, "禁用系统托盘")
-
-	rootCmd.AddCommand(mcpCmd, serveCmd)
-	rootCmd.RunE = runMCP
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func runMCP(cmd *cobra.Command, args []string) error {
-	setupLogger()
-
-	cfg := loadConfig()
-	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", version)
-	logrus.Info("[SerialHub] 运行模式: mcp stdio")
-
-	if cfg.Serial.Port == "" {
-		logrus.Warn("[SerialHub] 未指定串口，MCP 工具需要手动调用 serial_connect")
-	}
-
-	buf := buffer.NewDataBuffer()
-	serialCfg := configToSerialConfig(&cfg.Serial)
-	sm, err := serial.NewSerialManager(serialCfg)
-	if err != nil {
-		logrus.Debugf("[SerialHub] 串口管理器初始化跳过: %v", err)
-		sm = nil
-	}
-
-	mcpSrv, err := mcp.NewMCPServer(sm, buf, nil)
-	if err != nil {
-		return fmt.Errorf("创建 MCP 服务失败: %w", err)
-	}
-
-	if err := mcpSrv.RegisterTools(); err != nil {
-		return fmt.Errorf("注册 MCP 工具失败: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
-		logrus.Info("[SerialHub] 收到退出信号")
-		cancel()
-	}()
-
-	return mcpSrv.StartStdioTransport(ctx)
-}
-
-func runServe(host string, telnetPort, mcpPort int, noTray bool) error {
+func runServe(cmd *cobra.Command, args []string) error {
 	setupLogger()
 
 	cfg := loadConfig()
@@ -129,7 +71,21 @@ func runServe(host string, telnetPort, mcpPort int, noTray bool) error {
 		sm = nil
 	}
 
-	telnetSrv, err := telnet.NewTelnetServer(host, telnetPort)
+	// 自动连接串口
+	if sm != nil {
+		if err := sm.Connect(); err != nil {
+			logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
+		} else {
+			logrus.Infof("[SerialHub] 已自动连接串口: %s", serialCfg.String())
+		}
+	}
+
+	telnetSrv, err := telnet.NewTelnetServer(host, telnetPort, func() string {
+		if sm != nil && sm.IsConnected() {
+			return sm.GetConfig().String()
+		}
+		return ""
+	})
 	if err != nil {
 		return fmt.Errorf("创建 Telnet 服务失败: %w", err)
 	}
@@ -199,11 +155,27 @@ func loadConfig() *config.Config {
 		}
 	}
 
+	// CLI 参数覆盖配置文件
 	if serialPort != "" {
 		cfg.Serial.Port = serialPort
 	}
 	if baudRate != 115200 {
 		cfg.Serial.BaudRate = baudRate
+	}
+
+	if cfg.Serial.Port == "" {
+		svc := service.NewServiceManager()
+		lastSerial, err := svc.LoadLastSerial()
+		if err != nil {
+			logrus.Debugf("[SerialHub] 读取上次串口配置失败: %v", err)
+		} else if lastSerial != nil && lastSerial.Port != "" {
+			cfg.Serial.Port = lastSerial.Port
+			cfg.Serial.BaudRate = lastSerial.BaudRate
+			cfg.Serial.DataBits = lastSerial.DataBits
+			cfg.Serial.Parity = lastSerial.Parity
+			cfg.Serial.StopBits = int(lastSerial.StopBits)
+			logrus.Infof("[SerialHub] 使用上次连接的串口: %s@%d", lastSerial.Port, lastSerial.BaudRate)
+		}
 	}
 
 	return cfg

@@ -11,6 +11,7 @@ import (
 	serial "go.bug.st/serial"
 
 	"github.com/sirupsen/logrus"
+	"github.com/yourname/serialhub/internal/service"
 )
 
 // Port defines the serial port interface for dependency injection
@@ -23,14 +24,14 @@ type Port interface {
 
 // SerialManager manages serial port connections
 type SerialManager struct {
-	config     *Config
-	port       Port
-	dataChan   chan []byte
-	errChan    chan error
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	logger     *logrus.Logger
+	config   *Config
+	port     Port
+	dataChan chan []byte
+	errChan  chan error
+	mu       sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	logger   *logrus.Logger
 }
 
 // NewSerialManager creates a new serial manager
@@ -76,7 +77,17 @@ func (sm *SerialManager) Connect() error {
 	sm.port = port
 	sm.logger.Infof("[SerialHub] 串口已连接: %s", sm.config.String())
 
-	// Start read loop
+	svc := service.NewServiceManager()
+	if err := svc.SaveLastSerial(&service.LastSerialConfig{
+		Port:     sm.config.Port,
+		BaudRate: sm.config.BaudRate,
+		DataBits: sm.config.DataBits,
+		Parity:   sm.config.Parity,
+		StopBits: sm.config.StopBits,
+	}); err != nil {
+		sm.logger.Warnf("[SerialHub] 保存串口配置失败: %v", err)
+	}
+
 	go sm.readLoop()
 
 	return nil
@@ -208,7 +219,7 @@ func (sm *SerialManager) Close() error {
 // readLoop continuously reads data from the serial port
 func (sm *SerialManager) readLoop() {
 	buf := make([]byte, 1024)
-	
+
 	for {
 		select {
 		case <-sm.ctx.Done():
