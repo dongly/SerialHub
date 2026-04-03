@@ -1,0 +1,23 @@
+# SerialHub 配置文件
+
+# 日志目录，为空则保存到可执行文件目录下的 logs/
+# logDir = "D:/Logs"
+
+# 调试模式
+# debug = false
+
+[serial]
+# 串口号，为空时不自动连接（如 COM3、/dev/ttyUSB0）
+port = ""
+baudRate = 115200
+dataBits = 8
+# 校验位：none / even / odd
+parity = "none"
+# 停止位：1 / 2
+stopBits = 1
+
+[telnet]
+port = 2323
+
+[mcp]
+httpPort = 5000

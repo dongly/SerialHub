@@ -11,7 +11,7 @@ MCU ←→ 串口 ←→ SerialHub
 
 ## 技术栈
 
-Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | spf13/cobra | spf13/viper | getlantern/systray | sirupsen/logrus
+Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | spf13/cobra | BurntSushi/toml | getlantern/systray | sirupsen/logrus
 
 ## 构建 / 测试命令
 
@@ -44,7 +44,7 @@ pkg/telnet/                     # Telnet 服务（server.go, client.go）
 pkg/mcp/server.go               # MCP 服务（直接使用 SDK SSEHandler）
 pkg/mcp/tools/                  # MCP 工具（serial_list/connect/disconnect/write/read/status）
 pkg/bridge/                     # 数据桥接（bridge.go, events.go）
-pkg/config/config.go            # Viper 配置
+pkg/config/config.go            # TOML 配置（BurntSushi/toml）
 pkg/tray/                       # 系统托盘（tray.go, assets/, console_*.go）
 internal/buffer/                # 数据缓冲区（buffer.go）
 internal/service/               # 串口配置记忆（manager.go）
@@ -148,8 +148,6 @@ git commit -m "fix(serial): 修复断开连接后端口未释放的问题"
 
 ### Review 自查清单
 
-- [ ] 无 `as any`、`@ts-ignore` 等类型逃逸
-- [ ] 无空 `catch` 块
 - [ ] 无 `fmt.Println` 调试代码残留
 - [ ] 无注释掉的死代码
 - [ ] 导入顺序正确（标准库 → 第三方 → 本地）

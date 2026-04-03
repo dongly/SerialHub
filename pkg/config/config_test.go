@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,15 +37,25 @@ func TestGetDefault(t *testing.T) {
 
 func TestLoadConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.json")
-	fullConfig := GetDefault()
-	fullConfig.Serial.Port = "COM9"
-	fullConfig.Serial.BaudRate = 9600
-	fullConfig.Telnet.Port = 2324
-	fullConfig.MCP.HTTPPort = 5001
-	fullConfig.Debug = true
-	jsonData, _ := fullConfig.ToJSON()
-	if err := os.WriteFile(configPath, []byte(jsonData), 0644); err != nil {
+	configPath := filepath.Join(tmpDir, "config.toml")
+	tomlData := `
+logDir = ""
+debug = true
+
+[serial]
+port = "COM9"
+baudRate = 9600
+dataBits = 8
+parity = "none"
+stopBits = 1
+
+[telnet]
+port = 2324
+
+[mcp]
+httpPort = 5001
+`
+	if err := os.WriteFile(configPath, []byte(tomlData), 0644); err != nil {
 		t.Fatalf("failed to create config file: %v", err)
 	}
 	cfg, err := Load(configPath)
@@ -71,7 +80,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "nonexistent.json")
+	configPath := filepath.Join(t.TempDir(), "nonexistent.toml")
 	cfg, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("loading nonexistent config should return default config, got error: %v", err)
@@ -84,28 +93,32 @@ func TestLoadConfig_FileNotFound(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_InvalidJSON(t *testing.T) {
+func TestLoadConfig_InvalidTOML(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "invalid.json")
-	invalidJSON := "not valid json"
-	if err := os.WriteFile(configPath, []byte(invalidJSON), 0644); err != nil {
+	configPath := filepath.Join(tmpDir, "invalid.toml")
+	invalidTOML := `[serial
+port = "missing bracket"`
+	if err := os.WriteFile(configPath, []byte(invalidTOML), 0644); err != nil {
 		t.Fatalf("failed to create config file: %v", err)
 	}
 	_, err := Load(configPath)
 	if err == nil {
-		t.Error("loading invalid JSON should return error")
+		t.Error("loading invalid TOML should return error")
 	}
 }
 
 func TestConfigMerge(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "partial.json")
-	partialConfig := GetDefault()
-	partialConfig.Serial.Port = "COM8"
-	partialConfig.Serial.BaudRate = 57600
-	partialConfig.MCP.HTTPPort = 6000
-	jsonData, _ := partialConfig.ToJSON()
-	if err := os.WriteFile(configPath, []byte(jsonData), 0644); err != nil {
+	configPath := filepath.Join(tmpDir, "partial.toml")
+	tomlData := `
+[serial]
+port = "COM8"
+baudRate = 57600
+
+[mcp]
+httpPort = 6000
+`
+	if err := os.WriteFile(configPath, []byte(tomlData), 0644); err != nil {
 		t.Fatalf("failed to create config file: %v", err)
 	}
 	cfg, err := Load(configPath)
@@ -146,21 +159,76 @@ func TestConfig_EmptyPath(t *testing.T) {
 	}
 }
 
-func TestConfig_ToJSON(t *testing.T) {
-	cfg := GetDefault()
-	cfg.Serial.Port = "COM9"
-	jsonStr, err := cfg.ToJSON()
+func TestLoadConfig_TOMLWithComments(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+	tomlData := `# SerialHub 配置文件
+
+# 日志目录，为空则保存到可执行文件目录下的 logs/
+logDir = "D:/Logs"
+debug = true
+
+# 串口配置
+[serial]
+port = "COM3"      # Windows 串口
+baudRate = 9600
+dataBits = 8       # 数据位：5/6/7/8
+parity = "none"    # 校验位：none/even/odd
+stopBits = 1
+
+# 网络服务
+[telnet]
+port = 3333
+
+[mcp]
+httpPort = 6000
+`
+	if err := os.WriteFile(configPath, []byte(tomlData), 0644); err != nil {
+		t.Fatalf("failed to create config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
 	if err != nil {
-		t.Errorf("config serialization failed: %v", err)
+		t.Fatalf("failed to load toml config: %v", err)
 	}
-	if jsonStr == "" {
-		t.Error("config serialization result should not be empty")
+	if cfg.Serial.Port != "COM3" {
+		t.Errorf("expected port 'COM3', got '%s'", cfg.Serial.Port)
 	}
-	parsed := &Config{}
-	if err := json.Unmarshal([]byte(jsonStr), parsed); err != nil {
-		t.Errorf("serialized result cannot be deserialized: %v", err)
+	if cfg.Serial.BaudRate != 9600 {
+		t.Errorf("expected baud rate 9600, got %d", cfg.Serial.BaudRate)
 	}
-	if parsed.Serial.Port != "COM9" {
-		t.Errorf("data inconsistency after serialization/deserialization")
+	if cfg.Telnet.Port != 3333 {
+		t.Errorf("expected telnet port 3333, got %d", cfg.Telnet.Port)
+	}
+	if cfg.MCP.HTTPPort != 6000 {
+		t.Errorf("expected mcp http port 6000, got %d", cfg.MCP.HTTPPort)
+	}
+	if cfg.LogDir != "D:/Logs" {
+		t.Errorf("expected logDir 'D:/Logs', got '%s'", cfg.LogDir)
+	}
+	if cfg.Debug != true {
+		t.Errorf("expected debug true, got %t", cfg.Debug)
+	}
+}
+
+func TestLoadConfig_LogDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+	tomlData := `
+logDir = "C:/MyLogs"
+`
+	if err := os.WriteFile(configPath, []byte(tomlData), 0644); err != nil {
+		t.Fatalf("failed to create config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.LogDir != "C:/MyLogs" {
+		t.Errorf("expected logDir 'C:/MyLogs', got '%s'", cfg.LogDir)
+	}
+	if cfg.Serial.BaudRate != 115200 {
+		t.Errorf("other fields should use defaults, baudRate got %d", cfg.Serial.BaudRate)
 	}
 }

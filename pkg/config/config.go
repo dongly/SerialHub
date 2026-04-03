@@ -1,12 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
+	"github.com/BurntSushi/toml"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 type SerialConfig struct {
@@ -29,7 +28,7 @@ type Config struct {
 	Serial SerialConfig
 	Telnet TelnetConfig
 	MCP    MCPConfig
-	LogDir string `json:"logDir"`
+	LogDir string
 	Debug  bool
 }
 
@@ -56,38 +55,21 @@ func Load(configPath string) (*Config, error) {
 	cfg := GetDefault()
 
 	if configPath == "" {
-		logrus.Debugf("[SerialHub] ????: %+v", cfg)
+		logrus.Debugf("[SerialHub] 使用默认配置: %+v", cfg)
 		return cfg, nil
 	}
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		logrus.Warnf("[SerialHub] ???????: %s", configPath)
-		logrus.Debugf("[SerialHub] ????: %+v", cfg)
+		logrus.Warnf("[SerialHub] 配置文件不存在: %s", configPath)
+		logrus.Debugf("[SerialHub] 使用默认配置: %+v", cfg)
 		return cfg, nil
 	}
 
-	v := viper.New()
-	v.SetConfigFile(configPath)
-	v.SetConfigType("json")
-
-	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("????????: %w", err)
+	if _, err := toml.DecodeFile(configPath, cfg); err != nil {
+		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
-	logrus.Infof("[SerialHub] ??????: %s", configPath)
-
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, fmt.Errorf("??????: %w", err)
-	}
-
-	logrus.Debugf("[SerialHub] ????: %+v", cfg)
+	logrus.Infof("[SerialHub] 已加载配置文件: %s", configPath)
+	logrus.Debugf("[SerialHub] 配置内容: %+v", cfg)
 	return cfg, nil
-}
-
-func (c *Config) ToJSON() (string, error) {
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("???????: %w", err)
-	}
-	return string(data), nil
 }

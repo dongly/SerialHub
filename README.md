@@ -32,7 +32,7 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 │       ┌───────────┐  ┌──────────┐ ... │
 │       │  Telnet   │  │   MCP    │     │
 │       │  服务端    │  │  服务    │     │
-│       │ (端口 2323)│ │(stdio/HTTP)│   │
+│       │ (端口 2323)│ │(HTTP+SSE) │    │
 │       └───────────┘  └──────────┘     │
 └─────────────────────────────────────────┘
        │                    │
@@ -48,72 +48,47 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 
 | 组件 | 技术 |
 |------|------|
-| 运行时 | Node.js |
-| 语言 | TypeScript |
-| 串口通信 | @serialport |
-| AI 接口 | MCP (Model Context Protocol) |
-| 测试框架 | Vitest |
+| 语言 | Go 1.26+ |
+| 串口通信 | go.bug.st/serial |
+| AI 接口 | MCP (Model Context Protocol) / go-sdk |
+| CLI | spf13/cobra |
+| 配置 | spf13/viper |
+| 系统托盘 | getlantern/systray |
+| 日志 | sirupsen/logrus |
 
 ## 功能特性
 
 - **双路转发**：串口数据同时转发到 Telnet 和 AI 接口
 - **双向通信**：Telnet 或 AI 发送的命令均可传输到 MCU
-- **MCP 协议**：通过 Model Context Protocol 实现标准化 AI 工具集成
-- **双传输模式**：支持 stdio（AI 工具子进程）和 HTTP+SSE（独立服务器）
-- **可配置**：所有端口、波特率、超时参数均可通过 JSON 或命令行配置
+- **MCP 协议**：通过 HTTP+SSE 提供 AI 工具集成
+- **可配置**：所有端口、波特率、超时参数均可通过 JSON(C) 或命令行配置
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
 
-## 安装
+## 构建
 
 ```bash
-npm install
+go build -o bin/serialhub.exe ./cmd/serialhub
 ```
 
 ## 命令参考
 
-### `serialhub`（默认：MCP stdio 模式）
+### `serialhub`（默认：serve 模式）
 
-启动 MCP stdio 服务，供 AI 工具作为子进程调用：
-
-```bash
-serialhub              # 启动 MCP stdio 服务（默认命令）
-serialhub mcp          # 同上
-serialhub mcp --serial-port COM9   # 指定串口
-serialhub --baud-rate 9600         # 指定波特率
-serialhub --config config.json     # 使用配置文件
-serialhub --debug                  # 启用调试模式
-serialhub help                     # 显示帮助
-serialhub version                  # 显示版本号
-```
-
-支持的选项：
-
-| 选项 | 简写 | 说明 | 默认值 |
-|------|------|------|--------|
-| `--serial-port <port>` | `-p` | 串口名，如 COM9 或 /dev/ttyUSB0 | 配置文件或空 |
-| `--baud-rate <rate>` | `-b` | 波特率 | 115200 |
-| `--config <path>` | `-c` | 配置文件路径 | - |
-| `--debug` | `-D` | 启用调试模式 | false |
-
-### `serialhub serve`（服务器模式）
-
-启动独立的 HTTP+SSE + Telnet 服务器，同时提供 MCP HTTP 服务和 Telnet 访问：
+启动 HTTP+SSE + Telnet 服务器：
 
 ```bash
-serialhub serve                                    # 默认配置启动
-serialhub serve -p COM8                            # 指定串口
-serialhub serve -p COM8 -b 9600 --parity even      # 完整串口参数
-serialhub serve -m 8080                            # 使用 8080 端口
-serialhub serve -t 2323                            # Telnet 端口
-serialhub serve --host 0.0.0.0                     # 监听所有网络接口
-serialhub serve --no-cors                          # 禁用 CORS
-serialhub serve --cors-origin "https://example.com" # 限制 CORS 来源
-serialhub serve -c config.json                     # 使用配置文件
-serialhub serve -D                                 # 调试模式
+serialhub                                    # 默认配置启动
+serialhub -p COM8                            # 指定串口
+serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
+serialhub -m 8080                            # 使用 8080 端口
+serialhub -t 2323                            # Telnet 端口
+serialhub --host 0.0.0.0                     # 监听所有网络接口
+serialhub -c config.toml                     # 使用配置文件
+serialhub -D                                 # 调试模式
 ```
 
-完整的 serve 选项：
+完整的选项：
 
 | 选项 | 简写 | 说明 | 默认值 |
 |------|------|------|--------|
@@ -125,15 +100,13 @@ serialhub serve -D                                 # 调试模式
 | `--telnet-port <port>` | `-t` | Telnet 服务端口 | 2323 |
 | `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5000 |
 | `--host <host>` | - | 监听地址 | 127.0.0.1 |
-| `--no-cors` | - | 禁用 CORS | - |
-| `--cors-origin <origin>` | - | CORS 允许来源 | `*` |
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |
 | `--no-tray` | - | 禁用系统托盘（仅 Windows） | false |
 
 ### 系统托盘（Windows）
 
-`serialhub serve` 在 Windows 上默认启动系统托盘图标，启动后自动隐藏控制台窗口。
+`serialhub` 在 Windows 上默认启动系统托盘图标，启动后自动隐藏控制台窗口。
 
 **托盘图标状态：**
 - 灰色 — 未连接串口
@@ -155,34 +128,17 @@ serialhub serve -D                                 # 调试模式
 
 ```bash
 # 禁用托盘（保持控制台窗口）
-serialhub serve --no-tray
+serialhub --no-tray
 ```
 
 ### 快速开始
 
-**场景：通过 AI 工具调试 MCU**
-
-1. 在 AI 工具中配置 SerialHub 为 MCP 服务器：
-
-```json
-{
-  "mcpServers": {
-    "serialhub": {
-      "command": "serialhub",
-      "args": ["mcp", "--serial-port", "COM9"]
-    }
-  }
-}
-```
-
-2. AI 工具启动后，可直接调用 `serial_connect`、`serial_write`、`serial_read` 等工具操作串口。
-
 **场景：人工 + AI 同时调试**
 
-1. 启动服务器模式：
+1. 启动 SerialHub：
 
 ```bash
-serialhub serve -p COM9 --host 0.0.0.0 -D
+serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
 2. 人工通过 Telnet 连接监视：
@@ -191,7 +147,7 @@ serialhub serve -p COM9 --host 0.0.0.0 -D
 telnet localhost 2323
 ```
 
-3. AI 工具通过 HTTP MCP 连接：
+3. AI 工具通过 HTTP+SSE MCP 连接：
 
 ```json
 {
@@ -279,7 +235,7 @@ serial_list → 识别目标串口 → serial_connect → serial_write 发送命
 
 **1. 首次连接设备**
 
-```typescript
+```
 // 步骤 1: 查找可用串口
 serial_list()
 // 返回: { ports: [{ path: "COM6", vendorId: "0D28", productId: "0202" }, ...] }
@@ -291,7 +247,7 @@ serial_connect({ port: "COM6", baudRate: 115200 })
 
 **2. 发送命令并获取响应**
 
-```typescript
+```
 // 发送命令（自动追加换行符）
 serial_write({ data: "version" })
 // 返回: { success: true, bytesWritten: 8 }
@@ -303,7 +259,7 @@ serial_read({ timeout: 2000 })
 
 **3. 等待不确定时间的响应**
 
-```typescript
+```
 // timeout=0 表示无限等待，直到有数据到达
 serial_write({ data: "flash_verify" })  // 耗时操作
 serial_read({ timeout: 0 })  // 等待直到设备返回结果
@@ -311,7 +267,7 @@ serial_read({ timeout: 0 })  // 等待直到设备返回结果
 
 **4. 切换到不同设备**
 
-```typescript
+```
 serial_disconnect()  // 断开当前连接
 serial_list()        // 重新查找串口
 serial_connect({ port: "COM7" })  // 连接新设备
@@ -319,7 +275,7 @@ serial_connect({ port: "COM7" })  // 连接新设备
 
 **5. 检查连接状态**
 
-```typescript
+```
 serial_status()
 // 已连接: { connected: true, port: "COM6", baudRate: 115200 }
 // 未连接: { connected: false }
@@ -346,25 +302,24 @@ serial_status()
 
 配置优先级：**CLI 参数 > 配置文件 > 默认值**
 
-配置文件格式（JSON）：
+配置文件格式（TOML），支持 `#` 注释：
 
-```json
-{
-  "serial": {
-    "port": "",
-    "baudRate": 115200,
-    "dataBits": 8,
-    "parity": "none",
-    "stopBits": 1
-  },
-  "telnet": {
-    "port": 2323
-  },
-  "mcp": {
-    "httpPort": 5000
-  },
-  "debug": false
-}
+```toml
+# 日志目录，为空则保存到可执行文件目录下的 logs/
+# logDir = "D:/Logs"
+
+[serial]
+port = ""           # 串口号，为空时不自动连接
+baudRate = 115200
+dataBits = 8
+parity = "none"     # none / even / odd
+stopBits = 1
+
+[telnet]
+port = 2323
+
+[mcp]
+httpPort = 5000
 ```
 
 | 配置项 | 默认值 | 说明 |
@@ -376,22 +331,26 @@ serial_status()
 | `serial.stopBits` | `1` | 停止位（1/2） |
 | `telnet.port` | `2323` | Telnet 服务端口 |
 | `mcp.httpPort` | `5000` | MCP HTTP 服务端口 |
+| `logDir` | `""` | 日志目录，为空则保存到可执行文件目录下的 `logs/` |
 | `debug` | `false` | 调试模式开关 |
 
 ## 开发
 
 ```bash
-# 类型检查
-npm run typecheck
+# 开发运行
+go run ./cmd/serialhub
 
-# 代码规范检查
-npm run lint
+# 构建
+go build -o bin/serialhub.exe ./cmd/serialhub
 
-# 运行测试
-npm test
+# 测试
+go test ./...
 
-# 启动开发服务器
-npm run serve
+# 静态分析
+go vet ./...
+
+# 整理依赖
+go mod tidy
 ```
 
 ## 许可证
