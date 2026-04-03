@@ -47,7 +47,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_list tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_list",
-		Description: "列出系统中所有可用的串口",
+		Description: "List all available serial ports on the system",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -57,17 +57,17 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_connect tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_connect",
-		Description: "连接到指定串口",
+		Description: "Connect to a specified serial port",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"port": map[string]any{
 					"type":        "string",
-					"description": "串口名（如 COM9 或 /dev/ttyUSB0）",
+					"description": "Serial port name (e.g., COM4, /dev/ttyUSB0)",
 				},
 				"baudRate": map[string]any{
 					"type":        "integer",
-					"description": "波特率（默认 115200）",
+					"description": "Baud rate (default: 115200)",
 				},
 			},
 			"required": []string{"port"},
@@ -77,7 +77,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_disconnect tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_disconnect",
-		Description: "断开当前串口连接",
+		Description: "Disconnect from the current serial port",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -87,17 +87,17 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_write tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_write",
-		Description: "向串口发送数据，自动追加换行符",
+		Description: "Write data to the serial port",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"data": map[string]any{
 					"type":        "string",
-					"description": "要发送的数据",
+					"description": "Data to send",
 				},
 				"addNewline": map[string]any{
 					"type":        "boolean",
-					"description": "是否自动追加换行符（默认 true）",
+					"description": "Whether to automatically append newline (default: true)",
 				},
 			},
 			"required": []string{"data"},
@@ -107,17 +107,17 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_read tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_read",
-		Description: "阻塞式读取串口数据，等待数据到达后返回",
+		Description: "Read data from the serial port (blocking, waits for data)",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "超时时间（毫秒，0 表示无限等待）",
+					"description": "Timeout in milliseconds (0 = wait indefinitely)",
 				},
 				"maxSize": map[string]any{
 					"type":        "integer",
-					"description": "最大读取字节数（默认 4096）",
+					"description": "Maximum bytes to read (default: 4096)",
 				},
 			},
 		},
@@ -126,14 +126,14 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_status tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_status",
-		Description: "获取串口连接状态",
+		Description: "Get serial port connection status",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
 		},
 	}, s.handleSerialStatus)
 
-	logrus.Infoln("[SerialHub] MCP 服务器已注册 6 个工具")
+	logrus.Infoln("[SerialHub] MCP server registered 6 tools")
 	return nil
 }
 
