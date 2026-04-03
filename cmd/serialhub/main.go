@@ -126,6 +126,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// 系统托盘集成（仅 Windows）
 	enableTray := !noTray && runtime.GOOS == "windows"
+	logrus.Debugf("[SerialHub] 托盘检查: noTray=%v, GOOS=%s, enableTray=%v", noTray, runtime.GOOS, enableTray)
 	if enableTray {
 		logrus.Info("[SerialHub] 系统托盘已启用")
 		tray.HideConsole()
