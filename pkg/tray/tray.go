@@ -40,6 +40,7 @@ type TrayManager struct {
 	mSelectPort     *systray.MenuItem
 	mRefresh        *systray.MenuItem
 	mPortItems      map[string]*systray.MenuItem
+	mSerialConfig   *systray.MenuItem
 	mBaudRate       *systray.MenuItem
 	mBaudRateItems  map[int]*systray.MenuItem
 	mDataBits       *systray.MenuItem
@@ -126,8 +127,10 @@ func (t *TrayManager) createMenu() {
 	t.mRefresh = t.mSelectPort.AddSubMenuItem("刷新列表", "刷新串口列表")
 	t.mSelectPort.AddSubMenuItem("──────────", "分隔线").Disable()
 
-	// 3. 串口参数子菜单
-	t.mBaudRate = systray.AddMenuItem(fmt.Sprintf("波特率: %d ▶", t.config.Serial.BaudRate), "选择波特率")
+	// 3. 串口设置子菜单（连接时禁用）
+	t.mSerialConfig = systray.AddMenuItem("串口设置 ▶", "串口参数配置")
+
+	t.mBaudRate = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("波特率: %d ▶", t.config.Serial.BaudRate), "选择波特率")
 	for _, rate := range baudRates {
 		label := strconv.Itoa(rate)
 		if rate == t.config.Serial.BaudRate {
@@ -137,7 +140,7 @@ func (t *TrayManager) createMenu() {
 		t.mBaudRateItems[rate] = item
 	}
 
-	t.mDataBits = systray.AddMenuItem(fmt.Sprintf("数据位: %d ▶", t.config.Serial.DataBits), "选择数据位")
+	t.mDataBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("数据位: %d ▶", t.config.Serial.DataBits), "选择数据位")
 	for _, bits := range dataBitsList {
 		label := strconv.Itoa(bits)
 		if bits == t.config.Serial.DataBits {
@@ -147,7 +150,7 @@ func (t *TrayManager) createMenu() {
 		t.mDataBitsItems[bits] = item
 	}
 
-	t.mStopBits = systray.AddMenuItem(fmt.Sprintf("停止位: %.0f ▶", float64(t.config.Serial.StopBits)), "选择停止位")
+	t.mStopBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("停止位: %.0f ▶", float64(t.config.Serial.StopBits)), "选择停止位")
 	for _, bits := range stopBitsList {
 		label := fmt.Sprintf("%.0f", bits)
 		if bits == 1.5 {
@@ -160,7 +163,7 @@ func (t *TrayManager) createMenu() {
 		t.mStopBitsItems[bits] = item
 	}
 
-	t.mParity = systray.AddMenuItem(fmt.Sprintf("校验位: %s ▶", t.config.Serial.Parity), "选择校验位")
+	t.mParity = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("校验位: %s ▶", t.config.Serial.Parity), "选择校验位")
 	for _, p := range parityList {
 		label := p
 		if strings.EqualFold(p, t.config.Serial.Parity) {
@@ -482,6 +485,14 @@ func (t *TrayManager) UpdateSerialStatus() {
 	t.UpdateState(newState)
 	systray.SetTooltip(tooltip)
 	t.mSerial.SetTitle(t.getSerialMenuTitle())
+
+	if t.mSerialConfig != nil {
+		if connected {
+			t.mSerialConfig.Disable()
+		} else {
+			t.mSerialConfig.Enable()
+		}
+	}
 }
 
 func (t *TrayManager) getIcon() []byte {
