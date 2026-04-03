@@ -9,6 +9,7 @@ build/
 *.tsbuildinfo
 
 # Go build
+bin/
 *.exe~
 *.dll
 *.so
@@ -16,6 +17,10 @@ build/
 *.test
 *.out
 go.work
+
+# Python
+__pycache__/
+.pytest_cache/
 
 # Testing
 coverage/

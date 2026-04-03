@@ -634,21 +634,38 @@ func TestParityList(t *testing.T) {
 }
 
 // TestSetBaudRate_未连接时更新 测试未连接时设置波特率
-func TestSetBaudRate_未连接时更新(t *testing.T) {
+func TestSetBaudRate_连接时更新配置(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, true, tm.serial.IsConnected())
+
+	tm.setBaudRate(9600)
+	tm.setBaudRate(115200)
+	tm.setBaudRate(230400)
+}
+
+func TestSetStopBits_连接时更新停止位(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
-
-	// 设置为 9600
-	tm.setBaudRate(9600)
-	testutil.AssertEqual(t, 9600, tm.config.Serial.BaudRate)
-
-	// 设置为 115200
-	tm.setBaudRate(115200)
-	testutil.AssertEqual(t, 115200, tm.config.Serial.BaudRate)
-
-	// 设置为 230400
-	tm.setBaudRate(230400)
-	testutil.AssertEqual(t, 230400, tm.config.Serial.BaudRate)
+	for _, bits := range stopBitsList {
+		tm.setStopBits(bits)
+		if bits == 1.5 {
+			testutil.AssertEqual(t, 1.5, tm.config.Serial.StopBits)
+		}
+	}
+}
+func TestSetStopBits_2(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+	tm.setStopBits(2)
+	testutil.AssertEqual(t, float64(2), tm.config.Serial.StopBits)
+}
+func TestSetParity_连接时更新校验位(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+	for _, p := range parityList {
+		tm.setParity(p)
+		testutil.AssertEqual(t, p, tm.config.Serial.Parity)
+	}
 }
 
 // TestSetDataBits_未连接时更新 测试未连接时设置数据位
@@ -938,4 +955,98 @@ func TestRefreshPortList(t *testing.T) {
 
 	tm.refreshPortList()
 	t.Logf("端口数量: %d", len(tm.mPortItems))
+}
+
+// TestGetConfigSummary_未知校验位 测试未知校验位时的配置摘要
+func TestGetConfigSummary_未知校验位(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	conf.Serial.Parity = "unknown"
+	testutil.AssertEqual(t, "当前: 115200 8unknown1", tm.getConfigSummary())
+}
+
+// TestGetIcon_AllStates 测试所有状态的图标加载
+func TestGetIcon_AllStates(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	for _, state := range []TrayState{TrayIdle, TrayConnected, TrayError} {
+		tm.state = state
+		iconData := tm.getIcon()
+		if len(iconData) == 0 {
+			t.Errorf("状态 %s: 图标数据为空", state)
+		}
+	}
+}
+
+// TestToggleConsoleWindow_双向切换 测试控制台窗口双向切换
+func TestToggleConsoleWindow_双向切换(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	tm.consoleVisible = false
+	tm.toggleConsoleWindow()
+	testutil.AssertEqual(t, true, tm.consoleVisible)
+
+	tm.toggleConsoleWindow()
+	testutil.AssertEqual(t, false, tm.consoleVisible)
+
+	tm.toggleConsoleWindow()
+	testutil.AssertEqual(t, true, tm.consoleVisible)
+}
+
+// TestConsoleWindows_所有API 测试所有控制台 Windows API 函数
+func TestConsoleWindows_所有API(t *testing.T) {
+	hwnd := GetConsoleWindow()
+	t.Logf("hwnd: %v", hwnd)
+
+	_ = ShowWindow(hwnd, SW_HIDE)
+	_ = ShowWindow(hwnd, SW_SHOW)
+	_ = ShowWindow(hwnd, SW_RESTORE)
+	_ = SetForegroundWindow(hwnd)
+	_ = IsWindowVisible(hwnd)
+	_ = GetSystemMenu(hwnd, false)
+	_ = GetSystemMenu(hwnd, true)
+	_ = RemoveMenu(GetSystemMenu(hwnd, false), SC_CLOSE, MF_BYCOMMAND)
+	_ = IsConsoleVisible()
+	HideConsole()
+	ShowConsole()
+	DisableCloseButton()
+}
+
+// TestNewTrayManager_字段验证 测试 TrayManager 所有字段初始化
+func TestNewTrayManager_字段验证(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "1.0.0", true)
+
+	testutil.AssertEqual(t, "1.0.0", tm.version)
+	testutil.AssertEqual(t, 2323, tm.telnetPort)
+	testutil.AssertEqual(t, 5000, tm.mcpPort)
+	testutil.AssertEqual(t, TrayIdle, tm.state)
+	testutil.AssertEqual(t, false, tm.consoleVisible)
+	testutil.AssertEqual(t, true, tm.showConsoleMenu)
+	testutil.AssertNotNil(t, tm.quitChan)
+	testutil.AssertNil(t, tm.readyCallback)
+	testutil.AssertNil(t, tm.exitCallback)
 }
