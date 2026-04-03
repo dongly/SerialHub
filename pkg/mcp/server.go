@@ -22,9 +22,6 @@ type MCPServer struct {
 
 // NewMCPServer creates a new MCP server instance
 func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer) (*MCPServer, error) {
-	if sm == nil {
-		return nil, fmt.Errorf("串口管理器不能为空")
-	}
 	if buf == nil {
 		buf = buffer.NewDataBuffer()
 	}
@@ -139,14 +136,17 @@ func (s *MCPServer) RegisterTools() error {
 	return nil
 }
 
-// StartHTTPServer starts the HTTP+SSE transport for MCP communication
+// StartHTTPServer starts the HTTP transport for MCP communication
 func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
-	sseHandler := mcpsdk.NewSSEHandler(func(r *http.Request) *mcpsdk.Server {
+	streamableHandler := mcpsdk.NewStreamableHTTPHandler(func(r *http.Request) *mcpsdk.Server {
 		return s.mcpServer
-	}, &mcpsdk.SSEOptions{})
+	}, &mcpsdk.StreamableHTTPOptions{
+		Stateless:    true,
+		JSONResponse: true,
+	})
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", sseHandler)
+	mux.Handle("/mcp", streamableHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -162,11 +162,11 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logrus.Errorf("[SerialHub] HTTP+SSE 服务器错误: %v", err)
+			logrus.Errorf("[SerialHub] HTTP 服务器错误: %v", err)
 		}
 	}()
 
-	logrus.Infof("[SerialHub] MCP HTTP+SSE 服务器已启动: %s", addr)
+	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", addr)
 	return server, nil
 }
 

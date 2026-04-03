@@ -55,14 +55,14 @@ func findFreePort(t *testing.T) string {
 func TestNewMCPServer_串口管理器为空(t *testing.T) {
 	buf := buffer.NewDataBuffer()
 	server, err := NewMCPServer(nil, buf)
-	if server != nil {
-		t.Error("预期 server 为 nil")
+	if err != nil {
+		t.Fatalf("预期无错误，实际: %v", err)
 	}
-	if err == nil {
-		t.Fatal("预期返回错误")
+	if server == nil {
+		t.Fatal("预期 server 非 nil")
 	}
-	if !strings.Contains(err.Error(), "串口管理器不能为空") {
-		t.Errorf("错误消息应包含 '串口管理器不能为空'，实际: %s", err.Error())
+	if server.serialManager != nil {
+		t.Error("serialManager 应为 nil")
 	}
 }
 
@@ -368,6 +368,105 @@ func TestToolResultToMCPResult(t *testing.T) {
 
 		if !strings.Contains(textContent.Text, "执行完毕") {
 			t.Errorf("成功结果文本应包含消息，实际: %s", textContent.Text)
+		}
+	})
+}
+
+func TestStreamableHTTPHandler(t *testing.T) {
+	sm := newTestSerialManager(t)
+	buf := buffer.NewDataBuffer()
+
+	server, err := NewMCPServer(sm, buf)
+	if err != nil {
+		t.Fatalf("创建 MCPServer 失败: %v", err)
+	}
+
+	err = server.RegisterTools()
+	if err != nil {
+		t.Fatalf("注册工具失败: %v", err)
+	}
+
+	addr := findFreePort(t)
+	httpServer, err := server.StartHTTPServer(addr)
+	if err != nil {
+		t.Fatalf("启动 HTTP 服务器失败: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpServer.Shutdown(ctx)
+	})
+
+	// 等待服务器启动
+	time.Sleep(100 * time.Millisecond)
+
+	t.Run("Stateless直接调用serial_list工具", func(t *testing.T) {
+		reqBody := `{
+			"jsonrpc": "2.0",
+			"method": "tools/call",
+			"params": {
+				"name": "serial_list"
+			},
+			"id": 1
+		}`
+
+		req, err := http.NewRequest("POST", "http://"+addr+"/mcp", strings.NewReader(reqBody))
+		if err != nil {
+			t.Fatalf("创建请求失败: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST /mcp 失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// 验证状态码 200（Stateless 模式，无需 session ID）
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("预期状态码 200，实际: %d，响应: %s", resp.StatusCode, string(body))
+		}
+
+		// 验证 Content-Type 为 JSON
+		contentType := resp.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "application/json") {
+			t.Errorf("Content-Type 预期包含 'application/json'，实际: %s", contentType)
+		}
+
+		// 验证响应体包含 result
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("读取响应体失败: %v", err)
+		}
+
+		bodyStr := string(body)
+		if !strings.Contains(bodyStr, "result") {
+			t.Errorf("响应应包含 'result'，实际: %s", bodyStr)
+		}
+	})
+
+	t.Run("Health端点仍然工作", func(t *testing.T) {
+		resp, err := http.Get("http://" + addr + "/health")
+		if err != nil {
+			t.Fatalf("请求 health 端点失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("预期状态码 200，实际: %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("读取响应体失败: %v", err)
+		}
+
+		expected := `{"status":"ok"}`
+		if strings.TrimSpace(string(body)) != expected {
+			t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
 		}
 	})
 }
