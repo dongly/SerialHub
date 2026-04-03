@@ -5,8 +5,8 @@ SerialHub 是串口（MCU）与网络连接（Telnet/AI）的双向桥接器，G
 
 ```
 MCU ←→ 串口 ←→ SerialHub
-                 ├→ Telnet Server (人工监视)
-                 └→ AI Interface (MCP HTTP+SSE)
+                  ├→ Telnet Server (人工监视)
+                  └→ AI Interface (MCP HTTP)
 ```
 
 ## 技术栈
@@ -41,7 +41,7 @@ go mod tidy                         # 整理依赖
 cmd/serialhub/main.go           # CLI 主入口
 pkg/serial/                     # 串口管理（manager.go, config.go）
 pkg/telnet/                     # Telnet 服务（server.go, client.go）
-pkg/mcp/server.go               # MCP 服务（直接使用 SDK SSEHandler）
+pkg/mcp/server.go               # MCP 服务（StreamableHTTP，Stateless JSON 模式）
 pkg/mcp/tools/                  # MCP 工具（serial_list/connect/disconnect/write/read/status）
 pkg/bridge/                     # 数据桥接（bridge.go, events.go）
 pkg/config/config.go            # TOML 配置（BurntSushi/toml）
