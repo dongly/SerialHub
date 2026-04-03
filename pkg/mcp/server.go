@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -232,16 +233,15 @@ func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallTool
 
 // Helper functions
 func (s *MCPServer) parseRequestParams(req *mcpsdk.CallToolRequest, target interface{}) error {
-	// Parse parameters from request.Params
-	// In the low-level API, we need to manually extract and parse params
 	if req.Params == nil || req.Params.Arguments == nil {
 		return nil
 	}
 
-	// For now, we'll just skip parsing in the low-level API
-	// In production, we'd use json.Unmarshal with proper error handling
-	_ = target
-	return nil
+	data, err := json.Marshal(req.Params.Arguments)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
 }
 
 func (s *MCPServer) toolResultToMCPResult(result tools.ToolResult) (*mcpsdk.CallToolResult, error) {

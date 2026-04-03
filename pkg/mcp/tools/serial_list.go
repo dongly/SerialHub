@@ -16,6 +16,13 @@ type ToolResult struct {
 
 // ExecuteSerialList lists all available serial ports
 func ExecuteSerialList(sm *serial.SerialManager) ToolResult {
+	if sm == nil {
+		return ToolResult{
+			Success: false,
+			Message: "串口管理器未初始化",
+		}
+	}
+
 	ports, err := sm.ListPorts()
 	if err != nil {
 		return ToolResult{

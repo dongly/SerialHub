@@ -9,7 +9,7 @@ import (
 
 // ExecuteSerialStatus gets the current serial port connection status
 func ExecuteSerialStatus(sm *serial.SerialManager) ToolResult {
-	if !sm.IsConnected() {
+	if sm == nil || !sm.IsConnected() {
 		return ToolResult{
 			Success: true,
 			Message: "串口未连接",

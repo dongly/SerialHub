@@ -16,7 +16,7 @@ import (
 func getTestPort() string {
 	port := os.Getenv("SERIALHUB_TEST_PORT")
 	if port == "" {
-		port = "COM9"
+		port = "COM4"
 	}
 	return port
 }
@@ -710,15 +710,17 @@ func TestParsePort(t *testing.T) {
 	}
 }
 
-// TestHW1_SerialManager 硬件集成测试
+// TestHW1_SerialManager 硬件回环集成测试
 // 环境变量配置：
 //
 //	SERIALHUB_HARDWARE_TEST=1    - 启用硬件测试
-//	SERIALHUB_TEST_PORT=COM9     - 串口号（默认 COM9）
+//	SERIALHUB_TEST_PORT=COM4     - 串口号（默认 COM4）
 //	SERIALHUB_TEST_BAUD=115200   - 波特率（默认 115200）
 //	SERIALHUB_TEST_DATABITS=8    - 数据位（默认 8）
 //	SERIALHUB_TEST_PARITY=none   - 校验位（默认 none）
 //	SERIALHUB_TEST_STOPBITS=1    - 停止位（默认 1）
+//
+// 测试要求：串口的 TX 和 RX 短接（回环模式），发送什么就接收什么
 func TestHW1_SerialManager(t *testing.T) {
 	if os.Getenv("SERIALHUB_HARDWARE_TEST") != "1" {
 		t.Skip("硬件测试未启用，设置 SERIALHUB_HARDWARE_TEST=1 启用")
@@ -756,7 +758,7 @@ func TestHW1_SerialManager(t *testing.T) {
 		}
 	}
 
-	t.Logf("硬件测试配置: port=%s, baud=%d, dataBits=%d, parity=%s, stopBits=%.0f",
+	t.Logf("硬件回环测试配置: port=%s, baud=%d, dataBits=%d, parity=%s, stopBits=%.0f",
 		testPort, baudRate, dataBits, parity, stopBits)
 
 	cfg := &Config{
@@ -792,82 +794,60 @@ func TestHW1_SerialManager(t *testing.T) {
 	t.Logf("已连接到串口: %s", sm.CurrentPort())
 
 	// 清空残留数据
-	sm.WriteLine("")
-	time.Sleep(500 * time.Millisecond)
-
-	// 丢弃缓冲区中的数据
-	select {
-	case <-sm.dataChan:
-	default:
-	}
-
-	// 发送 help 命令
-	t.Log("发送 help 命令...")
-	if err := sm.WriteLine("help"); err != nil {
-		t.Fatalf("WriteLine('help') failed: %v", err)
-	}
-
-	// 读取响应（5秒超时），累积数据直到收到完整响应
-	var helpResponse strings.Builder
-	helpTimeout := time.After(5 * time.Second)
-	helpDone := false
-	for !helpDone {
-		select {
-		case data := <-sm.dataChan:
-			helpResponse.Write(data)
-			t.Logf("收到数据块: %q", string(data))
-			// 检查是否已收到完整响应
-			if strings.Contains(helpResponse.String(), "RT-Thread shell commands:") {
-				helpDone = true
-			}
-		case <-helpTimeout:
-			helpDone = true
-		}
-	}
-
-	t.Logf("help 完整响应: %s", helpResponse.String())
-	if !strings.Contains(helpResponse.String(), "RT-Thread shell commands:") {
-		t.Errorf("help 响应不包含预期内容")
-	}
-
-	// 清空残留
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	for {
 		select {
 		case <-sm.dataChan:
 		default:
-			goto cleared1
+			goto cleared
 		}
 	}
-cleared1:
+cleared:
 
-	// 发送 version 命令
-	t.Log("发送 version 命令...")
-	if err := sm.WriteLine("version"); err != nil {
-		t.Fatalf("WriteLine('version') failed: %v", err)
-	}
+	// 回环测试：发送数据并验证接收
+	testMessages := []string{"Hello", "World123", "Loopback!@#"}
+	for _, msg := range testMessages {
+		t.Logf("发送: %q", msg)
+		if err := sm.WriteLine(msg); err != nil {
+			t.Fatalf("WriteLine(%q) failed: %v", msg, err)
+		}
 
-	// 读取响应
-	var versionResponse strings.Builder
-	versionTimeout := time.After(5 * time.Second)
-	versionDone := false
-	for !versionDone {
-		select {
-		case data := <-sm.dataChan:
-			versionResponse.Write(data)
-			t.Logf("收到数据块: %q", string(data))
-			// 检查是否已收到完整响应
-			if strings.Contains(versionResponse.String(), "Thread Operating System") {
-				versionDone = true
+		// 读取响应（3秒超时）
+		timeout := time.After(3 * time.Second)
+		var received strings.Builder
+		receivedDone := false
+		for !receivedDone {
+			select {
+			case data := <-sm.dataChan:
+				received.Write(data)
+				t.Logf("收到数据块: %q", string(data))
+				// 检查是否收到完整消息
+				if strings.Contains(received.String(), msg) {
+					receivedDone = true
+				}
+			case <-timeout:
+				receivedDone = true
+			default:
+				time.Sleep(10 * time.Millisecond)
 			}
-		case <-versionTimeout:
-			versionDone = true
 		}
-	}
 
-	t.Logf("version 完整响应: %s", versionResponse.String())
-	if !strings.Contains(versionResponse.String(), "Thread Operating System") {
-		t.Errorf("version 响应不包含预期内容")
+		response := received.String()
+		t.Logf("完整响应: %q", response)
+		if !strings.Contains(response, msg) {
+			t.Errorf("回环数据不匹配: 发送 %q, 接收 %q", msg, response)
+		}
+
+		// 清空缓冲区准备下一轮
+		time.Sleep(100 * time.Millisecond)
+		for {
+			select {
+			case <-sm.dataChan:
+			default:
+				goto nextMsg
+			}
+		}
+	nextMsg:
 	}
 
 	// 断开连接
@@ -879,7 +859,7 @@ cleared1:
 		t.Error("断开后 IsConnected() 应该返回 false")
 	}
 
-	t.Log("硬件集成测试通过")
+	t.Log("硬件回环集成测试通过")
 }
 
 // TestGetConfig 测试获取配置

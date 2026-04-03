@@ -15,6 +15,13 @@ type ConnectInput struct {
 
 // ExecuteSerialConnect connects to the specified serial port
 func ExecuteSerialConnect(sm *serial.SerialManager, input ConnectInput) ToolResult {
+	if sm == nil {
+		return ToolResult{
+			Success: false,
+			Message: "串口管理器未初始化",
+		}
+	}
+
 	// Check if already connected
 	if sm.IsConnected() {
 		return ToolResult{

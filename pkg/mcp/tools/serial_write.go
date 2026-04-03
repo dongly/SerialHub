@@ -15,6 +15,13 @@ type WriteInput struct {
 
 // ExecuteSerialWrite writes data to the serial port
 func ExecuteSerialWrite(sm *serial.SerialManager, input WriteInput) ToolResult {
+	if sm == nil {
+		return ToolResult{
+			Success: false,
+			Message: "串口管理器未初始化",
+		}
+	}
+
 	// Check if connected
 	if !sm.IsConnected() {
 		return ToolResult{

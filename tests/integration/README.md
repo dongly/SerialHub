@@ -32,10 +32,13 @@ pytest tests/integration/test_serialhub.py -v -k "not server"
 ### 2. 运行所有测试（需启动服务器）
 
 ```bash
-# Windows
+# Windows cmd
 set SERIALHUB_INTEGRATION_TEST=1
-set SERIALHUB_TEST_PORT=COM9
+set SERIALHUB_TEST_PORT=COM4
 pytest tests/integration/test_serialhub.py -v
+
+# Windows PowerShell
+$env:SERIALHUB_INTEGRATION_TEST = "1"; $env:SERIALHUB_TEST_PORT = "COM4"; pytest tests/integration/test_serialhub.py -v
 
 # Linux/macOS
 export SERIALHUB_INTEGRATION_TEST=1
@@ -48,8 +51,30 @@ pytest tests/integration/test_serialhub.py -v
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `SERIALHUB_INTEGRATION_TEST` | 启用服务器交互测试 | 未设置（跳过） |
-| `SERIALHUB_TEST_PORT` | 测试用串口号 | `COM9` |
+| `SERIALHUB_TEST_PORT` | 测试用串口号 | `COM4` |
 | `SERIALHUB_LOG_DIR` | 日志目录 | 临时目录 |
+
+## 硬件测试要求
+
+### 串口回环测试（COM4）
+
+硬件测试需要将串口的 **TX 和 RX 短接**（回环模式）：
+
+```
+COM4 端口:  TX pin ─────┬───── RX pin
+                       │
+                    (短接)
+```
+
+回环模式下，发送的数据会立即被接收，用于测试数据完整性。
+
+### 测试波特率
+
+- 9600
+- 19200
+- 38400
+- 57600
+- 115200
 
 ## 测试分类
 
@@ -78,14 +103,21 @@ pytest tests/integration/test_serialhub.py -v
 - `test_telnet_connect` — 连接测试
 - `test_telnet_send_data` — 数据发送
 - `test_telnet_multiple_clients` — 多客户端支持
+- `test_telnet_loopback` — **回环测试（Telnet ↔ 串口）**
+- `test_telnet_unicode_and_large_data` — **Unicode 和长数据测试**
 
 ### TestLogging — 日志测试
 - `test_log_file_created` — 日志文件生成
 - `test_debug_mode_logging` — 调试模式日志
 
-### TestSerialHardware — 串口硬件测试（需真实串口）
+### TestSerialHardware — 串口硬件测试（需真实串口，COM4 回环模式）
 - `test_serial_connect_disconnect` — 连接/断开
 - `test_serial_write_read` — 写入/读取
+- `test_hardware_end_to_end` — **多轮回环测试**
+- `test_serial_params_change` — **多波特率测试 (9600-115200)**
+- `test_long_data_loopback` — **长数据测试 (1KB, 10KB)**
+- `test_binary_and_unicode_data` — **Unicode/二进制数据测试**
+- `test_mcp_various_data_types` — **MCP 各种数据类型回环测试**
 
 ## 常用命令
 
@@ -146,3 +178,7 @@ tests/integration/
 2. **二进制自动构建**：如 `bin/serialhub.exe` 不存在，测试会自动构建
 3. **临时目录**：测试使用 `tmp_path` 创建临时配置和日志目录
 4. **进程清理**：`serialhub_server` fixture 确保进程终止和清理
+5. **回环模式**：硬件测试需要 COM4 的 TX-RX 短接
+6. **数据流向**：
+   - MCP 发送 → 串口回环 → MCP 接收（回环数据）
+   - MCP 发送 → DataBridge 转发 → Telnet 接收（转发数据）

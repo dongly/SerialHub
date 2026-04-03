@@ -71,10 +71,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	buf := buffer.NewDataBuffer()
 	serialCfg := configToSerialConfig(&cfg.Serial)
-	sm, err := serial.NewSerialManager(serialCfg)
-	if err != nil {
-		logrus.Debugf("[SerialHub] 串口管理器初始化跳过: %v", err)
-		sm = nil
+	// 始终创建 SerialManager，即使端口为空，以便 DataBridge 可以正常工作
+	sm, _ := serial.NewSerialManager(serialCfg)
+	if sm == nil {
+		// 如果配置转换失败，使用默认配置创建
+		serialCfg = &serial.Config{Port: "", BaudRate: 115200, DataBits: 8, Parity: "none", StopBits: 1}
+		sm, _ = serial.NewSerialManager(serialCfg)
 	}
 
 	enableTray := !noTray && runtime.GOOS == "windows"
@@ -98,11 +100,9 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
 
-	if sm != nil {
-		sm.SetEventHandler(func(event serial.Event) {
-			trayMgr.UpdateSerialStatus()
-		})
-	}
+	sm.SetEventHandler(func(event serial.Event) {
+		trayMgr.UpdateSerialStatus()
+	})
 
 	var telnetSrv *telnet.TelnetServer
 	var cancelFunc context.CancelFunc
@@ -111,17 +111,16 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		_, cancel := context.WithCancel(context.Background())
 		cancelFunc = cancel
 
-		if sm != nil {
-			if err := sm.Connect(); err != nil {
-				logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
-			} else {
-				logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
-			}
+		// 尝试自动连接串口（如果配置了端口）
+		if err := sm.Connect(); err != nil {
+			logrus.Debugf("[SerialHub] 自动连接串口失败: %v", err)
+		} else {
+			logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
 		}
 
 		var err error
 		telnetSrv, err = telnet.NewTelnetServer(host, telnetPort, func() string {
-			if sm != nil && sm.IsConnected() {
+			if sm.IsConnected() {
 				return sm.GetConfig().String()
 			}
 			return ""
@@ -136,14 +135,13 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		}
 		logrus.Infof("[SerialHub] Telnet 服务已启动: %s:%d", host, telnetPort)
 
-		if sm != nil {
-			bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
-			if err != nil {
-				logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
-			} else {
-				bridgeSrv.Start()
-				logrus.Info("[SerialHub] 数据桥接已启动")
-			}
+		// 始终创建 DataBridge，即使串口未连接
+		bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
+		if err != nil {
+			logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
+		} else {
+			bridgeSrv.Start()
+			logrus.Info("[SerialHub] 数据桥接已启动")
 		}
 
 		mcpSrv, err := mcp.NewMCPServer(sm, buf)
@@ -185,16 +183,15 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 }
 
 func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer) error {
-	if sm != nil {
-		if err := sm.Connect(); err != nil {
-			logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
-		} else {
-			logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
-		}
+	// 尝试自动连接串口（如果配置了端口）
+	if err := sm.Connect(); err != nil {
+		logrus.Debugf("[SerialHub] 自动连接串口失败: %v", err)
+	} else {
+		logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
 	}
 
 	telnetSrv, err := telnet.NewTelnetServer(host, telnetPort, func() string {
-		if sm != nil && sm.IsConnected() {
+		if sm.IsConnected() {
 			return sm.GetConfig().String()
 		}
 		return ""
@@ -207,14 +204,13 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	}
 	logrus.Infof("[SerialHub] Telnet 服务已启动: %s:%d", host, telnetPort)
 
-	if sm != nil {
-		bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
-		if err != nil {
-			logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
-		} else {
-			bridgeSrv.Start()
-			logrus.Info("[SerialHub] 数据桥接已启动")
-		}
+	// 始终创建 DataBridge，即使串口未连接
+	bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
+	if err != nil {
+		logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
+	} else {
+		bridgeSrv.Start()
+		logrus.Info("[SerialHub] 数据桥接已启动")
 	}
 
 	mcpSrv, err := mcp.NewMCPServer(sm, buf)
@@ -286,6 +282,11 @@ func closeLogger() {
 
 func loadConfig() *config.Config {
 	cfg := config.GetDefault()
+
+	// 环境变量覆盖默认值
+	if logDir := os.Getenv("SERIALHUB_LOG_DIR"); logDir != "" {
+		cfg.LogDir = logDir
+	}
 
 	if configPath != "" {
 		loaded, err := config.Load(configPath)

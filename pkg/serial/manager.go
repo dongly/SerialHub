@@ -59,9 +59,6 @@ func NewSerialManager(cfg *Config) (*SerialManager, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("配置不能为空")
 	}
-	if cfg.Port == "" {
-		return nil, fmt.Errorf("端口不能为空")
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
