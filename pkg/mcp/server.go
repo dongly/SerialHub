@@ -31,7 +31,7 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer) (*MCPServer,
 	mcpServer := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "serialhub", Version: "v1.0.0"},
 		&mcpsdk.ServerOptions{
-			Instructions: "SerialHub MCP 服务器提供串口操作工具",
+			Instructions: "SerialHub MCP server provides serial port operation tools. Use serial_list to discover ports, serial_connect to open a port, then serial_write/serial_read to communicate.",
 		},
 	)
 
