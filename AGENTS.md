@@ -35,26 +35,26 @@ MCU ←→ 串口 ←→ SerialHub
 
 ```bash
 # 开发运行
-go run ./cmd/serialhub              # 运行 CLI（MCP stdio 模式）
-go run ./cmd/serve                  # 运行 HTTP 服务
+go run ./cmd/serialhub              # 启动服务（默认开启托盘）
+go run ./cmd/serialhub --no-tray    # 无托盘模式（命令行）
 
 # 构建命令
 go build -o bin/serialhub.exe ./cmd/serialhub
-go build -o bin/serve.exe ./cmd/serve
 
 # 测试命令
 go test ./...                       # 运行所有测试
 go test ./pkg/serial                # 运行单个包测试
 go test -v ./pkg/serial             # 详细输出
 go test -run TestConnect ./pkg/serial  # 运行单个测试函数
+go test -run TestSerial ./...       # 运行匹配名称的测试
 go test -cover ./...                # 测试覆盖率
+
+# 硬件集成测试（需要真实串口）
+SERIALHUB_HARDWARE_TEST=1 SERIALHUB_TEST_PORT=COM9 go test ./...
 
 # 代码检查
 go vet ./...                        # 静态分析（零错误）
 golangci-lint run                   # 完整 lint（需安装）
-
-# 类型检查（编译时自动）
-go build ./...                      # 编译检查类型错误
 
 # 依赖管理
 go mod tidy                         # 整理依赖
@@ -66,9 +66,7 @@ go get go.bug.st/serial@latest      # 更新依赖
 ```
 github.com/yourname/serialhub/
 ├── cmd/
-│   ├── serialhub/           # CLI 主入口 + MCP stdio 模式
-│   │   └── main.go
-│   └── serve/               # HTTP 服务入口（含托盘集成）
+│   └── serialhub/           # CLI 主入口（serve 模式）
 │       └── main.go
 ├── pkg/
 │   ├── serial/              # 串口管理
@@ -78,10 +76,7 @@ github.com/yourname/serialhub/
 │   │   ├── server.go        # TelnetServer（net 标准库）
 │   │   └── client.go        # 客户端管理
 │   ├── mcp/                 # MCP 服务
-│   │   ├── server.go        # MCP 服务入口 + 工具注册
-│   │   ├── transport/
-│   │   │   ├── stdio.go     # Stdio 传输（内置）
-│   │   │   └── httpsse.go   # HTTP+SSE JSON-RPC 传输
+│   │   ├── server.go        # MCP 服务入口 + 工具注册（直接使用 SDK SSEHandler）
 │   │   └── tools/           # MCP 工具（每个文件一个工具）
 │   │       ├── serial_list.go
 │   │       ├── serial_connect.go
@@ -96,13 +91,20 @@ github.com/yourname/serialhub/
 │   │   └── config.go        # Viper 配置（JSON 文件 + CLI 参数）
 │   └── tray/                # 系统托盘
 │       ├── tray.go          # Systray 管理（跨平台）
+│       ├── assets/          # 托盘图标（PNG + ICO）
 │       ├── console_windows.go   # Windows 控制台显示/隐藏
 │       └── console_linux.go     # Linux 控制台 stub
 ├── internal/
 │   ├── buffer/              # DataBuffer
 │   │   └── buffer.go        # 数据缓冲区
-│   └── service/             # 服务状态管理
-│       └── manager.go       # PID/端口文件
+│   ├── service/             # 服务状态管理
+│   │   └── manager.go       # 串口配置记忆（上次连接）
+│   └── testutil/            # 测试工具
+│       ├── helpers.go       # 断言辅助函数
+│       ├── mock_serial.go   # 串口 Mock
+│       └── mock_net.go      # 网络 Mock
+├── tools/
+│   └── genicons.py          # 托盘图标生成工具（Python + PIL）
 ├── go.mod
 ├── go.sum
 ├── Makefile                 # 构建脚本
