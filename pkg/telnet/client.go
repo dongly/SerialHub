@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // TelnetClient represents a connected Telnet client.
@@ -108,7 +110,7 @@ func (tc *TelnetClient) readLoop() {
 			data, err := reader.ReadBytes('\n')
 			if err != nil {
 				if err != io.EOF {
-					tc.server.logger.Warnf("[SerialHub] Telnet 客户端读取错误: %v", err)
+					logrus.Warnf("[SerialHub] Telnet 客户端读取错误: %v", err)
 				}
 				tc.server.DisconnectClient(tc.id)
 				return
@@ -132,7 +134,7 @@ func (tc *TelnetClient) writeLoop() {
 			if tc.conn != nil {
 				_, err := tc.conn.Write(data)
 				if err != nil {
-					tc.server.logger.Warnf("[SerialHub] Telnet 客户端写入错误: %v", err)
+					logrus.Warnf("[SerialHub] Telnet 客户端写入错误: %v", err)
 					tc.server.DisconnectClient(tc.id)
 					return
 				}

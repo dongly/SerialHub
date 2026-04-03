@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/sirupsen/logrus"
+	"github.com/yourname/serialhub/internal/buffer"
 )
 
 // SerialReader 接口定义了串口数据读取和写入行为
@@ -30,7 +30,6 @@ type DataBridge struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
-	logger    *logrus.Logger
 }
 
 // NewDataBridge 创建新的数据桥接器
@@ -53,7 +52,6 @@ func NewDataBridge(serialMgr SerialReader, telnetSrv TelnetBroadcaster, mcpBuf *
 		mcpBuffer: mcpBuf,
 		ctx:       ctx,
 		cancel:    cancel,
-		logger:    logrus.New(),
 	}, nil
 }
 
@@ -67,10 +65,10 @@ func (db *DataBridge) Start() {
 func (db *DataBridge) Stop() error {
 	// 取消上下文
 	db.cancel()
-	
+
 	// 等待 goroutine 结束
 	db.wg.Wait()
-	
+
 	return nil
 }
 
@@ -90,7 +88,7 @@ func (db *DataBridge) forwardLoop() {
 		case data, ok := <-serialDataChan:
 			if !ok {
 				// 串口 channel 已关闭
-				db.logger.Debugln("[SerialHub] 串口数据通道已关闭")
+				logrus.Debugln("[SerialHub] 串口数据通道已关闭")
 				return
 			}
 			if len(data) > 0 {
@@ -101,7 +99,7 @@ func (db *DataBridge) forwardLoop() {
 		case data, ok := <-telnetDataChan:
 			if !ok {
 				// Telnet channel 已关闭
-				db.logger.Debugln("[SerialHub] Telnet 数据通道已关闭")
+				logrus.Debugln("[SerialHub] Telnet 数据通道已关闭")
 				return
 			}
 			if len(data) > 0 {
@@ -117,25 +115,20 @@ func (db *DataBridge) forwardSerialToBoth(data []byte) {
 	// 转发到 Telnet（广播给所有客户端）
 	telnetCount := db.telnet.Broadcast(data)
 	if telnetCount > 0 {
-		db.logger.Debugf("[SerialHub] 转发串口数据到 Telnet: %d 字节, %d 客户端", len(data), telnetCount)
+		logrus.Debugf("[SerialHub] 转发串口数据到 Telnet: %d 字节, %d 客户端", len(data), telnetCount)
 	}
 
 	// 转发到 MCP 缓冲区
 	db.mcpBuffer.Append(data)
-	db.logger.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(data))
+	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(data))
 }
 
 // forwardTelnetToSerial 将 Telnet 数据转发到串口
 func (db *DataBridge) forwardTelnetToSerial(data []byte) {
 	_, err := db.serial.Write(data)
 	if err != nil {
-		db.logger.Errorf("[SerialHub] 转发 Telnet 数据到串口失败: %v", err)
+		logrus.Errorf("[SerialHub] 转发 Telnet 数据到串口失败: %v", err)
 	} else {
-		db.logger.Debugf("[SerialHub] 转发 Telnet 数据到串口: %d 字节", len(data))
+		logrus.Debugf("[SerialHub] 转发 Telnet 数据到串口: %d 字节", len(data))
 	}
-}
-
-// SetLogger 设置日志记录器
-func (db *DataBridge) SetLogger(logger *logrus.Logger) {
-	db.logger = logger
 }

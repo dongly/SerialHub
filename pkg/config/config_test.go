@@ -19,7 +19,7 @@ func TestGetDefault(t *testing.T) {
 		t.Errorf("default parity should be 'none', got '%s'", cfg.Serial.Parity)
 	}
 	if cfg.Serial.StopBits != 1 {
-		t.Errorf("default stop bits should be 1, got %d", cfg.Serial.StopBits)
+		t.Errorf("default stop bits should be 1, got %v", cfg.Serial.StopBits)
 	}
 
 	if cfg.Telnet.Port != 2323 {

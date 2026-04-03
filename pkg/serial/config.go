@@ -63,10 +63,12 @@ func (c *Config) ToMode() (*serial.Mode, error) {
 	switch c.StopBits {
 	case 1:
 		stopBits = serial.OneStopBit
+	case 1.5:
+		stopBits = serial.OnePointFiveStopBits
 	case 2:
 		stopBits = serial.TwoStopBits
 	default:
-		return nil, fmt.Errorf("无效的停止位: %v（支持 1/2）", c.StopBits)
+		return nil, fmt.Errorf("无效的停止位: %v（支持 1/1.5/2）", c.StopBits)
 	}
 
 	return &serial.Mode{
@@ -79,12 +81,20 @@ func (c *Config) ToMode() (*serial.Mode, error) {
 
 // String returns the string representation of the configuration
 func (c *Config) String() string {
-	return fmt.Sprintf("%s@%d %d%s%d",
+	parity := c.Parity
+	if len(parity) > 0 {
+		parity = strings.ToUpper(parity[0:1])
+	}
+	stopBits := fmt.Sprintf("%.0f", c.StopBits)
+	if c.StopBits == 1.5 {
+		stopBits = "1.5"
+	}
+	return fmt.Sprintf("%s@%d %d%s%s",
 		c.Port,
 		c.BaudRate,
 		c.DataBits,
-		strings.ToUpper(c.Parity[0:1]),
-		int(c.StopBits),
+		parity,
+		stopBits,
 	)
 }
 
@@ -102,7 +112,7 @@ func (c *Config) Clone() *Config {
 // ParsePort parses port configuration from string, format "COM9" or "COM9@115200"
 func ParsePort(portStr string) (*Config, error) {
 	cfg := DefaultConfig()
-	
+
 	if portStr == "" {
 		return nil, fmt.Errorf("端口字符串不能为空")
 	}

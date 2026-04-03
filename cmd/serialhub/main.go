@@ -85,7 +85,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, _ bool) error {
-	logrus.Info("[SerialHub] 系统托盘已启用")
+	logrus.Debug("[SerialHub] 系统托盘模式已启用")
 	tray.HideConsole()
 
 	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version)
@@ -108,6 +108,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 				logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
 			} else {
 				logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
+				trayMgr.UpdateSerialStatus()
 			}
 		}
 
@@ -138,7 +139,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			}
 		}
 
-		mcpSrv, err := mcp.NewMCPServer(sm, buf, nil)
+		mcpSrv, err := mcp.NewMCPServer(sm, buf)
 		if err != nil {
 			logrus.Errorf("[SerialHub] 创建 MCP 服务失败: %v", err)
 			return
@@ -209,7 +210,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 		}
 	}
 
-	mcpSrv, err := mcp.NewMCPServer(sm, buf, nil)
+	mcpSrv, err := mcp.NewMCPServer(sm, buf)
 	if err != nil {
 		return fmt.Errorf("创建 MCP 服务失败: %w", err)
 	}
@@ -306,7 +307,7 @@ func loadConfig() *config.Config {
 			cfg.Serial.BaudRate = lastSerial.BaudRate
 			cfg.Serial.DataBits = lastSerial.DataBits
 			cfg.Serial.Parity = lastSerial.Parity
-			cfg.Serial.StopBits = int(lastSerial.StopBits)
+			cfg.Serial.StopBits = float64(lastSerial.StopBits)
 			logrus.Infof("[SerialHub] 使用上次连接的串口: %s@%d", lastSerial.Port, lastSerial.BaudRate)
 		}
 	}

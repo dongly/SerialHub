@@ -22,7 +22,6 @@ type TelnetServer struct {
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
-	logger        *logrus.Logger
 	getSerialInfo func() string
 }
 
@@ -42,7 +41,6 @@ func NewTelnetServer(host string, port int, getSerialInfo ...func() string) (*Te
 		stopChan: make(chan struct{}),
 		ctx:      ctx,
 		cancel:   cancel,
-		logger:   logrus.New(),
 	}
 
 	if len(getSerialInfo) > 0 && getSerialInfo[0] != nil {
@@ -68,7 +66,7 @@ func (ts *TelnetServer) Start() error {
 	}
 
 	ts.listener = listener
-	ts.logger.Infof("[SerialHub] Telnet 服务器已启动: %s", addr)
+	logrus.Infof("[SerialHub] Telnet 服务器已启动: %s", addr)
 
 	// Start accept loop
 	go ts.acceptLoop()
@@ -103,7 +101,7 @@ func (ts *TelnetServer) Stop() error {
 	// Close stop channel
 	close(ts.stopChan)
 
-	ts.logger.Infof("[SerialHub] Telnet 服务器已停止: %s:%d", ts.host, ts.port)
+	logrus.Infof("[SerialHub] Telnet 服务器已停止: %s:%d", ts.host, ts.port)
 
 	return nil
 }
@@ -165,7 +163,7 @@ func (ts *TelnetServer) DisconnectClient(clientID string) error {
 	client.Stop()
 	delete(ts.clients, clientID)
 
-	ts.logger.Infof("[SerialHub] Telnet 客户端已断开: %s (%s)", clientID, client.RemoteAddr())
+	logrus.Infof("[SerialHub] Telnet 客户端已断开: %s (%s)", clientID, client.RemoteAddr())
 
 	return nil
 }
@@ -225,7 +223,7 @@ func (ts *TelnetServer) acceptLoop() {
 					// Server is stopping, this is expected
 					return
 				default:
-					ts.logger.Errorf("[SerialHub] Telnet 接受连接失败: %v", err)
+					logrus.Errorf("[SerialHub] Telnet 接受连接失败: %v", err)
 					continue
 				}
 			}
@@ -256,16 +254,9 @@ func (ts *TelnetServer) acceptLoop() {
 			// Start client
 			client.Start()
 
-			ts.logger.Infof("[SerialHub] Telnet 客户端已连接: %s (%s)", clientID, conn.RemoteAddr())
+			logrus.Infof("[SerialHub] Telnet 客户端已连接: %s (%s)", clientID, conn.RemoteAddr())
 		}
 	}
-}
-
-// SetLogger sets the logger for the server.
-func (ts *TelnetServer) SetLogger(logger *logrus.Logger) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.logger = logger
 }
 
 // Close closes the server and cleans up resources.

@@ -84,18 +84,25 @@ func (sm *SerialManager) Connect() error {
 		return fmt.Errorf("串口已连接: %s", sm.config.Port)
 	}
 
+	logrus.Debugf("[SerialHub] 尝试连接串口: %s", sm.config.String())
+
 	mode, err := sm.config.ToMode()
 	if err != nil {
+		logrus.Errorf("[SerialHub] 串口配置转换失败: %v", err)
 		return fmt.Errorf("配置转换失败: %w", err)
 	}
 
+	logrus.Debugf("[SerialHub] 串口模式: BaudRate=%d, DataBits=%d, Parity=%v, StopBits=%v",
+		mode.BaudRate, mode.DataBits, mode.Parity, mode.StopBits)
+
 	port, err := serial.Open(sm.config.Port, mode)
 	if err != nil {
+		logrus.Errorf("[SerialHub] 打开串口失败 %s: %v", sm.config.Port, err)
 		return fmt.Errorf("打开串口失败: %w", err)
 	}
 
 	sm.port = port
-	sm.logger.Infof("[SerialHub] 串口已连接: %s", sm.config.String())
+	logrus.Infof("[SerialHub] 串口已连接: %s", sm.config.String())
 
 	svc := service.NewServiceManager()
 	if err := svc.SaveLastSerial(&service.LastSerialConfig{
@@ -105,12 +112,11 @@ func (sm *SerialManager) Connect() error {
 		Parity:   sm.config.Parity,
 		StopBits: sm.config.StopBits,
 	}); err != nil {
-		sm.logger.Warnf("[SerialHub] 保存串口配置失败: %v", err)
+		logrus.Warnf("[SerialHub] 保存串口配置失败: %v", err)
 	}
 
 	go sm.readLoop()
 
-	// 触发连接事件
 	sm.emitEvent(Event{
 		Type: EventConnected,
 		Port: sm.config.Port,
@@ -129,11 +135,12 @@ func (sm *SerialManager) Disconnect() error {
 	}
 
 	portName := sm.config.Port
+	logrus.Debugf("[SerialHub] 正在断开串口: %s", portName)
+
 	err := sm.port.Close()
 	sm.port = nil
-	sm.logger.Infof("[SerialHub] 串口已断开: %s", portName)
+	logrus.Infof("[SerialHub] 串口已断开: %s", portName)
 
-	// 触发断开事件
 	sm.emitEvent(Event{
 		Type: EventDisconnected,
 		Port: portName,
@@ -151,12 +158,16 @@ func (sm *SerialManager) Write(data []byte) (int, error) {
 		return 0, fmt.Errorf("串口未连接")
 	}
 
+	logrus.Debugf("[SerialHub] 串口写入 %d 字节: %q", len(data), string(data))
+
 	n, err := sm.port.Write(data)
 	if err != nil {
+		logrus.Errorf("[SerialHub] 串口写入失败: %v", err)
 		sm.errChan <- fmt.Errorf("写入错误: %w", err)
 		return n, fmt.Errorf("写入失败: %w", err)
 	}
 
+	logrus.Debugf("[SerialHub] 串口写入成功: %d 字节", n)
 	return n, nil
 }
 
@@ -227,15 +238,22 @@ func (sm *SerialManager) SetEventHandler(handler EventHandler) {
 	sm.eventHandler = handler
 }
 
-// emitEvent 触发事件（内部使用，调用者需持有锁或确保线程安全）
+// emitEvent 触发事件
+// 注意：调用者可能持有 sm.mu 写锁，因此这里不能再获取锁。
+// eventHandler 在启动时一次性设置，之后只读，无需加锁。
 func (sm *SerialManager) emitEvent(event Event) {
-	sm.mu.RLock()
 	handler := sm.eventHandler
-	sm.mu.RUnlock()
-
-	if handler != nil {
-		go handler(event)
+	if handler == nil {
+		return
 	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("[SerialHub] 事件处理 panic: %v", r)
+			}
+		}()
+		handler(event)
+	}()
 }
 func (sm *SerialManager) DataChan() <-chan []byte {
 	return sm.dataChan
@@ -268,10 +286,12 @@ func (sm *SerialManager) Close() error {
 // readLoop continuously reads data from the serial port
 func (sm *SerialManager) readLoop() {
 	buf := make([]byte, 1024)
+	logrus.Debug("[SerialHub] 串口读取循环已启动")
 
 	for {
 		select {
 		case <-sm.ctx.Done():
+			logrus.Debug("[SerialHub] 串口读取循环已停止")
 			return
 		default:
 			sm.mu.RLock()
@@ -285,6 +305,7 @@ func (sm *SerialManager) readLoop() {
 			n, err := port.Read(buf)
 			if err != nil {
 				if err == io.EOF {
+					logrus.Warn("[SerialHub] 串口连接已关闭 (EOF)")
 					sm.errChan <- fmt.Errorf("串口连接已关闭")
 					sm.emitEvent(Event{
 						Type:    EventDisconnected,
@@ -294,6 +315,7 @@ func (sm *SerialManager) readLoop() {
 					return
 				}
 				errMsg := fmt.Errorf("读取错误: %w", err)
+				logrus.Errorf("[SerialHub] 串口读取错误: %v", err)
 				sm.errChan <- errMsg
 				sm.emitEvent(Event{
 					Type:    EventError,
@@ -306,12 +328,13 @@ func (sm *SerialManager) readLoop() {
 			if n > 0 {
 				data := make([]byte, n)
 				copy(data, buf[:n])
+				logrus.Debugf("[SerialHub] 串口读取 %d 字节: %q", n, string(data))
 				select {
 				case sm.dataChan <- data:
 				case <-sm.ctx.Done():
 					return
 				default:
-					sm.logger.Warnln("[SerialHub] 数据通道已满，丢弃数据")
+					logrus.Warnln("[SerialHub] 数据通道已满，丢弃数据")
 				}
 			}
 		}

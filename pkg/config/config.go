@@ -13,7 +13,7 @@ type SerialConfig struct {
 	BaudRate int
 	DataBits int
 	Parity   string
-	StopBits int
+	StopBits float64
 }
 
 type TelnetConfig struct {

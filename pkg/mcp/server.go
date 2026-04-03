@@ -18,19 +18,15 @@ type MCPServer struct {
 	serialManager *serial.SerialManager
 	dataBuffer    *buffer.DataBuffer
 	mcpServer     *mcpsdk.Server
-	logger        *logrus.Logger
 }
 
 // NewMCPServer creates a new MCP server instance
-func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, logger *logrus.Logger) (*MCPServer, error) {
+func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer) (*MCPServer, error) {
 	if sm == nil {
 		return nil, fmt.Errorf("串口管理器不能为空")
 	}
 	if buf == nil {
 		buf = buffer.NewDataBuffer()
-	}
-	if logger == nil {
-		logger = logrus.New()
 	}
 
 	// Create MCP server
@@ -45,7 +41,6 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, logger *logr
 		serialManager: sm,
 		dataBuffer:    buf,
 		mcpServer:     mcpServer,
-		logger:        logger,
 	}, nil
 }
 
@@ -140,7 +135,7 @@ func (s *MCPServer) RegisterTools() error {
 		},
 	}, s.handleSerialStatus)
 
-	s.logger.Infoln("[SerialHub] MCP 服务器已注册 6 个工具")
+	logrus.Infoln("[SerialHub] MCP 服务器已注册 6 个工具")
 	return nil
 }
 
@@ -167,17 +162,17 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Errorf("[SerialHub] HTTP+SSE 服务器错误: %v", err)
+			logrus.Errorf("[SerialHub] HTTP+SSE 服务器错误: %v", err)
 		}
 	}()
 
-	s.logger.Infof("[SerialHub] MCP HTTP+SSE 服务器已启动: %s", addr)
+	logrus.Infof("[SerialHub] MCP HTTP+SSE 服务器已启动: %s", addr)
 	return server, nil
 }
 
 // Stop stops the MCP server
 func (s *MCPServer) Stop() error {
-	s.logger.Infoln("[SerialHub] MCP 服务器已停止")
+	logrus.Infoln("[SerialHub] MCP 服务器已停止")
 	return nil
 }
 

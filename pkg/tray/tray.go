@@ -149,7 +149,7 @@ func (t *TrayManager) createMenu() {
 		if bits == 1.5 {
 			label = "1.5"
 		}
-		if int(bits) == t.config.Serial.StopBits {
+		if bits == t.config.Serial.StopBits {
 			label = "✓ " + label
 		}
 		item := t.mStopBits.AddSubMenuItem(label, fmt.Sprintf("停止位 %s", label))
@@ -369,7 +369,7 @@ func (t *TrayManager) setStopBits(bits float64) {
 		}
 	}
 
-	t.config.Serial.StopBits = int(bits)
+	t.config.Serial.StopBits = bits
 	label := fmt.Sprintf("%.0f", bits)
 	if bits == 1.5 {
 		label = "1.5"
@@ -413,11 +413,15 @@ func (t *TrayManager) getConfigSummary() string {
 	} else if parity == "odd" {
 		parity = "O"
 	}
-	return fmt.Sprintf("当前: %d %d%s%d",
+	stopBits := fmt.Sprintf("%.0f", t.config.Serial.StopBits)
+	if t.config.Serial.StopBits == 1.5 {
+		stopBits = "1.5"
+	}
+	return fmt.Sprintf("当前: %d %d%s%s",
 		t.config.Serial.BaudRate,
 		t.config.Serial.DataBits,
 		parity,
-		t.config.Serial.StopBits)
+		stopBits)
 }
 
 func (t *TrayManager) getNetworkStatus() string {
@@ -445,12 +449,19 @@ func (t *TrayManager) QuitChan() <-chan struct{} {
 
 func (t *TrayManager) UpdateState(state TrayState) {
 	t.state = state
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("[SerialHub] UpdateState panic: %v", r)
+		}
+	}()
 	systray.SetIcon(t.getIcon())
 	logrus.Infof("[SerialHub] 托盘状态更新: %s", state)
 }
 
 func (t *TrayManager) UpdateSerialStatus() {
-	if t.serial.IsConnected() {
+	connected := t.serial != nil && t.serial.IsConnected()
+	logrus.Debugf("[SerialHub] UpdateSerialStatus: connected=%v, serial=%v", connected, t.serial != nil)
+	if connected {
 		t.UpdateState(TrayConnected)
 		systray.SetTooltip(fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort()))
 	} else {
