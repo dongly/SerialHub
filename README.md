@@ -32,7 +32,7 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 │       ┌───────────┐  ┌──────────┐ ... │
 │       │  Telnet   │  │   MCP    │     │
 │       │  服务端    │  │  服务    │     │
-│       │ (端口 2323)│ │(HTTP+SSE) │    │
+│       │ (端口 2323)│ │(HTTP) │    │
 │       └───────────┘  └──────────┘     │
 └─────────────────────────────────────────┘
        │                    │
@@ -60,7 +60,7 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 
 - **双路转发**：串口数据同时转发到 Telnet 和 AI 接口
 - **双向通信**：Telnet 或 AI 发送的命令均可传输到 MCU
-- **MCP 协议**：通过 HTTP+SSE 提供 AI 工具集成
+- **MCP 协议**：通过 HTTP (StreamableHTTP) 提供 AI 工具集成
 - **可配置**：所有端口、波特率、超时参数均可通过 JSON(C) 或命令行配置
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
@@ -75,7 +75,7 @@ go build -o bin/serialhub.exe ./cmd/serialhub
 
 ### `serialhub`（默认：serve 模式）
 
-启动 HTTP+SSE + Telnet 服务器：
+启动 HTTP + Telnet 服务器：
 
 ```bash
 serialhub                                    # 默认配置启动
@@ -147,13 +147,13 @@ serialhub -p COM9 --host 0.0.0.0 -D
 telnet localhost 2323
 ```
 
-3. AI 工具通过 HTTP+SSE MCP 连接：
+3. AI 工具通过 HTTP MCP 连接：
 
 ```json
 {
   "mcpServers": {
     "serialhub": {
-      "type": "sse",
+      "type": "streamable_http",
       "url": "http://localhost:5000/mcp"
     }
   }
@@ -181,21 +181,25 @@ curl http://localhost:5000/health
 # 列出可用串口
 curl -X POST http://localhost:5000/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
 
 # 连接串口
 curl -X POST http://localhost:5000/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_connect","arguments":{"port":"COM9"}},"id":2}'
 
 # 发送命令（自动追加换行符）
 curl -X POST http://localhost:5000/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_write","arguments":{"data":"help"}},"id":3}'
 
 # 读取串口返回数据（阻塞等待，timeout=0 表示无限等待）
 curl -X POST http://localhost:5000/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_read","arguments":{"timeout":5000}},"id":4}'
 ```
 
