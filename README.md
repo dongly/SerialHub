@@ -2,6 +2,8 @@
 
 串口（MCU）与网络连接（Telnet/AI）之间的双向桥接器。
 
+**📚 文档**: [MCP 使用指南](./MCP.md) | [项目架构](./AGENTS.md) | [集成测试](./tests/integration/README.md)
+
 ## 项目简介
 
 SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
