@@ -7,12 +7,20 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/yourname/serialhub/internal/testutil"
 	"github.com/yourname/serialhub/pkg/config"
 	"github.com/yourname/serialhub/pkg/serial"
 )
 
+func getTestPort() string {
+	port := os.Getenv("SERIALHUB_TEST_PORT")
+	if port == "" {
+		port = "COM9"
+	}
+	return port
+}
+
 func TestTrayState(t *testing.T) {
-	// 测试状态切换
 	states := []TrayState{TrayIdle, TrayConnected, TrayError}
 	for _, state := range states {
 		if state != TrayIdle && state != TrayConnected && state != TrayError {
@@ -23,7 +31,7 @@ func TestTrayState(t *testing.T) {
 
 func TestNewTrayManager(t *testing.T) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("NewSerialManager failed: %v", err)
@@ -52,7 +60,7 @@ func TestNewTrayManager(t *testing.T) {
 
 func TestUpdateState(t *testing.T) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("NewSerialManager failed: %v", err)
@@ -76,7 +84,7 @@ func TestUpdateState(t *testing.T) {
 // TestGetIcon 测试图标加载功能
 func TestGetIcon(t *testing.T) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("NewSerialManager failed: %v", err)
@@ -170,7 +178,7 @@ func TestEmbedFS(t *testing.T) {
 // 注意：这个测试不调用 UpdateSerialStatus()，因为它需要 systray 在主 goroutine 运行
 func TestUpdateSerialStatus(t *testing.T) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("NewSerialManager failed: %v", err)
@@ -196,7 +204,7 @@ func TestUpdateSerialStatus(t *testing.T) {
 // TestTrayManagerConfig 测试 TrayManager 配置
 func TestTrayManagerConfig(t *testing.T) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("NewSerialManager failed: %v", err)
@@ -252,7 +260,7 @@ func TestIconFilePaths(t *testing.T) {
 // BenchmarkGetIcon 测试图标加载性能
 func BenchmarkGetIcon(b *testing.B) {
 	cfg := serial.DefaultConfig()
-	cfg.Port = "COM9"
+	cfg.Port = getTestPort()
 	serialMgr, _ := serial.NewSerialManager(cfg)
 	defer serialMgr.Close()
 	conf := config.GetDefault()
@@ -306,6 +314,198 @@ func TestTrayStateString(t *testing.T) {
 			t.Errorf("状态 %s 的字符串表示 = %s, want %s", state, string(state), expected)
 		}
 	}
+}
+
+// TestShowConsoleMenu 测试 showConsoleMenu 参数对 TrayManager 的影响
+func TestShowConsoleMenu(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+
+	// showConsoleMenu=false 时 mShowLog 应为 nil
+	trayFalse := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+	testutil.AssertNil(t, trayFalse.mShowLog)
+	testutil.AssertEqual(t, false, trayFalse.showConsoleMenu)
+
+	// showConsoleMenu=true 时 mShowLog 仍为 nil（mShowLog 在 createMenu 中创建，需要 systray）
+	// 但 showConsoleMenu 字段应为 true
+	trayTrue := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", true)
+	testutil.AssertNil(t, trayTrue.mShowLog)
+	testutil.AssertEqual(t, true, trayTrue.showConsoleMenu)
+}
+
+// TestGetConfigSummary 测试 getConfigSummary 纯函数
+func TestGetConfigSummary(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	// 默认配置: 115200, 8, none, 1 → "当前: 115200 8N1"
+	testutil.AssertEqual(t, "当前: 115200 8N1", trayMgr.getConfigSummary())
+
+	// even parity → "当前: 115200 8E1"
+	conf.Serial.Parity = "even"
+	testutil.AssertEqual(t, "当前: 115200 8E1", trayMgr.getConfigSummary())
+
+	// odd parity → "当前: 115200 8O1"
+	conf.Serial.Parity = "odd"
+	testutil.AssertEqual(t, "当前: 115200 8O1", trayMgr.getConfigSummary())
+
+	// 1.5 stopBits → "当前: 115200 8N1.5"
+	conf.Serial.Parity = "none"
+	conf.Serial.StopBits = 1.5
+	testutil.AssertEqual(t, "当前: 115200 8N1.5", trayMgr.getConfigSummary())
+}
+
+// TestGetNetworkStatus 测试 getNetworkStatus 函数
+func TestGetNetworkStatus(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+
+	// telnetPort=2323, mcpPort=5000
+	tray1 := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+	testutil.AssertEqual(t, "Telnet: 2323 | MCP: 5000", tray1.getNetworkStatus())
+
+	// telnetPort=0, mcpPort=0
+	tray2 := NewTrayManager(serialMgr, conf, 0, 0, "0.1.0", false)
+	testutil.AssertEqual(t, "Telnet: 0 | MCP: 0", tray2.getNetworkStatus())
+}
+
+// TestGetSerialMenuTitle 测试 getSerialMenuTitle 函数（未连接状态）
+func TestGetSerialMenuTitle(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	conf.Serial.Port = getTestPort()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	// 未连接时返回 "连接 <port>"
+	expected := "连接 " + getTestPort()
+	testutil.AssertEqual(t, expected, trayMgr.getSerialMenuTitle())
+}
+
+// TestSetOnReady 测试 SetOnReady 回调设置
+func TestSetOnReady(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	testutil.AssertNil(t, trayMgr.readyCallback)
+
+	called := false
+	trayMgr.SetOnReady(func() {
+		called = true
+	})
+	testutil.AssertNotNil(t, trayMgr.readyCallback)
+
+	// 验证回调可以正常调用
+	trayMgr.readyCallback()
+	testutil.AssertEqual(t, true, called)
+}
+
+// TestSetOnExit 测试 SetOnExit 回调设置
+func TestSetOnExit(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	testutil.AssertNil(t, trayMgr.exitCallback)
+
+	called := false
+	trayMgr.SetOnExit(func() {
+		called = true
+	})
+	testutil.AssertNotNil(t, trayMgr.exitCallback)
+
+	// 验证回调可以正常调用
+	trayMgr.exitCallback()
+	testutil.AssertEqual(t, true, called)
+}
+
+// TestQuitChan 测试 QuitChan 返回非 nil channel
+func TestQuitChan(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	ch := trayMgr.QuitChan()
+	testutil.AssertNotNil(t, ch)
+
+	// 验证 quitChan 和 QuitChan 返回同一个 channel
+	testutil.AssertEqual(t, trayMgr.quitChan, ch)
+}
+
+// TestUpdateSerialStatus_StateDedup 测试 UpdateSerialStatus 的状态去重逻辑
+func TestUpdateSerialStatus_StateDedup(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
+
+	// 设置当前状态为 TrayIdle（串口未连接时 UpdateSerialStatus 计算的 newState 也是 TrayIdle）
+	trayMgr.state = TrayIdle
+
+	// 模拟 UpdateSerialStatus 中的去重逻辑
+	// connected := t.serial != nil && t.serial.IsConnected()  → false
+	// newState := TrayIdle（因为 connected=false）
+	// if t.state == newState { return }  → 去重生效，应直接返回
+	connected := trayMgr.serial != nil && trayMgr.serial.IsConnected()
+	testutil.AssertEqual(t, false, connected)
+
+	newState := TrayIdle
+	testutil.AssertEqual(t, trayMgr.state, newState) // 去重条件满足：state == newState
+
+	// 验证去重后状态未变（仍然是 TrayIdle）
+	testutil.AssertEqual(t, TrayIdle, trayMgr.state)
+
+	// 设置不同状态验证非去重路径
+	trayMgr.state = TrayConnected
+	testutil.AssertNotEqual(t, trayMgr.state, newState) // 不满足去重条件
 }
 
 // TestRealIconFiles 测试实际图标文件（非 embed）

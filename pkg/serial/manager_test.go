@@ -13,8 +13,17 @@ import (
 	"github.com/yourname/serialhub/internal/testutil"
 )
 
+func getTestPort() string {
+	port := os.Getenv("SERIALHUB_TEST_PORT")
+	if port == "" {
+		port = "COM9"
+	}
+	return port
+}
+
 // TestNewSerialManager 测试创建串口管理器
 func TestNewSerialManager(t *testing.T) {
+	testPort := getTestPort()
 	tests := []struct {
 		name    string
 		cfg     *Config
@@ -23,7 +32,7 @@ func TestNewSerialManager(t *testing.T) {
 		{
 			name: "正常创建",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     testPort,
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "none",
@@ -35,7 +44,7 @@ func TestNewSerialManager(t *testing.T) {
 			name: "使用默认配置",
 			cfg: func() *Config {
 				cfg := DefaultConfig()
-				cfg.Port = "COM9"
+				cfg.Port = testPort
 				return cfg
 			}(),
 			wantErr: false,
@@ -272,7 +281,7 @@ func TestWriteLine(t *testing.T) {
 // TestListPorts 测试列出串口
 func TestListPorts(t *testing.T) {
 	cfg := &Config{
-		Port:     "COM9",
+		Port:     getTestPort(),
 		BaudRate: 115200,
 	}
 
@@ -298,7 +307,7 @@ func TestListPorts(t *testing.T) {
 // TestUpdateConfig 测试更新配置
 func TestUpdateConfig(t *testing.T) {
 	cfg := &Config{
-		Port:     "COM9",
+		Port:     getTestPort(),
 		BaudRate: 115200,
 	}
 
@@ -474,7 +483,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "正常配置",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "none",
@@ -485,7 +494,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "9600 波特率",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 9600,
 				DataBits: 8,
 				Parity:   "none",
@@ -496,7 +505,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "Even 校验",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "even",
@@ -507,7 +516,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "Odd 校验",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "odd",
@@ -518,7 +527,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "2 停止位",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "none",
@@ -529,7 +538,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "7 数据位",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 7,
 				Parity:   "none",
@@ -540,7 +549,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "无效波特率",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: -1,
 				DataBits: 8,
 			},
@@ -549,7 +558,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "无效数据位",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 9,
 			},
@@ -558,7 +567,7 @@ func TestConfigToMode(t *testing.T) {
 		{
 			name: "无效校验位",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "invalid",
@@ -566,13 +575,24 @@ func TestConfigToMode(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "无效停止位",
+			name: "1.5 停止位",
 			cfg: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200,
 				DataBits: 8,
 				Parity:   "none",
 				StopBits: 1.5,
+			},
+			wantErr: false,
+		},
+		{
+			name: "无效停止位",
+			cfg: &Config{
+				Port:     getTestPort(),
+				BaudRate: 115200,
+				DataBits: 8,
+				Parity:   "none",
+				StopBits: 3,
 			},
 			wantErr: true,
 		},
@@ -595,7 +615,7 @@ func TestConfigToMode(t *testing.T) {
 // TestConfigString 测试配置字符串表示
 func TestConfigString(t *testing.T) {
 	cfg := &Config{
-		Port:     "COM9",
+		Port:     getTestPort(),
 		BaudRate: 115200,
 		DataBits: 8,
 		Parity:   "none",
@@ -603,7 +623,7 @@ func TestConfigString(t *testing.T) {
 	}
 
 	str := cfg.String()
-	expected := "COM9@115200 8N1"
+	expected := getTestPort() + "@115200 8N1"
 	if str != expected {
 		t.Errorf("String() = %s, want %s", str, expected)
 	}
@@ -619,9 +639,9 @@ func TestParsePort(t *testing.T) {
 	}{
 		{
 			name:    "简单端口名",
-			portStr: "COM9",
+			portStr: getTestPort(),
 			want: &Config{
-				Port:     "COM9",
+				Port:     getTestPort(),
 				BaudRate: 115200, // 默认值
 				DataBits: 8,
 				Parity:   "none",
@@ -707,7 +727,7 @@ func TestHW1_SerialManager(t *testing.T) {
 	// 从环境变量读取配置
 	testPort := os.Getenv("SERIALHUB_TEST_PORT")
 	if testPort == "" {
-		testPort = "COM9"
+		testPort = getTestPort()
 	}
 
 	baudRate := 115200
@@ -865,7 +885,7 @@ cleared1:
 // TestGetConfig 测试获取配置
 func TestGetConfig(t *testing.T) {
 	cfg := &Config{
-		Port:     "COM9",
+		Port:     getTestPort(),
 		BaudRate: 115200,
 	}
 

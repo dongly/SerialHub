@@ -11,7 +11,6 @@ import (
 	serial "go.bug.st/serial"
 
 	"github.com/sirupsen/logrus"
-	"github.com/yourname/serialhub/internal/service"
 )
 
 // EventType 定义串口事件类型
@@ -50,6 +49,7 @@ type SerialManager struct {
 	mu           sync.RWMutex
 	ctx          context.Context
 	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 	logger       *logrus.Logger
 	eventHandler EventHandler
 }
@@ -102,19 +102,14 @@ func (sm *SerialManager) Connect() error {
 	}
 
 	sm.port = port
-	logrus.Infof("[SerialHub] 串口已连接: %s", sm.config.String())
 
-	svc := service.NewServiceManager()
-	if err := svc.SaveLastSerial(&service.LastSerialConfig{
-		Port:     sm.config.Port,
-		BaudRate: sm.config.BaudRate,
-		DataBits: sm.config.DataBits,
-		Parity:   sm.config.Parity,
-		StopBits: sm.config.StopBits,
-	}); err != nil {
-		logrus.Warnf("[SerialHub] 保存串口配置失败: %v", err)
+	if err := port.SetReadTimeout(500 * time.Millisecond); err != nil {
+		logrus.Warnf("[SerialHub] 设置读超时失败: %v", err)
 	}
 
+	logrus.Infof("[SerialHub] 串口已连接: %s", sm.config.String())
+
+	sm.wg.Add(1)
 	go sm.readLoop()
 
 	sm.emitEvent(Event{
@@ -267,6 +262,7 @@ func (sm *SerialManager) ErrChan() <-chan error {
 // Close closes the manager and cleans up resources
 func (sm *SerialManager) Close() error {
 	sm.cancel()
+	sm.wg.Wait()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -285,6 +281,7 @@ func (sm *SerialManager) Close() error {
 
 // readLoop continuously reads data from the serial port
 func (sm *SerialManager) readLoop() {
+	defer sm.wg.Done()
 	buf := make([]byte, 1024)
 	logrus.Debug("[SerialHub] 串口读取循环已启动")
 
@@ -299,14 +296,18 @@ func (sm *SerialManager) readLoop() {
 			sm.mu.RUnlock()
 
 			if port == nil {
-				continue
+				logrus.Debug("[SerialHub] 串口已关闭，退出读取循环")
+				return
 			}
 
 			n, err := port.Read(buf)
 			if err != nil {
 				if err == io.EOF {
 					logrus.Warn("[SerialHub] 串口连接已关闭 (EOF)")
-					sm.errChan <- fmt.Errorf("串口连接已关闭")
+					select {
+					case sm.errChan <- fmt.Errorf("串口连接已关闭"):
+					case <-sm.ctx.Done():
+					}
 					sm.emitEvent(Event{
 						Type:    EventDisconnected,
 						Port:    sm.CurrentPort(),
@@ -316,7 +317,11 @@ func (sm *SerialManager) readLoop() {
 				}
 				errMsg := fmt.Errorf("读取错误: %w", err)
 				logrus.Errorf("[SerialHub] 串口读取错误: %v", err)
-				sm.errChan <- errMsg
+				select {
+				case sm.errChan <- errMsg:
+				case <-sm.ctx.Done():
+					return
+				}
 				sm.emitEvent(Event{
 					Type:    EventError,
 					Port:    sm.CurrentPort(),
