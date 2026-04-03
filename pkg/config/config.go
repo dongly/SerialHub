@@ -29,6 +29,7 @@ type Config struct {
 	Serial SerialConfig
 	Telnet TelnetConfig
 	MCP    MCPConfig
+	LogDir string `json:"logDir"`
 	Debug  bool
 }
 

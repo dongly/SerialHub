@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
@@ -60,9 +62,8 @@ func main() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	setupLogger()
-
 	cfg := loadConfig()
+	setupLogger(cfg)
 	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", version)
 	logrus.Info("[SerialHub] 运行模式: serve")
 
@@ -171,6 +172,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	trayMgr.Run(context.Background())
 
 	logrus.Info("[SerialHub] 正在关闭...")
+	closeLogger()
 	return nil
 }
 
@@ -230,20 +232,48 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	<-sigChan
 
 	logrus.Info("[SerialHub] 正在关闭...")
+	closeLogger()
 	telnetSrv.Stop()
 	return nil
 }
 
-func setupLogger() {
-	if debugMode {
+var logFile *os.File
+
+func setupLogger(cfg *config.Config) {
+	if debugMode || cfg.Debug {
 		logrus.SetLevel(logrus.DebugLevel)
 	} else {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
-	logrus.SetFormatter(&logrus.TextFormatter{
+
+	formatter := &logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
-	})
+		DisableColors:   true,
+	}
+
+	dir := cfg.LogDir
+	if dir == "" {
+		exePath, _ := os.Executable()
+		dir = filepath.Join(filepath.Dir(exePath), "logs")
+	}
+	os.MkdirAll(dir, 0755)
+
+	var err error
+	logFile, err = os.OpenFile(filepath.Join(dir, "serialhub.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		logrus.SetFormatter(formatter)
+		return
+	}
+
+	logrus.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	logrus.SetFormatter(formatter)
+}
+
+func closeLogger() {
+	if logFile != nil {
+		logFile.Close()
+	}
 }
 
 func loadConfig() *config.Config {
