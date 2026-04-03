@@ -9,6 +9,68 @@ MCU ←→ 串口 ←→ SerialHub
                   └→ AI Interface (MCP HTTP)
 ```
 
+## MCP (Model Context Protocol) 快速参考
+
+SerialHub 通过 MCP HTTP 接口提供串口操作能力，AI 工具可直接调用。
+
+### 端点
+- **健康检查**: `GET http://127.0.0.1:5000/health`
+- **MCP 服务**: `POST http://127.0.0.1:5000/mcp`
+
+### 可用工具
+
+| 工具名 | 功能 | 必需参数 |
+|--------|------|----------|
+| `serial_list` | 列出可用串口 | 无 |
+| `serial_status` | 获取连接状态 | 无 |
+| `serial_connect` | 连接串口 | `port`, `baudRate` |
+| `serial_disconnect` | 断开连接 | 无 |
+| `serial_write` | 写入数据 | `data` |
+| `serial_read` | 读取数据 | `timeout` |
+
+### 调用示例 (Python)
+
+```python
+import requests
+
+# 连接串口
+requests.post("http://127.0.0.1:5000/mcp", json={
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+        "name": "serial_connect",
+        "arguments": {"port": "COM4", "baudRate": 115200}
+    },
+    "id": 1
+})
+
+# 写入数据
+requests.post("http://127.0.0.1:5000/mcp", json={
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+        "name": "serial_write",
+        "arguments": {"data": "Hello", "addNewline": True}
+    },
+    "id": 2
+})
+
+# 读取数据
+response = requests.post("http://127.0.0.1:5000/mcp", json={
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+        "name": "serial_read",
+        "arguments": {"timeout": 3000}
+    },
+    "id": 3
+})
+# response.json()["result"]["content"][0]["text"] 包含读取的数据
+```
+
+### 完整文档
+详见项目根目录 `MCP.md` 文件。
+
 ## 技术栈
 
 Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | spf13/cobra | BurntSushi/toml | getlantern/systray | sirupsen/logrus
