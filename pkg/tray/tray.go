@@ -467,14 +467,20 @@ func (t *TrayManager) UpdateState(state TrayState) {
 
 func (t *TrayManager) UpdateSerialStatus() {
 	connected := t.serial != nil && t.serial.IsConnected()
-	logrus.Debugf("[SerialHub] UpdateSerialStatus: connected=%v, serial=%v", connected, t.serial != nil)
+
+	newState := TrayIdle
+	tooltip := "SerialHub - 未连接"
 	if connected {
-		t.UpdateState(TrayConnected)
-		systray.SetTooltip(fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort()))
-	} else {
-		t.UpdateState(TrayIdle)
-		systray.SetTooltip("SerialHub - 未连接")
+		newState = TrayConnected
+		tooltip = fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort())
 	}
+
+	if t.state == newState {
+		return
+	}
+
+	t.UpdateState(newState)
+	systray.SetTooltip(tooltip)
 	t.mSerial.SetTitle(t.getSerialMenuTitle())
 }
 
@@ -510,8 +516,6 @@ func (t *TrayManager) getIcon() []byte {
 		return []byte{}
 	}
 
-	imageCount := int(data[4]) | int(data[5])<<8
-	logrus.Infof("[SerialHub] 加载图标 %s: %d bytes, %d 个图像尺寸", iconPath, len(data), imageCount)
 	return data
 }
 

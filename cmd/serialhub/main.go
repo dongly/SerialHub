@@ -116,7 +116,6 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 				logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
 			} else {
 				logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
-				trayMgr.UpdateSerialStatus()
 			}
 		}
 
