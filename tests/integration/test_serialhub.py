@@ -21,6 +21,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -59,9 +60,20 @@ def ensure_binary() -> Path:
 
 
 def find_free_port() -> int:
+    """分配一个可用端口，通过 SO_REUSEADDR 设置降低端口被抢占的风险。"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _collect_output(proc: subprocess.Popen, output: dict, key: str) -> None:
+    """后台线程：持续读取子进程输出，避免 PIPE 死锁并收集日志用于诊断。"""
+    try:
+        data = getattr(proc, key).read()
+        output[key] = data.decode("utf-8", errors="replace") if data else ""
+    except Exception:
+        output[key] = ""
 
 
 def wait_for_health(mcp_port: int, timeout: float = 10) -> requests.Response:
@@ -77,7 +89,13 @@ def wait_for_health(mcp_port: int, timeout: float = 10) -> requests.Response:
     raise TimeoutError(f"健康检查超时: mcp_port={mcp_port}")
 
 
-def mcp_call(mcp_port: int, method: str, params: dict = None, req_id: int = 1) -> dict:
+def mcp_call(
+    mcp_port: int,
+    method: str,
+    params: dict = None,
+    req_id: int = 1,
+    max_retries: int = 3,
+) -> dict:
     """调用 MCP 工具（StreamableHTTP Stateless 模式，无需 session ID）"""
     body = {"jsonrpc": "2.0", "method": method, "id": req_id}
     if params is not None:
@@ -88,14 +106,26 @@ def mcp_call(mcp_port: int, method: str, params: dict = None, req_id: int = 1) -
         "Accept": "application/json, text/event-stream",
     }
 
-    resp = requests.post(
-        f"http://127.0.0.1:{mcp_port}/mcp",
-        json=body,
-        headers=headers,
-        timeout=10,
-    )
-    assert resp.status_code == 200, f"MCP 请求失败: {resp.status_code} {resp.text}"
-    return resp.json()
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                f"http://127.0.0.1:{mcp_port}/mcp",
+                json=body,
+                headers=headers,
+                timeout=10,
+            )
+            assert resp.status_code == 200, (
+                f"MCP 请求失败: {resp.status_code} {resp.text}"
+            )
+            return resp.json()
+        except (requests.ConnectionError, requests.exceptions.ConnectionError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                time.sleep(0.5)
+            continue
+
+    raise last_error if last_error else Exception("MCP 调用失败")
 
 
 # ─── Fixtures ──────────────────────────────────────────
@@ -108,30 +138,74 @@ def binary() -> Path:
 
 @pytest.fixture
 def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
-    """启动 serialhub --no-tray 并返回连接信息，测试结束后自动停止。"""
+    """启动 serialhub --no-tray 并返回连接信息，测试结束后自动停止。
+
+    使用高端口范围（40000+）避免与系统服务或默认端口冲突，
+    并在启动失败时收集服务器日志输出用于诊断。
+    """
     if os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1":
         pytest.skip("集成测试未启用，设置 SERIALHUB_INTEGRATION_TEST=1")
 
-    telnet_port = find_free_port()
-    mcp_port = find_free_port()
     log_dir = tmp_path / "logs"
+    proc = None
+    last_error = None
 
-    proc = subprocess.Popen(
-        [
-            str(binary),
-            "--no-tray",
-            "--telnet-port",
-            str(telnet_port),
-            "--mcp-port",
-            str(mcp_port),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env={**os.environ, "SERIALHUB_LOG_DIR": str(log_dir)},
-    )
+    for attempt in range(3):
+        # 使用 40000-60000 范围内的随机端口，避免与系统常用端口冲突
+        telnet_port = find_free_port()
+        mcp_port = find_free_port()
+
+        proc = subprocess.Popen(
+            [
+                str(binary),
+                "--no-tray",
+                "--telnet-port",
+                str(telnet_port),
+                "--mcp-port",
+                str(mcp_port),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "SERIALHUB_LOG_DIR": str(log_dir)},
+        )
+
+        # 后台读取输出，避免 PIPE 缓冲区满导致子进程挂死
+        output: dict[str, str] = {}
+        stdout_thread = threading.Thread(
+            target=_collect_output, args=(proc, output, "stdout"), daemon=True
+        )
+        stderr_thread = threading.Thread(
+            target=_collect_output, args=(proc, output, "stderr"), daemon=True
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            wait_for_health(mcp_port, timeout=15)
+        except TimeoutError:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=3)
+            proc = None
+
+            last_error = (
+                f"健康检查超时 (attempt {attempt + 1}/3): "
+                f"mcp_port={mcp_port}, telnet_port={telnet_port}\n"
+            )
+            if output.get("stderr"):
+                last_error += f"stderr: {output['stderr'][:2000]}\n"
+            if output.get("stdout"):
+                last_error += f"stdout: {output['stdout'][:2000]}\n"
+            continue
+
+        break
+    else:
+        raise RuntimeError(f"服务器启动失败，已重试 3 次:\n{last_error}")
 
     try:
-        wait_for_health(mcp_port)
         yield {
             "proc": proc,
             "telnet_port": telnet_port,
@@ -139,11 +213,13 @@ def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
             "log_dir": log_dir,
         }
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=3)
 
 
 # ─── 1. CLI 基础测试（不需要服务器）──────────────────────
@@ -289,6 +365,7 @@ httpPort = {mcp_port}
                 stderr=subprocess.PIPE,
             )
             try:
+                time.sleep(1.0)  # 给服务器更多启动时间
                 wait_for_health(mcp_port)
                 resp = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=5)
                 assert resp.status_code == 200
