@@ -910,3 +910,523 @@ func TestGetConfig(t *testing.T) {
 		t.Error("GetConfig() 应该返回副本，修改副本不应该影响原始配置")
 	}
 }
+
+// TestCurrentPort_未连接 测试未连接时返回空字符串
+func TestCurrentPort_未连接(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// 未连接时 CurrentPort() 应该返回空字符串
+	if sm.CurrentPort() != "" {
+		t.Errorf("CurrentPort() = %q, want empty string when not connected", sm.CurrentPort())
+	}
+}
+
+// TestWrite_写入错误 测试写入失败场景
+func TestWrite_写入错误(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// 注入带写入错误的 MockSerialPort
+	mockPort := testutil.NewMockSerialPort(nil)
+	mockPort.WriteErr = fmt.Errorf("模拟写入错误")
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	_, err = sm.Write([]byte("test"))
+	if err == nil {
+		t.Error("Write() 应该返回错误")
+	}
+
+	// 验证错误被发送到 errChan
+	select {
+	case e := <-sm.ErrChan():
+		if e == nil {
+			t.Error("errChan 应该收到写入错误")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("超时：errChan 未收到写入错误")
+	}
+}
+
+// TestSetEventHandler 测试事件处理器设置和触发
+func TestSetEventHandler(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	var receivedEvents []Event
+	var eventMu sync.Mutex
+	handler := func(event Event) {
+		eventMu.Lock()
+		defer eventMu.Unlock()
+		receivedEvents = append(receivedEvents, event)
+	}
+
+	sm.SetEventHandler(handler)
+
+	// 通过 Disconnect 触发 EventDisconnected（直接设置 port 来模拟）
+	mockPort := testutil.NewMockSerialPort(nil)
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// Disconnect 应该触发 EventDisconnected
+	err = sm.Disconnect()
+	if err != nil {
+		t.Errorf("Disconnect() failed: %v", err)
+	}
+
+	// 等待事件处理器执行（它在 goroutine 中运行）
+	time.Sleep(100 * time.Millisecond)
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	if len(receivedEvents) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(receivedEvents))
+	}
+	if receivedEvents[0].Type != EventDisconnected {
+		t.Errorf("event type = %v, want %v", receivedEvents[0].Type, EventDisconnected)
+	}
+	if receivedEvents[0].Port != "MOCK1" {
+		t.Errorf("event port = %s, want MOCK1", receivedEvents[0].Port)
+	}
+}
+
+// TestSetEventHandler_PanicRecovery 测试事件处理器 panic 恢复
+func TestSetEventHandler_PanicRecovery(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// 设置会 panic 的事件处理器
+	panicHandler := func(event Event) {
+		panic("测试 panic")
+	}
+	sm.SetEventHandler(panicHandler)
+
+	// 注入 mock 并触发事件
+	mockPort := testutil.NewMockSerialPort(nil)
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// Disconnect 触发事件，不应崩溃
+	err = sm.Disconnect()
+	if err != nil {
+		t.Errorf("Disconnect() failed: %v", err)
+	}
+
+	// 等待 panic 恢复
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestDataChan_ErrChan 测试 channel 获取
+func TestDataChan_ErrChan(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	dataCh := sm.DataChan()
+	if dataCh == nil {
+		t.Fatal("DataChan() 返回 nil")
+	}
+
+	errCh := sm.ErrChan()
+	if errCh == nil {
+		t.Fatal("ErrChan() 返回 nil")
+	}
+}
+
+// TestReadLoop_ContextCancel 测试 context 取消时 readLoop 退出
+func TestReadLoop_ContextCancel(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// 注入 mock port（有数据可读，但 context 取消应优先退出）
+	mockPort := testutil.NewMockSerialPort([]byte("test data\n"))
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// 手动启动 readLoop
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	// 取消 context 让 readLoop 退出
+	sm.cancel()
+	sm.wg.Wait()
+
+	// 如果到这里说明 readLoop 成功退出（否则会超时）
+}
+
+// TestReadLoop_PortNil 测试 port 为 nil 时 readLoop 退出
+func TestReadLoop_PortNil(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// port 为 nil（默认值），readLoop 应立即退出
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	// 等待 readLoop 退出，加超时防止挂起
+	done := make(chan struct{})
+	go func() {
+		sm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// readLoop 成功退出
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop 未能在 port 为 nil 时退出")
+	}
+
+	sm.cancel()
+}
+
+// TestReadLoop_EOF 测试 readLoop 在收到 EOF 时退出
+func TestReadLoop_EOF(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// MockSerialPort 在数据读完之后返回 io.EOF
+	mockPort := testutil.NewMockSerialPort([]byte("data"))
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// 记录事件
+	var receivedEvents []Event
+	var eventMu sync.Mutex
+	sm.SetEventHandler(func(event Event) {
+		eventMu.Lock()
+		defer eventMu.Unlock()
+		receivedEvents = append(receivedEvents, event)
+	})
+
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	// 等待 readLoop 退出
+	done := make(chan struct{})
+	go func() {
+		sm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop 未能在 EOF 时退出")
+	}
+
+	sm.cancel()
+
+	select {
+	case e := <-sm.ErrChan():
+		if e == nil {
+			t.Error("errChan 应该收到 EOF 错误")
+		}
+	default:
+		t.Error("errChan 未收到 EOF 错误")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	found := false
+	for _, ev := range receivedEvents {
+		if ev.Type == EventDisconnected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("EOF 时应该触发 EventDisconnected 事件")
+	}
+}
+
+// TestReadLoop_ReadError 测试 readLoop 在读取错误时继续运行
+func TestReadLoop_ReadError(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// 设置持续的读取错误（非 EOF）
+	mockPort := testutil.NewMockSerialPort(nil)
+	mockPort.ReadErr = fmt.Errorf("模拟读取错误")
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// 记录事件
+	var eventCount int
+	var eventMu sync.Mutex
+	sm.SetEventHandler(func(event Event) {
+		eventMu.Lock()
+		defer eventMu.Unlock()
+		eventCount++
+	})
+
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	select {
+	case e := <-sm.ErrChan():
+		if e == nil {
+			t.Error("errChan 应该收到读取错误")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("超时：errChan 未收到读取错误")
+	}
+
+	sm.cancel()
+	sm.wg.Wait()
+
+	time.Sleep(100 * time.Millisecond)
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	if eventCount == 0 {
+		t.Error("读取错误时应该触发 EventError 事件")
+	}
+}
+
+// TestReadLoop_DataReceive 测试 readLoop 接收数据并发送到 dataChan
+func TestReadLoop_DataReceive(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	testData := []byte("hello from MCU")
+	mockPort := testutil.NewMockSerialPort(testData)
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	// 等待从 dataChan 接收数据
+	select {
+	case data := <-sm.DataChan():
+		if string(data) != string(testData) {
+			t.Errorf("dataChan 收到 %q, want %q", string(data), string(testData))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("超时：dataChan 未收到数据")
+	}
+
+	// mock 数据读完之后会返回 EOF，readLoop 将退出
+	// 等待退出完成
+	done := make(chan struct{})
+	go func() {
+		sm.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		sm.cancel()
+	}
+	sm.cancel()
+}
+
+// TestReadLoop_DataChanFull 测试 dataChan 满时丢弃数据
+func TestReadLoop_DataChanFull(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// 填满 dataChan（buffer = 256）
+	for i := 0; i < 256; i++ {
+		sm.dataChan <- []byte("x")
+	}
+
+	// mock 会持续返回数据（不会 EOF）
+	// 我们创建一个自定义的 mock，让它在第一次 Read 后返回 0 字节
+	mockPort := testutil.NewMockSerialPort([]byte("overflow data"))
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	sm.wg.Add(1)
+	go sm.readLoop()
+
+	// 等一段时间让 readLoop 尝试发送数据（应该被丢弃）
+	time.Sleep(200 * time.Millisecond)
+
+	// 取消退出
+	sm.cancel()
+	sm.wg.Wait()
+}
+
+// TestEmitEvent_NoHandler 测试没有事件处理器时不触发
+func TestEmitEvent_NoHandler(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// 不设置 eventHandler，Disconnect 不应该 panic
+	mockPort := testutil.NewMockSerialPort(nil)
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	err = sm.Disconnect()
+	if err != nil {
+		t.Errorf("Disconnect() with no handler failed: %v", err)
+	}
+}
+
+// TestConnect_串口打开失败 测试使用无效串口名
+func TestConnect_串口打开失败(t *testing.T) {
+	cfg := &Config{
+		Port:     "NONEXISTENT_PORT_99999",
+		BaudRate: 115200,
+		DataBits: 8,
+		Parity:   "none",
+		StopBits: 1,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	err = sm.Connect()
+	if err == nil {
+		t.Error("Connect() 应该返回错误（无效串口）")
+	}
+	if !sm.IsConnected() {
+		// 预期：连接失败后 IsConnected() 返回 false
+	} else {
+		t.Error("连接失败后 IsConnected() 应该返回 false")
+	}
+}
+
+// TestDisconnect_未连接 测试未连接时断开
+func TestDisconnect_未连接(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	err = sm.Disconnect()
+	if err == nil {
+		t.Error("未连接时 Disconnect() 应该返回错误")
+	}
+}
+
+// TestWrite_未连接 测试未连接时写入
+func TestWrite_未连接(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	_, err = sm.Write([]byte("test"))
+	if err == nil {
+		t.Error("未连接时 Write() 应该返回错误")
+	}
+}

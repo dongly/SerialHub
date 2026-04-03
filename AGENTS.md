@@ -88,7 +88,7 @@ import (
 - 日志前缀：`logrus` + `[SerialHub]`
 - 清理方法：`Close()` 或 `Stop()`
 - Channel 初始化：`make(chan []byte, bufferSize)`
-- 测试描述用中文：`func Test应正确创建实例(t *testing.T)`
+- 测试描述用中文：`func TestXxxx(t *testing.T)`
 
 ## 架构原则
 
