@@ -545,3 +545,88 @@ class TestSerialHardware:
         assert "result" in read_result
 
         mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+    def test_hardware_end_to_end(self, serialhub_server):
+        """硬件端到端测试：发送 version 和 help 命令验证响应"""
+        port = get_test_port()
+        info = serialhub_server
+
+        # 连接串口
+        connect_result = mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_connect",
+                "arguments": {"port": port},
+            },
+        )
+        content_text = ""
+        for item in connect_result["result"].get("content", []):
+            if item.get("type") == "text":
+                content_text += item.get("text", "")
+
+        if "失败" in content_text:
+            pytest.skip(f"串口 {port} 不可用")
+
+        time.sleep(0.5)
+
+        # 测试 1: 发送 version 命令
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_write",
+                "arguments": {"data": "version", "addNewline": True},
+            },
+        )
+
+        read_result = mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_read",
+                "arguments": {"timeout": 3000},
+            },
+        )
+
+        content_text = ""
+        for item in read_result["result"].get("content", []):
+            if item.get("type") == "text":
+                content_text += item.get("text", "")
+
+        # 验证 RT-Thread 响应
+        assert "Thread" in content_text or "RT-Thread" in content_text, (
+            f"version 响应不包含 Thread: {content_text[:100]}"
+        )
+
+        # 测试 2: 发送 help 命令
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_write",
+                "arguments": {"data": "help", "addNewline": True},
+            },
+        )
+
+        read_result = mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_read",
+                "arguments": {"timeout": 3000},
+            },
+        )
+
+        content_text = ""
+        for item in read_result["result"].get("content", []):
+            if item.get("type") == "text":
+                content_text += item.get("text", "")
+
+        # 验证 help 响应包含命令列表
+        assert "commands" in content_text.lower() or "list" in content_text.lower(), (
+            f"help 响应不包含命令列表: {content_text[:100]}"
+        )
+
+        # 断开连接
+        mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
