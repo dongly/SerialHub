@@ -33,6 +33,7 @@ var (
 	mcpPort    int
 	host       string
 	noTray     bool
+	minimized  bool
 )
 
 func main() {
@@ -52,6 +53,7 @@ func main() {
 	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&noTray, "no-tray", false, "禁用系统托盘")
+	rootCmd.Flags().BoolVar(&minimized, "minimized", false, "由脚本启动，窗口最小化")
 
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", version))
@@ -86,9 +88,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, _ bool) error {
 	logrus.Debug("[SerialHub] 系统托盘模式已启用")
-	tray.HideConsole()
 
-	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version)
+	// 由 start.ps1 启动时（minimized=true）：禁用关闭键，隐藏窗口，显示"显示/隐藏窗口"菜单
+	// 直接双击启动时（minimized=false）：不禁用关闭键，窗口正常显示，不显示"显示/隐藏窗口"菜单
+	if minimized {
+		tray.DisableCloseButton()
+		tray.HideConsole()
+	}
+
+	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
 
 	if sm != nil {
 		sm.SetEventHandler(func(event serial.Event) {

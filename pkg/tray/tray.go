@@ -25,30 +25,32 @@ const (
 type OnReadyFunc func()
 
 type TrayManager struct {
-	serial         *serial.SerialManager
-	config         *config.Config
-	telnetPort     int
-	mcpPort        int
-	version        string
-	state          TrayState
-	quitChan       chan struct{}
-	readyCallback  OnReadyFunc
-	exitCallback   func()
-	mSerial        *systray.MenuItem
-	mSelectPort    *systray.MenuItem
-	mRefresh       *systray.MenuItem
-	mPortItems     map[string]*systray.MenuItem
-	mBaudRate      *systray.MenuItem
-	mBaudRateItems map[int]*systray.MenuItem
-	mDataBits      *systray.MenuItem
-	mDataBitsItems map[int]*systray.MenuItem
-	mStopBits      *systray.MenuItem
-	mStopBitsItems map[float64]*systray.MenuItem
-	mParity        *systray.MenuItem
-	mParityItems   map[string]*systray.MenuItem
-	mCurrentConfig *systray.MenuItem
-	mNetworkStatus *systray.MenuItem
-	mShowLog       *systray.MenuItem
+	serial          *serial.SerialManager
+	config          *config.Config
+	telnetPort      int
+	mcpPort         int
+	version         string
+	state           TrayState
+	consoleVisible  bool // 控制台窗口当前是否可见
+	showConsoleMenu bool // 是否显示"显示/隐藏窗口"菜单
+	quitChan        chan struct{}
+	readyCallback   OnReadyFunc
+	exitCallback    func()
+	mSerial         *systray.MenuItem
+	mSelectPort     *systray.MenuItem
+	mRefresh        *systray.MenuItem
+	mPortItems      map[string]*systray.MenuItem
+	mBaudRate       *systray.MenuItem
+	mBaudRateItems  map[int]*systray.MenuItem
+	mDataBits       *systray.MenuItem
+	mDataBitsItems  map[int]*systray.MenuItem
+	mStopBits       *systray.MenuItem
+	mStopBitsItems  map[float64]*systray.MenuItem
+	mParity         *systray.MenuItem
+	mParityItems    map[string]*systray.MenuItem
+	mCurrentConfig  *systray.MenuItem
+	mNetworkStatus  *systray.MenuItem
+	mShowLog        *systray.MenuItem
 }
 
 var baudRates = []int{9600, 19200, 38400, 57600, 115200, 230400}
@@ -59,20 +61,22 @@ var parityList = []string{"none", "even", "odd"}
 //go:embed assets/*.ico
 var iconFS embed.FS
 
-func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, telnetPort, mcpPort int, version string) *TrayManager {
+func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, telnetPort, mcpPort int, version string, showConsoleMenu bool) *TrayManager {
 	return &TrayManager{
-		serial:         serialMgr,
-		config:         cfg,
-		telnetPort:     telnetPort,
-		mcpPort:        mcpPort,
-		version:        version,
-		state:          TrayIdle,
-		quitChan:       make(chan struct{}),
-		mPortItems:     make(map[string]*systray.MenuItem),
-		mBaudRateItems: make(map[int]*systray.MenuItem),
-		mDataBitsItems: make(map[int]*systray.MenuItem),
-		mStopBitsItems: make(map[float64]*systray.MenuItem),
-		mParityItems:   make(map[string]*systray.MenuItem),
+		serial:          serialMgr,
+		config:          cfg,
+		telnetPort:      telnetPort,
+		mcpPort:         mcpPort,
+		version:         version,
+		state:           TrayIdle,
+		consoleVisible:  false,
+		showConsoleMenu: showConsoleMenu,
+		quitChan:        make(chan struct{}),
+		mPortItems:      make(map[string]*systray.MenuItem),
+		mBaudRateItems:  make(map[int]*systray.MenuItem),
+		mDataBitsItems:  make(map[int]*systray.MenuItem),
+		mStopBitsItems:  make(map[float64]*systray.MenuItem),
+		mParityItems:    make(map[string]*systray.MenuItem),
 	}
 }
 
@@ -178,10 +182,11 @@ func (t *TrayManager) createMenu() {
 
 	systray.AddSeparator()
 
-	// 6. 显示日志
-	t.mShowLog = systray.AddMenuItem("显示日志", "显示日志窗口")
-
-	systray.AddSeparator()
+	// 6. 显示/隐藏窗口（仅当 showConsoleMenu=true 时显示）
+	if t.showConsoleMenu {
+		t.mShowLog = systray.AddMenuItem("显示窗口", "显示控制台窗口")
+		systray.AddSeparator()
+	}
 
 	// 7. 版本
 	mVersion := systray.AddMenuItem(fmt.Sprintf("版本 %s", t.version), "版本")
@@ -213,12 +218,14 @@ func (t *TrayManager) setupEventHandlers() {
 		}
 	}()
 
-	// 显示日志
-	go func() {
-		for range t.mShowLog.ClickedCh {
-			ShowConsole()
-		}
-	}()
+	// 显示/隐藏窗口（仅当菜单存在时注册）
+	if t.showConsoleMenu && t.mShowLog != nil {
+		go func() {
+			for range t.mShowLog.ClickedCh {
+				t.toggleConsoleWindow()
+			}
+		}()
+	}
 
 	// 波特率选择
 	for rate, item := range t.mBaudRateItems {
@@ -506,6 +513,20 @@ func (t *TrayManager) getIcon() []byte {
 	imageCount := int(data[4]) | int(data[5])<<8
 	logrus.Infof("[SerialHub] 加载图标 %s: %d bytes, %d 个图像尺寸", iconPath, len(data), imageCount)
 	return data
+}
+
+func (t *TrayManager) toggleConsoleWindow() {
+	if t.consoleVisible {
+		HideConsole()
+		t.consoleVisible = false
+		t.mShowLog.SetTitle("显示窗口")
+		logrus.Debug("[SerialHub] 菜单已更新: 显示窗口")
+	} else {
+		ShowConsole()
+		t.consoleVisible = true
+		t.mShowLog.SetTitle("隐藏窗口")
+		logrus.Debug("[SerialHub] 菜单已更新: 隐藏窗口")
+	}
 }
 
 func (t *TrayManager) toggleSerial() {

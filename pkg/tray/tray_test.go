@@ -31,7 +31,7 @@ func TestNewTrayManager(t *testing.T) {
 	defer serialMgr.Close()
 	config := config.GetDefault()
 
-	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0")
+	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0", false)
 	if tray == nil {
 		t.Fatal("NewTrayManager 返回 nil")
 	}
@@ -59,7 +59,7 @@ func TestUpdateState(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	config := config.GetDefault()
-	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0")
+	tray := NewTrayManager(serialMgr, config, 2323, 5000, "0.1.0", false)
 
 	// 只测试状态字段，不调用 systray.SetIcon（需要 GUI 环境）
 	tray.state = TrayConnected
@@ -83,7 +83,7 @@ func TestGetIcon(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0")
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
 	// 测试不同状态的图标加载
 	testCases := []struct {
@@ -177,7 +177,7 @@ func TestUpdateSerialStatus(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0")
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
 	// 只测试状态字段，不调用需要 systray 运行的方法
 	// UpdateSerialStatus 内部会调用 IsConnected()
@@ -216,7 +216,7 @@ func TestTrayManagerConfig(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tray := NewTrayManager(serialMgr, conf, tc.telnetPort, tc.mcpPort, tc.version)
+		tray := NewTrayManager(serialMgr, conf, tc.telnetPort, tc.mcpPort, tc.version, false)
 		if tray.telnetPort != tc.telnetPort {
 			t.Errorf("telnetPort = %d, want %d", tray.telnetPort, tc.telnetPort)
 		}
@@ -256,7 +256,7 @@ func BenchmarkGetIcon(b *testing.B) {
 	serialMgr, _ := serial.NewSerialManager(cfg)
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0")
+	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
