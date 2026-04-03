@@ -136,10 +136,22 @@ git commit -m "fix(serial): 修复断开连接后端口未释放的问题"
 ## 开发流程
 
 ```
-开发 → go vet → go build → go test → commit
+开发 → go vet → go build → go test → review → commit
 ```
 
 - `go vet ./...` — 零错误
 - `go build ./...` — 编译成功
 - `go test ./...` — 测试通过
+- **review** — 自查代码（见下方清单）
 - `git commit` — 遵循提交规范
+
+### Review 自查清单
+
+- [ ] 无 `as any`、`@ts-ignore` 等类型逃逸
+- [ ] 无空 `catch` 块
+- [ ] 无 `fmt.Println` 调试代码残留
+- [ ] 无注释掉的死代码
+- [ ] 导入顺序正确（标准库 → 第三方 → 本地）
+- [ ] 错误消息使用中文
+- [ ] 公有方法有文档注释
+- [ ] 新功能有对应测试
