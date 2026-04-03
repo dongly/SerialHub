@@ -15,14 +15,16 @@ SerialHub 集成测试 - 全功能覆盖
 
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
 
 import pytest
 import requests
@@ -76,12 +78,20 @@ def wait_for_health(mcp_port: int, timeout: float = 10) -> requests.Response:
 
 
 def mcp_call(mcp_port: int, method: str, params: dict = None, req_id: int = 1) -> dict:
+    """调用 MCP 工具（StreamableHTTP Stateless 模式，无需 session ID）"""
     body = {"jsonrpc": "2.0", "method": method, "id": req_id}
     if params is not None:
         body["params"] = params
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+
     resp = requests.post(
         f"http://127.0.0.1:{mcp_port}/mcp",
         json=body,
+        headers=headers,
         timeout=10,
     )
     assert resp.status_code == 200, f"MCP 请求失败: {resp.status_code} {resp.text}"
@@ -260,7 +270,7 @@ class TestConfigFile:
 
             config_path.write_text(f"""
 [serial]
-port = "{get_test_port()}"
+port = ""
 baudRate = 115200
 dataBits = 8
 parity = "none"
@@ -436,6 +446,7 @@ class TestLogging:
         with tempfile.TemporaryDirectory() as tmpdir:
             mcp_port = find_free_port()
             log_dir = Path(tmpdir) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
 
             proc = subprocess.Popen(
                 [str(binary), "--no-tray", "--debug", "--mcp-port", str(mcp_port)],
@@ -445,9 +456,9 @@ class TestLogging:
             )
             try:
                 wait_for_health(mcp_port)
-                time.sleep(0.5)
+                time.sleep(1.0)
                 log_files = list(log_dir.glob("*.log"))
-                assert len(log_files) > 0
+                assert len(log_files) > 0, f"日志目录 {log_dir} 中无日志文件"
                 content = log_files[0].read_text(encoding="utf-8", errors="ignore")
                 assert "level=debug" in content.lower() or "debug" in content.lower()
             finally:
