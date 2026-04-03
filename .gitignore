@@ -10,7 +10,6 @@ bin/
 *.tsbuildinfo
 
 # Go build
-*.exe
 *.exe~
 *.dll
 *.so
