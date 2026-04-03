@@ -38,18 +38,19 @@ go mod tidy                         # 整理依赖
 ## 文件结构
 
 ```
-cmd/serialhub/main.go        # CLI 主入口
-pkg/serial/                  # 串口管理（manager.go, config.go）
-pkg/telnet/                  # Telnet 服务（server.go, client.go）
-pkg/mcp/server.go            # MCP 服务（直接使用 SDK SSEHandler）
-pkg/mcp/tools/               # MCP 工具（serial_list/connect/disconnect/write/read/status）
-pkg/bridge/                  # 数据桥接（bridge.go, events.go）
-pkg/config/config.go         # Viper 配置
-pkg/tray/                    # 系统托盘（tray.go, assets/, console_*.go）
-internal/buffer/             # 数据缓冲区
-internal/service/            # 串口配置记忆
-internal/testutil/           # 测试工具（helpers, mock_serial, mock_net）
-tools/genicons.py            # 托盘图标生成（Python + PIL）
+cmd/serialhub/main.go           # CLI 主入口
+pkg/serial/                     # 串口管理（manager.go, config.go）
+pkg/telnet/                     # Telnet 服务（server.go, client.go）
+pkg/mcp/server.go               # MCP 服务（直接使用 SDK SSEHandler）
+pkg/mcp/tools/                  # MCP 工具（serial_list/connect/disconnect/write/read/status）
+pkg/bridge/                     # 数据桥接（bridge.go, events.go）
+pkg/config/config.go            # Viper 配置
+pkg/tray/                       # 系统托盘（tray.go, assets/, console_*.go）
+internal/buffer/                # 数据缓冲区（buffer.go）
+internal/service/               # 串口配置记忆（manager.go）
+internal/testutil/              # 测试工具（helpers.go, mock_serial.go, mock_net.go）
+tests/e2e/                      # 端到端硬件测试
+tools/genicons.py               # 托盘图标生成（Python + PIL）
 ```
 
 ## 代码风格
