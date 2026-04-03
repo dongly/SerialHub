@@ -178,7 +178,7 @@ import (
 - 测试描述用中文：`func Test应正确创建实例(t *testing.T)`
 
 ### 其他约定
-- **不做注释**（除非用户要求）——保持代码精简
+- 保留**简洁**的注释 -- 删除无必要的注释
 - 构造函数返回 error：`func NewSerialManager(cfg *Config) (*SerialManager, error)`
 - Getter 方法命名：`GetConfig()` 返回副本，`IsConnected()` 返回布尔值
 - 使用 `context.Context` 控制超时和取消
@@ -196,6 +196,53 @@ import (
 5. **MCP 工具模式**：每个工具文件定义 Input struct + execute 函数 + ToolResult
 6. **Context 传递**：所有阻塞操作接收 `context.Context`
 
+## Git 提交规范
+
+### 提交消息格式
+
+```
+<type>(<scope>): <subject>
+
+<body>
+```
+
+### Type 类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `feat` | 新功能 | `feat(tray): 添加串口选择菜单` |
+| `fix` | Bug 修复 | `fix(serial): 修复连接断开后的状态更新` |
+| `refactor` | 重构（不改变功能） | `refactor(cli): 简化启动流程` |
+| `test` | 测试相关 | `test(mcp): 添加硬件集成测试` |
+| `docs` | 文档更新 | `docs: 更新 README 安装说明` |
+| `chore` | 构建/工具/依赖 | `chore: 更新 Go 版本到 1.24` |
+| `style` | 代码格式（不影响逻辑） | `style: 统一导入顺序` |
+| `perf` | 性能优化 | `perf(buffer): 减少内存分配` |
+
+### Scope 范围
+
+常用模块：`serial`, `telnet`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`
+
+### 提交原则
+
+1. **原子提交**：每个 commit 只做一件事
+2. **频繁提交**：完成一个小功能就提交，不要累积
+3. **有意义的消息**：说明"为什么"，不只是"做了什么"
+4. **中文描述**：subject 和 body 使用中文
+
+### 示例
+
+```bash
+# 好的提交
+git commit -m "feat(tray): 添加串口自动重连功能"
+git commit -m "fix(serial): 修复断开连接后端口未释放的问题" -m "- 添加 defer port.Close() 确保资源释放" -m "- 更新状态前先检查连接"
+
+# 不好的提交
+git commit -m "update"           # 太模糊
+git commit -m "fix bug"          # 没说修复什么
+git commit -m "添加功能"          # 没有 type
+```
+
 ## 开发流程
 
 ```
@@ -207,4 +254,4 @@ import (
 - [ ] `go build ./...` — 编译成功
 - [ ] 在 `_test.go` 文件中添加/更新测试
 - [ ] `go test ./...` — 所有测试通过
-- [ ] `git commit` 提交更改
+- [ ] `git commit` 提交更改（遵循提交规范）

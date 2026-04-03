@@ -74,12 +74,112 @@ func runServe(cmd *cobra.Command, args []string) error {
 		sm = nil
 	}
 
-	// 自动连接串口
+	enableTray := !noTray && runtime.GOOS == "windows"
+	logrus.Debugf("[SerialHub] 托盘检查: noTray=%v, GOOS=%s, enableTray=%v", noTray, runtime.GOOS, enableTray)
+
+	if enableTray {
+		return runWithTray(cfg, sm, buf, enableTray)
+	}
+	return runWithoutTray(cfg, sm, buf)
+}
+
+func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, _ bool) error {
+	logrus.Info("[SerialHub] 系统托盘已启用")
+	tray.HideConsole()
+
+	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version)
+
+	if sm != nil {
+		sm.SetEventHandler(func(event serial.Event) {
+			trayMgr.UpdateSerialStatus()
+		})
+	}
+
+	var telnetSrv *telnet.TelnetServer
+	var cancelFunc context.CancelFunc
+
+	trayMgr.SetOnReady(func() {
+		_, cancel := context.WithCancel(context.Background())
+		cancelFunc = cancel
+
+		if sm != nil {
+			if err := sm.Connect(); err != nil {
+				logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
+			} else {
+				logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
+			}
+		}
+
+		var err error
+		telnetSrv, err = telnet.NewTelnetServer(host, telnetPort, func() string {
+			if sm != nil && sm.IsConnected() {
+				return sm.GetConfig().String()
+			}
+			return ""
+		})
+		if err != nil {
+			logrus.Errorf("[SerialHub] 创建 Telnet 服务失败: %v", err)
+			return
+		}
+		if err := telnetSrv.Start(); err != nil {
+			logrus.Errorf("[SerialHub] 启动 Telnet 服务失败: %v", err)
+			return
+		}
+		logrus.Infof("[SerialHub] Telnet 服务已启动: %s:%d", host, telnetPort)
+
+		if sm != nil {
+			bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
+			if err != nil {
+				logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
+			} else {
+				bridgeSrv.Start()
+				logrus.Info("[SerialHub] 数据桥接已启动")
+			}
+		}
+
+		mcpSrv, err := mcp.NewMCPServer(sm, buf, nil)
+		if err != nil {
+			logrus.Errorf("[SerialHub] 创建 MCP 服务失败: %v", err)
+			return
+		}
+		if err := mcpSrv.RegisterTools(); err != nil {
+			logrus.Errorf("[SerialHub] 注册 MCP 工具失败: %v", err)
+			return
+		}
+
+		addr := fmt.Sprintf("%s:%d", host, mcpPort)
+		if _, err := mcpSrv.StartHTTPServer(addr); err != nil {
+			logrus.Errorf("[SerialHub] 启动 HTTP 服务失败: %v", err)
+			return
+		}
+
+		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
+		logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
+		logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
+	})
+
+	trayMgr.SetOnExit(func() {
+		if cancelFunc != nil {
+			cancelFunc()
+		}
+		if telnetSrv != nil {
+			telnetSrv.Stop()
+		}
+	})
+
+	// systray.Run 必须在主线程调用，会阻塞直到 systray.Quit()
+	trayMgr.Run(context.Background())
+
+	logrus.Info("[SerialHub] 正在关闭...")
+	return nil
+}
+
+func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer) error {
 	if sm != nil {
 		if err := sm.Connect(); err != nil {
 			logrus.Warnf("[SerialHub] 自动连接串口失败: %v", err)
 		} else {
-			logrus.Infof("[SerialHub] 已自动连接串口: %s", serialCfg.String())
+			logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
 		}
 	}
 
@@ -123,50 +223,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 	logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
 	logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
+	logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
 
-	// 系统托盘集成（仅 Windows）
-	enableTray := !noTray && runtime.GOOS == "windows"
-	logrus.Debugf("[SerialHub] 托盘检查: noTray=%v, GOOS=%s, enableTray=%v", noTray, runtime.GOOS, enableTray)
-	if enableTray {
-		logrus.Info("[SerialHub] 系统托盘已启用")
-		tray.HideConsole()
-	}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
 
-	if !enableTray {
-		logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
-	}
-
-	// 阻塞等待退出信号
-	done := make(chan struct{})
-
-	if enableTray {
-		trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version)
-
-		// 注册串口事件处理器，驱动托盘图标更新
-		if sm != nil {
-			sm.SetEventHandler(func(event serial.Event) {
-				trayMgr.UpdateSerialStatus()
-			})
-		}
-
-		// systray.Run 阻塞，需在主线程运行
-		go func() {
-			ctx := context.Background()
-			trayMgr.Run(ctx)
-		}()
-
-		select {
-		case <-trayMgr.QuitChan():
-			logrus.Info("[SerialHub] 从托盘退出")
-		case <-done:
-		}
-	} else {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
-	}
-
-	close(done)
 	logrus.Info("[SerialHub] 正在关闭...")
 	telnetSrv.Stop()
 	return nil

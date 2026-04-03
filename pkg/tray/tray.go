@@ -22,6 +22,8 @@ const (
 	TrayError     TrayState = "error"
 )
 
+type OnReadyFunc func()
+
 type TrayManager struct {
 	serial         *serial.SerialManager
 	config         *config.Config
@@ -30,6 +32,8 @@ type TrayManager struct {
 	version        string
 	state          TrayState
 	quitChan       chan struct{}
+	readyCallback  OnReadyFunc
+	exitCallback   func()
 	mSerial        *systray.MenuItem
 	mSelectPort    *systray.MenuItem
 	mRefresh       *systray.MenuItem
@@ -72,7 +76,19 @@ func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, telnetP
 	}
 }
 
-func (t *TrayManager) Run(ctx context.Context) {
+// SetOnReady 设置托盘就绪后的回调函数（用于启动服务）
+func (t *TrayManager) SetOnReady(fn OnReadyFunc) {
+	t.readyCallback = fn
+}
+
+// SetOnExit 设置托盘退出时的回调函数（用于清理服务）
+func (t *TrayManager) SetOnExit(fn func()) {
+	t.exitCallback = fn
+}
+
+// Run 启动系统托盘，必须在主线程调用（Windows 要求）。
+// systray.Run 会阻塞直到 systray.Quit() 被调用。
+func (t *TrayManager) Run(_ context.Context) {
 	systray.Run(func() {
 		t.onReady()
 	}, func() {
@@ -91,6 +107,10 @@ func (t *TrayManager) onReady() {
 	t.setupEventHandlers()
 	t.refreshPortList()
 	t.updateConfigDisplay()
+
+	if t.readyCallback != nil {
+		t.readyCallback()
+	}
 }
 
 func (t *TrayManager) createMenu() {
@@ -413,6 +433,9 @@ func (t *TrayManager) getSerialMenuTitle() string {
 
 func (t *TrayManager) onExit() {
 	logrus.Info("[SerialHub] 系统托盘已退出")
+	if t.exitCallback != nil {
+		t.exitCallback()
+	}
 	close(t.quitChan)
 }
 
