@@ -1,4 +1,0 @@
-=== RUN   TestBuffer_Overflow
---- PASS: TestBuffer_Overflow (0.00s)
-PASS
-ok  	github.com/yourname/serialhub/internal/buffer	0.581s

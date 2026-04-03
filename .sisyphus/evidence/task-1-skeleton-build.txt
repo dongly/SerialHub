@@ -1,3 +1,0 @@
-go build ./...
-exit code: 0
-所有包编译成功，零错误

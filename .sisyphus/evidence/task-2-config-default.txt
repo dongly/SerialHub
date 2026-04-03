@@ -1,4 +1,0 @@
-=== RUN   TestGetDefault
---- PASS: TestGetDefault (0.00s)
-PASS
-ok  	github.com/yourname/serialhub/pkg/config	0.742s

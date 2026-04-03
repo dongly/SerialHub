@@ -1,7 +1,0 @@
-=== RUN   TestSerialForwarding_Both
---- PASS: TestSerialForwarding_Both (0.15s)
-
-测试结果：
-- Telnet 收到数据: PASS
-- MCP 缓冲区收到数据: PASS
-- 验证无双重写入: PASS（读取后缓冲区为空）
