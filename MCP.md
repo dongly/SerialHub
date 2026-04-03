@@ -294,9 +294,9 @@ SerialHub 实现 MCP、Telnet、串口之间的**双向数据桥接**：
 ### 1. MCP → 串口 → Telnet
 
 ```
-MCP 工具 ──▶ 串口写入 ──┬──▶ 串口回环 ──▶ MCP 读取（回环数据）
-                        │
-                        └──▶ DataBridge ──▶ Telnet 接收（转发数据）
+MCP 工具 ──▶ 串口写入 ──▶ 串口回环 ──▶ DataBridge ──▶ MCP 读取（回环数据）
+                              │
+                              └──▶ DataBridge ──▶ Telnet 接收（转发数据）
 ```
 
 **场景**: AI 工具通过 MCP 发送命令到 MCU，同时人工操作员在 Telnet 端可见。
@@ -304,9 +304,9 @@ MCP 工具 ──▶ 串口写入 ──┬──▶ 串口回环 ──▶ MCP 
 ### 2. Telnet → 串口 → MCP
 
 ```
-Telnet 发送 ──▶ 串口写入 ──┬──▶ 串口回环 ──▶ Telnet 接收（回环数据）
-                           │
-                           └──▶ DataBridge ──▶ MCP 缓冲区（转发数据）
+Telnet 发送 ──▶ 串口写入 ──▶ 串口回环 ──▶ DataBridge ──▶ Telnet 接收（回环数据）
+                               │
+                               └──▶ DataBridge ──▶ MCP 缓冲区（转发数据）
 ```
 
 **场景**: 人工操作员在 Telnet 端发送命令，AI 工具通过 MCP 读取响应。
