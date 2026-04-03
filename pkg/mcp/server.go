@@ -47,7 +47,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_list tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_list",
-		Description: "List all available serial ports on the system",
+		Description: "List all available serial ports on the system. Returns a list of port names (e.g., COM1, COM4, /dev/ttyUSB0) that can be used with serial_connect.",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -57,17 +57,29 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_connect tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_connect",
-		Description: "Connect to a specified serial port",
+		Description: "Connect to a specified serial port with configurable baud rate, data bits, parity, and stop bits. Must be called before serial_write or serial_read. Returns success message with connection details or error if port is unavailable.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"port": map[string]any{
 					"type":        "string",
-					"description": "Serial port name (e.g., COM4, /dev/ttyUSB0)",
+					"description": "Serial port name (e.g., COM4, /dev/ttyUSB0). Use serial_list to discover available ports.",
 				},
 				"baudRate": map[string]any{
 					"type":        "integer",
-					"description": "Baud rate (default: 115200)",
+					"description": "Baud rate for communication. Common values: 9600, 19200, 38400, 57600, 115200. Default: 115200.",
+				},
+				"dataBits": map[string]any{
+					"type":        "integer",
+					"description": "Number of data bits per frame. Options: 7, 8. Default: 8.",
+				},
+				"parity": map[string]any{
+					"type":        "string",
+					"description": "Parity checking mode. Options: 'none', 'even', 'odd'. Default: 'none'.",
+				},
+				"stopBits": map[string]any{
+					"type":        "number",
+					"description": "Number of stop bits. Options: 1, 1.5, 2. Default: 1.",
 				},
 			},
 			"required": []string{"port"},
@@ -77,7 +89,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_disconnect tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_disconnect",
-		Description: "Disconnect from the current serial port",
+		Description: "Disconnect from the currently connected serial port. Releases the port and cleans up resources. Safe to call even if not connected (no-op). Returns success message or error if disconnect fails.",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -87,17 +99,17 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_write tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_write",
-		Description: "Write data to the serial port",
+		Description: "Write data to the connected serial port. Data is sent as bytes to the device. The written data will also be forwarded to any connected Telnet clients. Returns success message with bytes written or error if not connected.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"data": map[string]any{
 					"type":        "string",
-					"description": "Data to send",
+					"description": "Data to send to the serial port. Can be any text or binary data represented as string.",
 				},
 				"addNewline": map[string]any{
 					"type":        "boolean",
-					"description": "Whether to automatically append newline (default: true)",
+					"description": "If true, automatically appends a newline (\\n) to the data. Useful for devices expecting line-terminated commands. Default: true.",
 				},
 			},
 			"required": []string{"data"},
@@ -107,17 +119,17 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_read tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_read",
-		Description: "Read data from the serial port (blocking, waits for data)",
+		Description: "Read data from the connected serial port. Blocks until data arrives or timeout expires. Data received from the serial port is also forwarded to connected Telnet clients. Returns received data as string with byte count, or empty if timeout.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Timeout in milliseconds (0 = wait indefinitely)",
+					"description": "Maximum time to wait for data in milliseconds. Use 0 to wait indefinitely until data arrives. Default: 0 (indefinite).",
 				},
 				"maxSize": map[string]any{
 					"type":        "integer",
-					"description": "Maximum bytes to read (default: 4096)",
+					"description": "Maximum number of bytes to read in one call. Prevents buffer overflow. Default: 4096.",
 				},
 			},
 		},
@@ -126,7 +138,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_status tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_status",
-		Description: "Get serial port connection status",
+		Description: "Get the current serial port connection status. Returns whether connected, port name, baud rate, and other configuration details. Use this to check if serial_connect succeeded or to verify current settings.",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
