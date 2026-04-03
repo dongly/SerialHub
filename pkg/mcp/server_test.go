@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -467,6 +468,108 @@ func TestStreamableHTTPHandler(t *testing.T) {
 		expected := `{"status":"ok"}`
 		if strings.TrimSpace(string(body)) != expected {
 			t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
+		}
+	})
+}
+
+func TestToolHandlers(t *testing.T) {
+	sm := newTestSerialManager(t)
+	buf := buffer.NewDataBuffer()
+
+	server, err := NewMCPServer(sm, buf)
+	if err != nil {
+		t.Fatalf("创建 MCPServer 失败: %v", err)
+	}
+
+	err = server.RegisterTools()
+	if err != nil {
+		t.Fatalf("注册工具失败: %v", err)
+	}
+
+	addr := findFreePort(t)
+	httpServer, err := server.StartHTTPServer(addr)
+	if err != nil {
+		t.Fatalf("启动 HTTP 服务器失败: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpServer.Shutdown(ctx)
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	callTool := func(name string, arguments map[string]interface{}) (map[string]interface{}, error) {
+		reqBody := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "tools/call",
+			"params": map[string]interface{}{
+				"name": name,
+			},
+			"id": 1,
+		}
+		if arguments != nil {
+			reqBody["params"] = map[string]interface{}{
+				"name":      name,
+				"arguments": arguments,
+			}
+		}
+
+		jsonBody, _ := json.Marshal(reqBody)
+		req, _ := http.NewRequest("POST", "http://"+addr+"/mcp", strings.NewReader(string(jsonBody)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		var result map[string]interface{}
+		json.Unmarshal(body, &result)
+		return result, nil
+	}
+
+	t.Run("serial_connect工具", func(t *testing.T) {
+		result, err := callTool("serial_connect", map[string]interface{}{"port": getTestPort()})
+		if err != nil {
+			t.Fatalf("调用 serial_connect 失败: %v", err)
+		}
+		if result["result"] == nil && result["error"] == nil {
+			t.Error("响应应包含 result 或 error")
+		}
+	})
+
+	t.Run("serial_status工具", func(t *testing.T) {
+		result, err := callTool("serial_status", nil)
+		if err != nil {
+			t.Fatalf("调用 serial_status 失败: %v", err)
+		}
+		if result["result"] == nil {
+			t.Error("响应应包含 result")
+		}
+	})
+
+	t.Run("serial_disconnect工具", func(t *testing.T) {
+		result, err := callTool("serial_disconnect", nil)
+		if err != nil {
+			t.Fatalf("调用 serial_disconnect 失败: %v", err)
+		}
+		if result["result"] == nil && result["error"] == nil {
+			t.Error("响应应包含 result 或 error")
+		}
+	})
+
+	t.Run("serial_write工具", func(t *testing.T) {
+		result, err := callTool("serial_write", map[string]interface{}{"data": "test"})
+		if err != nil {
+			t.Fatalf("调用 serial_write 失败: %v", err)
+		}
+		if result["result"] == nil && result["error"] == nil {
+			t.Error("响应应包含 result 或 error")
 		}
 	})
 }
