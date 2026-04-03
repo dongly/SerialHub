@@ -450,9 +450,27 @@ func (t *TrayManager) getIcon() []byte {
 
 	data, err := iconFS.ReadFile(iconPath)
 	if err != nil {
-		logrus.Warnf("[SerialHub] 加载图标失败: %v", err)
+		logrus.Errorf("[SerialHub] 加载图标失败 %s: %v", iconPath, err)
 		return []byte{}
 	}
+
+	if len(data) == 0 {
+		logrus.Errorf("[SerialHub] 图标数据为空: %s", iconPath)
+		return []byte{}
+	}
+
+	if len(data) < 22 {
+		logrus.Errorf("[SerialHub] 图标文件过小(%d bytes)，可能无效: %s", len(data), iconPath)
+		return []byte{}
+	}
+
+	if data[2] != 1 || data[3] != 0 {
+		logrus.Errorf("[SerialHub] 图标文件不是有效 ICO 格式: %s (header: %x)", iconPath, data[:6])
+		return []byte{}
+	}
+
+	imageCount := int(data[4]) | int(data[5])<<8
+	logrus.Infof("[SerialHub] 加载图标 %s: %d bytes, %d 个图像尺寸", iconPath, len(data), imageCount)
 	return data
 }
 

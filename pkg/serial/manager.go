@@ -14,6 +14,25 @@ import (
 	"github.com/yourname/serialhub/internal/service"
 )
 
+// EventType 定义串口事件类型
+type EventType string
+
+const (
+	EventConnected    EventType = "connected"
+	EventDisconnected EventType = "disconnected"
+	EventError        EventType = "error"
+)
+
+// Event 表示串口状态事件
+type Event struct {
+	Type    EventType
+	Port    string
+	Message string
+}
+
+// EventHandler 是串口事件处理函数类型
+type EventHandler func(event Event)
+
 // Port defines the serial port interface for dependency injection
 type Port interface {
 	io.Reader
@@ -24,14 +43,15 @@ type Port interface {
 
 // SerialManager manages serial port connections
 type SerialManager struct {
-	config   *Config
-	port     Port
-	dataChan chan []byte
-	errChan  chan error
-	mu       sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	logger   *logrus.Logger
+	config       *Config
+	port         Port
+	dataChan     chan []byte
+	errChan      chan error
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	logger       *logrus.Logger
+	eventHandler EventHandler
 }
 
 // NewSerialManager creates a new serial manager
@@ -90,6 +110,12 @@ func (sm *SerialManager) Connect() error {
 
 	go sm.readLoop()
 
+	// 触发连接事件
+	sm.emitEvent(Event{
+		Type: EventConnected,
+		Port: sm.config.Port,
+	})
+
 	return nil
 }
 
@@ -102,9 +128,16 @@ func (sm *SerialManager) Disconnect() error {
 		return fmt.Errorf("串口未连接")
 	}
 
+	portName := sm.config.Port
 	err := sm.port.Close()
 	sm.port = nil
-	sm.logger.Infof("[SerialHub] 串口已断开: %s", sm.config.Port)
+	sm.logger.Infof("[SerialHub] 串口已断开: %s", portName)
+
+	// 触发断开事件
+	sm.emitEvent(Event{
+		Type: EventDisconnected,
+		Port: portName,
+	})
 
 	return err
 }
@@ -187,7 +220,23 @@ func (sm *SerialManager) UpdateConfig(cfg *Config) error {
 	return nil
 }
 
-// DataChan returns the data channel
+// SetEventHandler 设置串口事件处理函数
+func (sm *SerialManager) SetEventHandler(handler EventHandler) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.eventHandler = handler
+}
+
+// emitEvent 触发事件（内部使用，调用者需持有锁或确保线程安全）
+func (sm *SerialManager) emitEvent(event Event) {
+	sm.mu.RLock()
+	handler := sm.eventHandler
+	sm.mu.RUnlock()
+
+	if handler != nil {
+		go handler(event)
+	}
+}
 func (sm *SerialManager) DataChan() <-chan []byte {
 	return sm.dataChan
 }
@@ -230,18 +279,27 @@ func (sm *SerialManager) readLoop() {
 			sm.mu.RUnlock()
 
 			if port == nil {
-				// Wait for connection
 				continue
 			}
 
 			n, err := port.Read(buf)
 			if err != nil {
 				if err == io.EOF {
-					// Connection closed
 					sm.errChan <- fmt.Errorf("串口连接已关闭")
+					sm.emitEvent(Event{
+						Type:    EventDisconnected,
+						Port:    sm.CurrentPort(),
+						Message: "连接已关闭",
+					})
 					return
 				}
-				sm.errChan <- fmt.Errorf("读取错误: %w", err)
+				errMsg := fmt.Errorf("读取错误: %w", err)
+				sm.errChan <- errMsg
+				sm.emitEvent(Event{
+					Type:    EventError,
+					Port:    sm.CurrentPort(),
+					Message: errMsg.Error(),
+				})
 				continue
 			}
 
@@ -250,11 +308,9 @@ func (sm *SerialManager) readLoop() {
 				copy(data, buf[:n])
 				select {
 				case sm.dataChan <- data:
-					// Data sent
 				case <-sm.ctx.Done():
 					return
 				default:
-					// Channel full, drop data
 					sm.logger.Warnln("[SerialHub] 数据通道已满，丢弃数据")
 				}
 			}

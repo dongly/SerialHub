@@ -72,7 +72,7 @@ github.com/yourname/serialhub/
 │       └── main.go
 ├── pkg/
 │   ├── serial/              # 串口管理
-│   │   ├── manager.go       # SerialManager（channel 通信）
+│   │   ├── manager.go       # SerialManager（channel 通信 + 事件系统）
 │   │   └── config.go        # 串口配置结构
 │   ├── telnet/              # Telnet 服务
 │   │   ├── server.go        # TelnetServer（net 标准库）
@@ -95,7 +95,9 @@ github.com/yourname/serialhub/
 │   ├── config/              # 配置管理
 │   │   └── config.go        # Viper 配置（JSON 文件 + CLI 参数）
 │   └── tray/                # 系统托盘
-│       └── tray.go          # Systray 管理（跨平台）
+│       ├── tray.go          # Systray 管理（跨平台）
+│       ├── console_windows.go   # Windows 控制台显示/隐藏
+│       └── console_linux.go     # Linux 控制台 stub
 ├── internal/
 │   ├── buffer/              # DataBuffer
 │   │   └── buffer.go        # 数据缓冲区

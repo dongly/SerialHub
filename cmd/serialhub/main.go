@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
@@ -16,6 +18,7 @@ import (
 	"github.com/yourname/serialhub/pkg/mcp"
 	"github.com/yourname/serialhub/pkg/serial"
 	"github.com/yourname/serialhub/pkg/telnet"
+	"github.com/yourname/serialhub/pkg/tray"
 )
 
 var (
@@ -120,12 +123,49 @@ func runServe(cmd *cobra.Command, args []string) error {
 	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 	logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
 	logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
-	logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	// 系统托盘集成（仅 Windows）
+	enableTray := !noTray && runtime.GOOS == "windows"
+	if enableTray {
+		logrus.Info("[SerialHub] 系统托盘已启用")
+		tray.HideConsole()
+	}
 
+	if !enableTray {
+		logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
+	}
+
+	// 阻塞等待退出信号
+	done := make(chan struct{})
+
+	if enableTray {
+		trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version)
+
+		// 注册串口事件处理器，驱动托盘图标更新
+		if sm != nil {
+			sm.SetEventHandler(func(event serial.Event) {
+				trayMgr.UpdateSerialStatus()
+			})
+		}
+
+		// systray.Run 阻塞，需在主线程运行
+		go func() {
+			ctx := context.Background()
+			trayMgr.Run(ctx)
+		}()
+
+		select {
+		case <-trayMgr.QuitChan():
+			logrus.Info("[SerialHub] 从托盘退出")
+		case <-done:
+		}
+	} else {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+	}
+
+	close(done)
 	logrus.Info("[SerialHub] 正在关闭...")
 	telnetSrv.Stop()
 	return nil
