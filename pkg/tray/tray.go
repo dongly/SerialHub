@@ -486,12 +486,12 @@ func (t *TrayManager) UpdateSerialStatus() {
 	systray.SetTooltip(tooltip)
 	t.mSerial.SetTitle(t.getSerialMenuTitle())
 
-	if t.mSerialConfig != nil {
-		if connected {
-			t.mSerialConfig.Disable()
-		} else {
-			t.mSerialConfig.Enable()
-		}
+	if connected {
+		t.mSerialConfig.Disable()
+		t.mSelectPort.Disable()
+	} else {
+		t.mSerialConfig.Enable()
+		t.mSelectPort.Enable()
 	}
 }
 
