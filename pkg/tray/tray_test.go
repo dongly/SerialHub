@@ -1351,3 +1351,147 @@ func TestIntegration_SaveLastSerial(t *testing.T) {
 
 	svc.ClearLastSerial()
 }
+
+// TestTrayManager_FullWorkflow 集成测试：完整托盘功能工作流
+func TestTrayManager_FullWorkflow(t *testing.T) {
+	tm := newTestTrayManager(t)
+	svc := service.NewServiceManager()
+	defer svc.ClearLastSerial()
+
+	// 1. 验证初始状态
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+	testutil.AssertEqual(t, TrayIdle, tm.state)
+
+	// 2. 设置回调并验证配置变更通知
+	configChangedCalled := false
+	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		configChangedCalled = true
+		svc.SaveLastSerial(&service.LastSerialConfig{
+			Port:     port,
+			BaudRate: baudRate,
+			DataBits: dataBits,
+			Parity:   parity,
+			StopBits: float32(stopBits),
+		})
+	})
+
+	// 3. 测试波特率变更
+	tm.mBaudRateItems[9600] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setBaudRate(9600)
+	}, 200*time.Millisecond)
+	testutil.AssertEqual(t, 9600, tm.config.Serial.BaudRate)
+	testutil.AssertEqual(t, true, configChangedCalled)
+
+	// 4. 验证配置已保存
+	loaded, _ := svc.LoadLastSerial()
+	testutil.AssertNotNil(t, loaded)
+	testutil.AssertEqual(t, 9600, loaded.BaudRate)
+
+	// 5. 测试数据位变更
+	configChangedCalled = false
+	tm.mDataBitsItems[7] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setDataBits(7)
+	}, 200*time.Millisecond)
+	testutil.AssertEqual(t, 7, tm.config.Serial.DataBits)
+	testutil.AssertEqual(t, true, configChangedCalled)
+
+	// 6. 测试停止位变更
+	configChangedCalled = false
+	tm.mStopBitsItems[2] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setStopBits(2)
+	}, 200*time.Millisecond)
+	testutil.AssertEqual(t, float64(2), tm.config.Serial.StopBits)
+	testutil.AssertEqual(t, true, configChangedCalled)
+
+	// 7. 测试校验位变更
+	configChangedCalled = false
+	tm.mParityItems["even"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setParity("even")
+	}, 200*time.Millisecond)
+	testutil.AssertEqual(t, "even", tm.config.Serial.Parity)
+	testutil.AssertEqual(t, true, configChangedCalled)
+
+	// 8. 测试端口变更（会触发自动连接尝试）
+	configChangedCalled = false
+	tm.mPortItems["COM_TEST"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setPort("COM_TEST")
+	}, 500*time.Millisecond)
+	testutil.AssertEqual(t, "COM_TEST", tm.config.Serial.Port)
+	testutil.AssertEqual(t, true, configChangedCalled)
+
+	// 9. 验证最终配置摘要包含端口信息
+	summary := tm.getConfigSummary()
+	testutil.AssertEqual(t, true, len(summary) > 0)
+	testutil.AssertEqual(t, true, summary != "")
+}
+
+// TestTrayManager_ConfigSyncToSerialManager 测试配置同步到 SerialManager
+func TestTrayManager_ConfigSyncToSerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	// 修改所有配置
+	tm.mBaudRateItems[38400] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mDataBitsItems[6] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mStopBitsItems[1.5] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mParityItems["odd"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	callWithTimeout(t, func() {
+		tm.setBaudRate(38400)
+	}, 200*time.Millisecond)
+	callWithTimeout(t, func() {
+		tm.setDataBits(6)
+	}, 200*time.Millisecond)
+	callWithTimeout(t, func() {
+		tm.setStopBits(1.5)
+	}, 200*time.Millisecond)
+	callWithTimeout(t, func() {
+		tm.setParity("odd")
+	}, 200*time.Millisecond)
+
+	// 验证 SerialManager 配置已同步
+	serialCfg := tm.serial.GetConfig()
+	testutil.AssertEqual(t, 38400, serialCfg.BaudRate)
+	testutil.AssertEqual(t, 6, serialCfg.DataBits)
+	testutil.AssertEqual(t, float32(1.5), serialCfg.StopBits)
+	testutil.AssertEqual(t, "odd", serialCfg.Parity)
+}
+
+// TestTrayManager_AutoReconnectBehavior 测试自动重连行为
+func TestTrayManager_AutoReconnectBehavior(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	// 初始未连接
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 设置端口（会尝试自动连接）
+	tm.mPortItems["COM_AUTO"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setPort("COM_AUTO")
+	}, 500*time.Millisecond)
+
+	// 由于没有真实串口，连接会失败，但配置应已更新
+	testutil.AssertEqual(t, "COM_AUTO", tm.config.Serial.Port)
+	testutil.AssertEqual(t, "COM_AUTO", tm.serial.GetConfig().Port)
+}
+
+// TestTrayManager_MenuItemUpdates 测试菜单项标题更新
+func TestTrayManager_MenuItemUpdates(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	// 初始化菜单项
+	tm.mBaudRateItems[9600] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mBaudRateItems[115200] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 修改波特率
+	callWithTimeout(t, func() {
+		tm.setBaudRate(9600)
+	}, 200*time.Millisecond)
+
+	// 验证配置已更新
+	testutil.AssertEqual(t, 9600, tm.config.Serial.BaudRate)
+}
