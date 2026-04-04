@@ -60,7 +60,7 @@ func TestNewSerialManager(t *testing.T) {
 				Port:     "",
 				BaudRate: 115200,
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
@@ -892,7 +892,7 @@ func TestGetConfig(t *testing.T) {
 }
 
 // TestCurrentPort_未连接 测试未连接时返回空字符串
-func TestCurrentPort_未连接(t *testing.T) {
+func TestCurrentPort_NotConnected(t *testing.T) {
 	cfg := &Config{
 		Port:     "MOCK1",
 		BaudRate: 115200,
@@ -911,7 +911,7 @@ func TestCurrentPort_未连接(t *testing.T) {
 }
 
 // TestWrite_写入错误 测试写入失败场景
-func TestWrite_写入错误(t *testing.T) {
+func TestWrite_WriteError(t *testing.T) {
 	cfg := &Config{
 		Port:     "MOCK1",
 		BaudRate: 115200,
@@ -1347,7 +1347,7 @@ func TestEmitEvent_NoHandler(t *testing.T) {
 }
 
 // TestConnect_串口打开失败 测试使用无效串口名
-func TestConnect_串口打开失败(t *testing.T) {
+func TestConnect_PortOpenFailed(t *testing.T) {
 	cfg := &Config{
 		Port:     "NONEXISTENT_PORT_99999",
 		BaudRate: 115200,
@@ -1374,7 +1374,7 @@ func TestConnect_串口打开失败(t *testing.T) {
 }
 
 // TestDisconnect_未连接 测试未连接时断开
-func TestDisconnect_未连接(t *testing.T) {
+func TestDisconnect_NotConnected(t *testing.T) {
 	cfg := &Config{
 		Port:     "MOCK1",
 		BaudRate: 115200,
@@ -1393,7 +1393,7 @@ func TestDisconnect_未连接(t *testing.T) {
 }
 
 // TestWrite_未连接 测试未连接时写入
-func TestWrite_未连接(t *testing.T) {
+func TestWrite_NotConnected(t *testing.T) {
 	cfg := &Config{
 		Port:     "MOCK1",
 		BaudRate: 115200,

@@ -23,6 +23,7 @@ const (
 )
 
 type OnReadyFunc func()
+type OnConfigChangedFunc func(port string, baudRate int, dataBits int, parity string, stopBits float64)
 
 type TrayManager struct {
 	serial          *serial.SerialManager
@@ -31,11 +32,12 @@ type TrayManager struct {
 	mcpPort         int
 	version         string
 	state           TrayState
-	consoleVisible  bool // 控制台窗口当前是否可见
-	showConsoleMenu bool // 是否显示"显示/隐藏窗口"菜单
+	consoleVisible  bool
+	showConsoleMenu bool
 	quitChan        chan struct{}
 	readyCallback   OnReadyFunc
 	exitCallback    func()
+	onConfigChanged OnConfigChangedFunc
 	mSerial         *systray.MenuItem
 	mSelectPort     *systray.MenuItem
 	mRefresh        *systray.MenuItem
@@ -89,6 +91,11 @@ func (t *TrayManager) SetOnReady(fn OnReadyFunc) {
 // SetOnExit 设置托盘退出时的回调函数（用于清理服务）
 func (t *TrayManager) SetOnExit(fn func()) {
 	t.exitCallback = fn
+}
+
+// SetOnConfigChanged 设置配置变更回调（用于保存配置和自动重连）
+func (t *TrayManager) SetOnConfigChanged(fn OnConfigChangedFunc) {
+	t.onConfigChanged = fn
 }
 
 // Run 启动系统托盘，必须在主线程调用（Windows 要求）。
@@ -300,12 +307,14 @@ func (t *TrayManager) refreshPortList() {
 }
 
 func (t *TrayManager) setPort(port string) {
-	if t.serial.IsConnected() {
-		logrus.Warn("[SerialHub] 请先断开串口连接再切换串口")
-		return
+	wasConnected := t.serial.IsConnected()
+	if wasConnected {
+		if err := t.serial.Disconnect(); err != nil {
+			logrus.Warnf("[SerialHub] 断开串口失败: %v", err)
+			return
+		}
 	}
 
-	// 更新选中标记
 	for p, item := range t.mPortItems {
 		if p == port {
 			item.SetTitle("✓ " + port)
@@ -314,31 +323,28 @@ func (t *TrayManager) setPort(port string) {
 		}
 	}
 
-	// 更新配置
 	t.config.Serial.Port = port
+	t.syncSerialConfig()
+	t.updateConfigDisplay()
+	t.notifyConfigChangedAndReconnect()
 
-	// 同步更新 SerialManager 的配置
-	serialCfg := &serial.Config{
-		Port:     port,
-		BaudRate: t.config.Serial.BaudRate,
-		DataBits: t.config.Serial.DataBits,
-		Parity:   t.config.Serial.Parity,
-		StopBits: float32(t.config.Serial.StopBits),
+	if wasConnected {
+		t.autoReconnect()
+	} else if port != "" {
+		t.autoReconnect()
 	}
-	if err := t.serial.UpdateConfig(serialCfg); err != nil {
-		logrus.Warnf("[SerialHub] 更新串口配置失败: %v", err)
-	}
-
 	logrus.Infof("[SerialHub] 切换串口: %s", port)
 }
 
 func (t *TrayManager) setBaudRate(rate int) {
-	if t.serial.IsConnected() {
-		logrus.Warn("[SerialHub] 请先断开串口连接再修改波特率")
-		return
+	wasConnected := t.serial.IsConnected()
+	if wasConnected {
+		if err := t.serial.Disconnect(); err != nil {
+			logrus.Warnf("[SerialHub] 断开串口失败: %v", err)
+			return
+		}
 	}
 
-	// 更新选中标记
 	for r, item := range t.mBaudRateItems {
 		if r == rate {
 			item.SetTitle("✓ " + strconv.Itoa(rate))
@@ -351,16 +357,23 @@ func (t *TrayManager) setBaudRate(rate int) {
 	t.syncSerialConfig()
 	t.mBaudRate.SetTitle(fmt.Sprintf("波特率: %d ▶", rate))
 	t.updateConfigDisplay()
+	t.notifyConfigChangedAndReconnect()
+
+	if wasConnected {
+		t.autoReconnect()
+	}
 	logrus.Infof("[SerialHub] 设置波特率: %d", rate)
 }
 
 func (t *TrayManager) setDataBits(bits int) {
-	if t.serial.IsConnected() {
-		logrus.Warn("[SerialHub] 请先断开串口连接再修改数据位")
-		return
+	wasConnected := t.serial.IsConnected()
+	if wasConnected {
+		if err := t.serial.Disconnect(); err != nil {
+			logrus.Warnf("[SerialHub] 断开串口失败: %v", err)
+			return
+		}
 	}
 
-	// 更新选中标记
 	for b, item := range t.mDataBitsItems {
 		if b == bits {
 			item.SetTitle("✓ " + strconv.Itoa(bits))
@@ -373,16 +386,23 @@ func (t *TrayManager) setDataBits(bits int) {
 	t.syncSerialConfig()
 	t.mDataBits.SetTitle(fmt.Sprintf("数据位: %d ▶", bits))
 	t.updateConfigDisplay()
+	t.notifyConfigChangedAndReconnect()
+
+	if wasConnected {
+		t.autoReconnect()
+	}
 	logrus.Infof("[SerialHub] 设置数据位: %d", bits)
 }
 
 func (t *TrayManager) setStopBits(bits float64) {
-	if t.serial.IsConnected() {
-		logrus.Warn("[SerialHub] 请先断开串口连接再修改停止位")
-		return
+	wasConnected := t.serial.IsConnected()
+	if wasConnected {
+		if err := t.serial.Disconnect(); err != nil {
+			logrus.Warnf("[SerialHub] 断开串口失败: %v", err)
+			return
+		}
 	}
 
-	// 更新选中标记
 	for b, item := range t.mStopBitsItems {
 		label := fmt.Sprintf("%.0f", b)
 		if b == 1.5 {
@@ -403,16 +423,23 @@ func (t *TrayManager) setStopBits(bits float64) {
 	}
 	t.mStopBits.SetTitle(fmt.Sprintf("停止位: %s ▶", label))
 	t.updateConfigDisplay()
+	t.notifyConfigChangedAndReconnect()
+
+	if wasConnected {
+		t.autoReconnect()
+	}
 	logrus.Infof("[SerialHub] 设置停止位: %s", label)
 }
 
 func (t *TrayManager) setParity(parity string) {
-	if t.serial.IsConnected() {
-		logrus.Warn("[SerialHub] 请先断开串口连接再修改校验位")
-		return
+	wasConnected := t.serial.IsConnected()
+	if wasConnected {
+		if err := t.serial.Disconnect(); err != nil {
+			logrus.Warnf("[SerialHub] 断开串口失败: %v", err)
+			return
+		}
 	}
 
-	// 更新选中标记
 	for p, item := range t.mParityItems {
 		if strings.EqualFold(p, parity) {
 			item.SetTitle("✓ " + p)
@@ -425,6 +452,11 @@ func (t *TrayManager) setParity(parity string) {
 	t.syncSerialConfig()
 	t.mParity.SetTitle(fmt.Sprintf("校验位: %s ▶", parity))
 	t.updateConfigDisplay()
+	t.notifyConfigChangedAndReconnect()
+
+	if wasConnected {
+		t.autoReconnect()
+	}
 	logrus.Infof("[SerialHub] 设置校验位: %s", parity)
 }
 
@@ -440,6 +472,24 @@ func (t *TrayManager) syncSerialConfig() {
 	if err := t.serial.UpdateConfig(serialCfg); err != nil {
 		logrus.Debugf("[SerialHub] 更新串口配置失败: %v", err)
 	}
+}
+
+func (t *TrayManager) notifyConfigChangedAndReconnect() {
+	if t.onConfigChanged != nil {
+		t.onConfigChanged(t.config.Serial.Port, t.config.Serial.BaudRate, t.config.Serial.DataBits, t.config.Serial.Parity, t.config.Serial.StopBits)
+	}
+}
+
+func (t *TrayManager) autoReconnect() {
+	if t.config.Serial.Port == "" {
+		return
+	}
+	if err := t.serial.Connect(); err != nil {
+		logrus.Warnf("[SerialHub] 自动重连失败: %v", err)
+	} else {
+		logrus.Infof("[SerialHub] 自动重连成功: %s", t.config.Serial.Port)
+	}
+	t.UpdateSerialStatus()
 }
 
 func (t *TrayManager) updateConfigDisplay() {
@@ -459,7 +509,12 @@ func (t *TrayManager) getConfigSummary() string {
 	if t.config.Serial.StopBits == 1.5 {
 		stopBits = "1.5"
 	}
-	return fmt.Sprintf("当前: %d %d%s%s",
+	port := t.config.Serial.Port
+	if port == "" {
+		port = "未选择"
+	}
+	return fmt.Sprintf("当前: %s %d %d%s%s",
+		port,
 		t.config.Serial.BaudRate,
 		t.config.Serial.DataBits,
 		parity,

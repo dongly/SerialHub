@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/getlantern/systray"
+	"github.com/yourname/serialhub/internal/service"
 	"github.com/yourname/serialhub/internal/testutil"
 	"github.com/yourname/serialhub/pkg/config"
 	"github.com/yourname/serialhub/pkg/serial"
@@ -348,21 +349,21 @@ func TestGetConfigSummary(t *testing.T) {
 	conf := config.GetDefault()
 	trayMgr := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
-	// 默认配置: 115200, 8, none, 1 → "当前: 115200 8N1"
-	testutil.AssertEqual(t, "当前: 115200 8N1", trayMgr.getConfigSummary())
+	// 默认配置: 115200, 8, none, 1 → "当前: 未选择 115200 8N1"
+	testutil.AssertEqual(t, "当前: 未选择 115200 8N1", trayMgr.getConfigSummary())
 
-	// even parity → "当前: 115200 8E1"
+	// even parity → "当前: 未选择 115200 8E1"
 	conf.Serial.Parity = "even"
-	testutil.AssertEqual(t, "当前: 115200 8E1", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, "当前: 未选择 115200 8E1", trayMgr.getConfigSummary())
 
-	// odd parity → "当前: 115200 8O1"
+	// odd parity → "当前: 未选择 115200 8O1"
 	conf.Serial.Parity = "odd"
-	testutil.AssertEqual(t, "当前: 115200 8O1", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, "当前: 未选择 115200 8O1", trayMgr.getConfigSummary())
 
-	// 1.5 stopBits → "当前: 115200 8N1.5"
+	// 1.5 stopBits → "当前: 未选择 115200 8N1.5"
 	conf.Serial.Parity = "none"
 	conf.Serial.StopBits = 1.5
-	testutil.AssertEqual(t, "当前: 115200 8N1.5", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, "当前: 未选择 115200 8N1.5", trayMgr.getConfigSummary())
 }
 
 // TestGetNetworkStatus 测试 getNetworkStatus 函数
@@ -636,7 +637,7 @@ func TestParityList(t *testing.T) {
 }
 
 // TestSetBaudRate_未连接时更新 测试未连接时设置波特率
-func TestSetBaudRate_多次更新(t *testing.T) {
+func TestSetBaudRate_MultipleUpdates(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -648,7 +649,7 @@ func TestSetBaudRate_多次更新(t *testing.T) {
 	testutil.AssertEqual(t, 230400, tm.config.Serial.BaudRate)
 }
 
-func TestSetStopBits_连接时更新停止位(t *testing.T) {
+func TestSetStopBits_UpdateWhenConnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 	for _, bits := range stopBitsList {
@@ -664,7 +665,7 @@ func TestSetStopBits_2(t *testing.T) {
 	tm.setStopBits(2)
 	testutil.AssertEqual(t, float64(2), tm.config.Serial.StopBits)
 }
-func TestSetParity_连接时更新校验位(t *testing.T) {
+func TestSetParity_UpdateWhenConnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 	for _, p := range parityList {
@@ -674,7 +675,7 @@ func TestSetParity_连接时更新校验位(t *testing.T) {
 }
 
 // TestSetDataBits_未连接时更新 测试未连接时设置数据位
-func TestSetDataBits_未连接时更新(t *testing.T) {
+func TestSetDataBits_UpdateWhenDisconnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -685,7 +686,7 @@ func TestSetDataBits_未连接时更新(t *testing.T) {
 }
 
 // TestSetStopBits_未连接时更新 测试未连接时设置停止位
-func TestSetStopBits_未连接时更新(t *testing.T) {
+func TestSetStopBits_UpdateWhenDisconnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -703,7 +704,7 @@ func TestSetStopBits_未连接时更新(t *testing.T) {
 }
 
 // TestSetParity_未连接时更新 测试未连接时设置校验位
-func TestSetParity_未连接时更新(t *testing.T) {
+func TestSetParity_UpdateWhenDisconnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -714,48 +715,46 @@ func TestSetParity_未连接时更新(t *testing.T) {
 }
 
 // TestSetPort_未连接时更新 测试未连接时设置串口
-func TestSetPort_未连接时更新(t *testing.T) {
+func TestSetPort_UpdateWhenDisconnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
-	// 添加模拟端口菜单项
 	tm.mPortItems["COM_TEST1"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
 	tm.mPortItems["COM_TEST2"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
 
-	tm.setPort("COM_TEST1")
+	callWithTimeout(t, func() {
+		tm.setPort("COM_TEST1")
+	}, 500*time.Millisecond)
 	testutil.AssertEqual(t, "COM_TEST1", tm.config.Serial.Port)
-	// 验证 SerialManager 配置也同步更新
 	testutil.AssertEqual(t, "COM_TEST1", tm.serial.GetConfig().Port)
 
-	tm.setPort("COM_TEST2")
+	callWithTimeout(t, func() {
+		tm.setPort("COM_TEST2")
+	}, 500*time.Millisecond)
 	testutil.AssertEqual(t, "COM_TEST2", tm.config.Serial.Port)
-	// 验证 SerialManager 配置也同步更新
 	testutil.AssertEqual(t, "COM_TEST2", tm.serial.GetConfig().Port)
 }
 
 // TestSetPort_同步到SerialManager 测试设置串口时同步到SerialManager
-func TestSetPort_同步到SerialManager(t *testing.T) {
+func TestSetPort_SyncToSerialManager(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
-	// 初始配置
 	initialPort := tm.config.Serial.Port
 	testutil.AssertEqual(t, initialPort, tm.serial.GetConfig().Port)
 
-	// 添加模拟端口菜单项
 	tm.mPortItems["COM4"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
 
-	// 设置新端口
-	tm.setPort("COM4")
+	callWithTimeout(t, func() {
+		tm.setPort("COM4")
+	}, 500*time.Millisecond)
 
-	// 验证 TrayManager 配置更新
 	testutil.AssertEqual(t, "COM4", tm.config.Serial.Port)
-	// 验证 SerialManager 配置同步更新
 	testutil.AssertEqual(t, "COM4", tm.serial.GetConfig().Port)
 }
 
 // TestSetBaudRate_同步到SerialManager 测试设置波特率时同步到SerialManager
-func TestSetBaudRate_同步到SerialManager(t *testing.T) {
+func TestSetBaudRate_SyncToSerialManager(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -778,7 +777,7 @@ func TestSetBaudRate_同步到SerialManager(t *testing.T) {
 }
 
 // TestSetDataBits_同步到SerialManager 测试设置数据位时同步到SerialManager
-func TestSetDataBits_同步到SerialManager(t *testing.T) {
+func TestSetDataBits_SyncToSerialManager(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -796,7 +795,7 @@ func TestSetDataBits_同步到SerialManager(t *testing.T) {
 }
 
 // TestSetStopBits_同步到SerialManager 测试设置停止位时同步到SerialManager
-func TestSetStopBits_同步到SerialManager(t *testing.T) {
+func TestSetStopBits_SyncToSerialManager(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -814,7 +813,7 @@ func TestSetStopBits_同步到SerialManager(t *testing.T) {
 }
 
 // TestSetParity_同步到SerialManager 测试设置校验位时同步到SerialManager
-func TestSetParity_同步到SerialManager(t *testing.T) {
+func TestSetParity_SyncToSerialManager(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -838,7 +837,7 @@ func TestSetParity_同步到SerialManager(t *testing.T) {
 }
 
 // TestSyncSerialConfig_完整配置同步 测试完整配置同步功能
-func TestSyncSerialConfig_完整配置同步(t *testing.T) {
+func TestSyncSerialConfig_FullSync(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -899,7 +898,7 @@ func TestOnExit(t *testing.T) {
 }
 
 // TestOnExit_无回调 测试没有 exitCallback 时的 onExit
-func TestOnExit_无回调(t *testing.T) {
+func TestOnExit_NoCallback(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -919,7 +918,7 @@ func TestOnExit_无回调(t *testing.T) {
 }
 
 // TestToggleConsoleWindow_显示 测试切换控制台窗口（显示）
-func TestToggleConsoleWindow_显示(t *testing.T) {
+func TestToggleConsoleWindow_Show(t *testing.T) {
 	tm := newTestTrayManager(t)
 	tm.consoleVisible = false
 
@@ -929,7 +928,7 @@ func TestToggleConsoleWindow_显示(t *testing.T) {
 }
 
 // TestToggleConsoleWindow_隐藏 测试切换控制台窗口（隐藏）
-func TestToggleConsoleWindow_隐藏(t *testing.T) {
+func TestToggleConsoleWindow_Hide(t *testing.T) {
 	tm := newTestTrayManager(t)
 	tm.consoleVisible = true
 
@@ -939,7 +938,7 @@ func TestToggleConsoleWindow_隐藏(t *testing.T) {
 }
 
 // TestGetConfigSummary_停止位2 测试停止位为2时的配置摘要
-func TestGetConfigSummary_停止位2(t *testing.T) {
+func TestGetConfigSummary_StopBits2(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -951,11 +950,11 @@ func TestGetConfigSummary_停止位2(t *testing.T) {
 	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
 	conf.Serial.StopBits = 2
-	testutil.AssertEqual(t, "当前: 115200 8N2", tm.getConfigSummary())
+	testutil.AssertEqual(t, "当前: 未选择 115200 8N2", tm.getConfigSummary())
 }
 
 // TestGetConfigSummary_完整覆盖 测试 getConfigSummary 所有分支
-func TestGetConfigSummary_完整覆盖(t *testing.T) {
+func TestGetConfigSummary_FullCoverage(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -971,11 +970,11 @@ func TestGetConfigSummary_完整覆盖(t *testing.T) {
 		stopBits float64
 		expected string
 	}{
-		{"none", 1, "当前: 115200 8N1"},
-		{"none", 1.5, "当前: 115200 8N1.5"},
-		{"none", 2, "当前: 115200 8N2"},
-		{"even", 1, "当前: 115200 8E1"},
-		{"odd", 1, "当前: 115200 8O1"},
+		{"none", 1, "当前: 未选择 115200 8N1"},
+		{"none", 1.5, "当前: 未选择 115200 8N1.5"},
+		{"none", 2, "当前: 未选择 115200 8N2"},
+		{"even", 1, "当前: 未选择 115200 8E1"},
+		{"odd", 1, "当前: 未选择 115200 8O1"},
 	}
 
 	for _, tt := range tests {
@@ -986,7 +985,7 @@ func TestGetConfigSummary_完整覆盖(t *testing.T) {
 }
 
 // TestNewTrayManager_内部map初始化 测试 TrayManager 内部 map 初始化
-func TestNewTrayManager_内部map初始化(t *testing.T) {
+func TestNewTrayManager_InternalMapInit(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -1057,7 +1056,7 @@ func TestRemoveMenu(t *testing.T) {
 }
 
 // TestIsConsoleVisible_完整 测试 IsConsoleVisible 完整路径
-func TestIsConsoleVisible_完整(t *testing.T) {
+func TestIsConsoleVisible_Full(t *testing.T) {
 	visible := IsConsoleVisible()
 	t.Logf("控制台可见: %v", visible)
 
@@ -1069,19 +1068,19 @@ func TestIsConsoleVisible_完整(t *testing.T) {
 }
 
 // TestHideConsole_隐藏后验证 测试 HideConsole 完整路径
-func TestHideConsole_隐藏后验证(t *testing.T) {
+func TestHideConsole_VerifyAfterHide(t *testing.T) {
 	ShowConsole()
 	HideConsole()
 	ShowConsole()
 }
 
 // TestShowConsole_完整 测试 ShowConsole 完整路径
-func TestShowConsole_完整(t *testing.T) {
+func TestShowConsole_Full(t *testing.T) {
 	ShowConsole()
 }
 
 // TestDisableCloseButton_完整 测试 DisableCloseButton 完整路径
-func TestDisableCloseButton_完整(t *testing.T) {
+func TestDisableCloseButton_Full(t *testing.T) {
 	DisableCloseButton()
 }
 
@@ -1095,7 +1094,7 @@ func TestRefreshPortList(t *testing.T) {
 }
 
 // TestGetConfigSummary_未知校验位 测试未知校验位时的配置摘要
-func TestGetConfigSummary_未知校验位(t *testing.T) {
+func TestGetConfigSummary_UnknownParity(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -1107,7 +1106,7 @@ func TestGetConfigSummary_未知校验位(t *testing.T) {
 	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", false)
 
 	conf.Serial.Parity = "unknown"
-	testutil.AssertEqual(t, "当前: 115200 8unknown1", tm.getConfigSummary())
+	testutil.AssertEqual(t, "当前: 未选择 115200 8unknown1", tm.getConfigSummary())
 }
 
 // TestGetIcon_AllStates 测试所有状态的图标加载
@@ -1132,7 +1131,7 @@ func TestGetIcon_AllStates(t *testing.T) {
 }
 
 // TestToggleConsoleWindow_双向切换 测试控制台窗口双向切换
-func TestToggleConsoleWindow_双向切换(t *testing.T) {
+func TestToggleConsoleWindow_BidirectionalToggle(t *testing.T) {
 	tm := newTestTrayManager(t)
 
 	tm.consoleVisible = false
@@ -1147,7 +1146,7 @@ func TestToggleConsoleWindow_双向切换(t *testing.T) {
 }
 
 // TestConsoleWindows_所有API 测试所有控制台 Windows API 函数
-func TestConsoleWindows_所有API(t *testing.T) {
+func TestConsoleWindows_AllAPIs(t *testing.T) {
 	hwnd := GetConsoleWindow()
 	t.Logf("hwnd: %v", hwnd)
 
@@ -1166,7 +1165,7 @@ func TestConsoleWindows_所有API(t *testing.T) {
 }
 
 // TestNewTrayManager_字段验证 测试 TrayManager 所有字段初始化
-func TestNewTrayManager_字段验证(t *testing.T) {
+func TestNewTrayManager_FieldVerification(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = getTestPort()
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -1189,7 +1188,7 @@ func TestNewTrayManager_字段验证(t *testing.T) {
 }
 
 // TestRefreshPortList_有旧项 测试 refreshPortList 清理旧菜单项
-func TestRefreshPortList_有旧项(t *testing.T) {
+func TestRefreshPortList_WithOldItems(t *testing.T) {
 	tm := newTestTrayManager(t)
 
 	tm.mPortItems["COM_OLD1"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
@@ -1221,7 +1220,7 @@ func callWithTimeout(t *testing.T, fn func(), timeout time.Duration) {
 }
 
 // TestUpdateState_异步调用 测试 UpdateState 覆盖状态赋值和 getIcon 调用
-func TestUpdateState_异步调用(t *testing.T) {
+func TestUpdateState_AsyncCall(t *testing.T) {
 	tm := newTestTrayManager(t)
 
 	testutil.AssertEqual(t, TrayIdle, tm.state)
@@ -1236,7 +1235,7 @@ func TestUpdateState_异步调用(t *testing.T) {
 }
 
 // TestUpdateSerialStatus_状态切换 测试 UpdateSerialStatus 覆盖状态计算逻辑
-func TestUpdateSerialStatus_状态切换(t *testing.T) {
+func TestUpdateSerialStatus_StateSwitch(t *testing.T) {
 	tm := newTestTrayManager(t)
 
 	// 设置状态为 TrayConnected，使去重检查不触发（connected=false → newState=TrayIdle ≠ TrayConnected）
@@ -1255,7 +1254,7 @@ func TestUpdateSerialStatus_状态切换(t *testing.T) {
 }
 
 // TestToggleSerial_未连接 测试 toggleSerial 未连接时的 Connect 尝试
-func TestToggleSerial_未连接(t *testing.T) {
+func TestToggleSerial_NotConnected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
@@ -1266,7 +1265,7 @@ func TestToggleSerial_未连接(t *testing.T) {
 }
 
 // TestOnReady_异步调用 测试 onReady 覆盖日志输出
-func TestOnReady_异步调用(t *testing.T) {
+func TestOnReady_AsyncCall(t *testing.T) {
 	tm := newTestTrayManager(t)
 
 	// onReady 会输出日志然后调用 systray.SetIcon 阻塞

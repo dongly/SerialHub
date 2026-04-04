@@ -71,7 +71,7 @@ func newTestBridge() (*DataBridge, *mockSerialReader, *mockTelnetBroadcaster, *b
 
 // --- NewDataBridge 构造测试 ---
 
-func TestNewDataBridge_参数验证(t *testing.T) {
+func TestNewDataBridge_ParameterValidation(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte)}
 	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte)}
 	buf := buffer.NewDataBuffer()
@@ -101,7 +101,7 @@ func TestNewDataBridge_参数验证(t *testing.T) {
 	}
 }
 
-func TestNewDataBridge_正常创建(t *testing.T) {
+func TestNewDataBridge_NormalCreation(t *testing.T) {
 	b, _, _, _ := newTestBridge()
 
 	if b.serial == nil {
@@ -143,7 +143,7 @@ func TestDataBridge_StartStop(t *testing.T) {
 	}
 }
 
-func TestDataBridge_Stop返回nil(t *testing.T) {
+func TestDataBridge_StopReturnsNil(t *testing.T) {
 	b, _, _, _ := newTestBridge()
 	b.Start()
 	time.Sleep(30 * time.Millisecond)
@@ -181,7 +181,7 @@ func TestForwardLoop_SerialToTelnetAndMCP(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_串口数据无Telnet客户端(t *testing.T) {
+func TestForwardLoop_SerialDataNoTelnetClient(t *testing.T) {
 	b, serialMock, telnetMock, mcpBuf := newTestBridge()
 	telnetMock.clientCount = 0 // 无 Telnet 客户端
 
@@ -206,7 +206,7 @@ func TestForwardLoop_串口数据无Telnet客户端(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_串口多次数据转发(t *testing.T) {
+func TestForwardLoop_SerialMultipleDataForward(t *testing.T) {
 	b, serialMock, telnetMock, mcpBuf := newTestBridge()
 	telnetMock.clientCount = 1
 
@@ -234,7 +234,7 @@ func TestForwardLoop_串口多次数据转发(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_串口空数据应忽略(t *testing.T) {
+func TestForwardLoop_SerialEmptyDataIgnored(t *testing.T) {
 	b, serialMock, telnetMock, mcpBuf := newTestBridge()
 	telnetMock.clientCount = 1
 
@@ -277,7 +277,7 @@ func TestForwardLoop_TelnetToSerial(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_TelnetToSerial写入错误(t *testing.T) {
+func TestForwardLoop_TelnetToSerialWriteError(t *testing.T) {
 	b, serialMock, telnetMock, _ := newTestBridge()
 	serialMock.writeErr = errors.New("写入失败")
 
@@ -302,7 +302,7 @@ func TestForwardLoop_TelnetToSerial写入错误(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_Telnet空数据应忽略(t *testing.T) {
+func TestForwardLoop_TelnetEmptyDataIgnored(t *testing.T) {
 	b, serialMock, telnetMock, _ := newTestBridge()
 
 	b.Start()
@@ -321,7 +321,7 @@ func TestForwardLoop_Telnet空数据应忽略(t *testing.T) {
 
 // --- Channel 关闭 ---
 
-func TestForwardLoop_SerialChannel关闭(t *testing.T) {
+func TestForwardLoop_SerialChannelClosed(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte)}
 	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 10)}
 	buf := buffer.NewDataBuffer(4096)
@@ -346,7 +346,7 @@ func TestForwardLoop_SerialChannel关闭(t *testing.T) {
 	}
 }
 
-func TestForwardLoop_TelnetChannel关闭(t *testing.T) {
+func TestForwardLoop_TelnetChannelClosed(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 10)}
 	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte)}
 	buf := buffer.NewDataBuffer(4096)
@@ -394,7 +394,7 @@ func TestForwardLoop_ContextCancel(t *testing.T) {
 
 // --- 双向同时转发 ---
 
-func TestForwardLoop_双向同时转发(t *testing.T) {
+func TestForwardLoop_BidirectionalSimultaneousForward(t *testing.T) {
 	b, serialMock, telnetMock, mcpBuf := newTestBridge()
 	telnetMock.clientCount = 1
 
@@ -429,7 +429,7 @@ func TestForwardLoop_双向同时转发(t *testing.T) {
 
 // --- 并发安全 ---
 
-func TestDataBridge_多次StartStop(t *testing.T) {
+func TestDataBridge_MultipleStartStop(t *testing.T) {
 	b, serialMock, _, _ := newTestBridge()
 
 	b.Start()
@@ -451,7 +451,7 @@ func TestDataBridge_多次StartStop(t *testing.T) {
 	}
 }
 
-func TestDataBridge_大数据量转发(t *testing.T) {
+func TestDataBridge_LargeDataForward(t *testing.T) {
 	b, serialMock, telnetMock, mcpBuf := newTestBridge()
 	telnetMock.clientCount = 1
 
@@ -481,7 +481,7 @@ func TestDataBridge_大数据量转发(t *testing.T) {
 
 // --- forwardSerialToBoth / forwardTelnetToSerial 直接测试 ---
 
-func TestForwardSerialToBoth_正常转发(t *testing.T) {
+func TestForwardSerialToBoth_NormalForward(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 1)}
 	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 1), clientCount: 3}
 	buf := buffer.NewDataBuffer(4096)
@@ -504,7 +504,7 @@ func TestForwardSerialToBoth_正常转发(t *testing.T) {
 	}
 }
 
-func TestForwardTelnetToSerial_正常转发(t *testing.T) {
+func TestForwardTelnetToSerial_NormalForward(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 1)}
 	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 1)}
 	buf := buffer.NewDataBuffer(4096)
@@ -520,7 +520,7 @@ func TestForwardTelnetToSerial_正常转发(t *testing.T) {
 	}
 }
 
-func TestForwardTelnetToSerial_写入错误(t *testing.T) {
+func TestForwardTelnetToSerial_WriteError(t *testing.T) {
 	serialMock := &mockSerialReader{
 		dataChan: make(chan []byte, 1),
 		writeErr: errors.New("串口写入失败"),

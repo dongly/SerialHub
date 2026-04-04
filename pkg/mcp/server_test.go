@@ -53,7 +53,7 @@ func findFreePort(t *testing.T) string {
 	return addr
 }
 
-func TestNewMCPServer_串口管理器为空(t *testing.T) {
+func TestNewMCPServer_NilSerialManager(t *testing.T) {
 	buf := buffer.NewDataBuffer()
 	server, err := NewMCPServer(nil, buf)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestNewMCPServer_串口管理器为空(t *testing.T) {
 	}
 }
 
-func TestNewMCPServer_正常创建(t *testing.T) {
+func TestNewMCPServer_NormalCreation(t *testing.T) {
 	sm := newTestSerialManager(t)
 	buf := buffer.NewDataBuffer()
 
@@ -86,7 +86,7 @@ func TestNewMCPServer_正常创建(t *testing.T) {
 	}
 }
 
-func TestNewMCPServer_Buffer为空时自动创建(t *testing.T) {
+func TestNewMCPServer_AutoCreateBuffer(t *testing.T) {
 	sm := newTestSerialManager(t)
 
 	server, err := NewMCPServer(sm, nil)

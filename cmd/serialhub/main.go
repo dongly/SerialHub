@@ -100,6 +100,17 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
 
+	svc := service.NewServiceManager()
+	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		svc.SaveLastSerial(&service.LastSerialConfig{
+			Port:     port,
+			BaudRate: baudRate,
+			DataBits: dataBits,
+			Parity:   parity,
+			StopBits: float32(stopBits),
+		})
+	})
+
 	sm.SetEventHandler(func(event serial.Event) {
 		trayMgr.UpdateSerialStatus()
 	})
