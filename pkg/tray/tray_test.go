@@ -1273,3 +1273,81 @@ func TestOnReady_AsyncCall(t *testing.T) {
 		tm.onReady()
 	}, 200*time.Millisecond)
 }
+
+// TestSetOnConfigChanged_CallbackInvoked 测试配置变更回调被调用
+func TestSetOnConfigChanged_CallbackInvoked(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	var capturedBaudRate int
+	var capturedDataBits int
+	callbackInvoked := false
+
+	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		_ = port
+		capturedBaudRate = baudRate
+		capturedDataBits = dataBits
+		_ = parity
+		_ = stopBits
+		callbackInvoked = true
+	})
+
+	tm.mBaudRateItems[9600] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setBaudRate(9600)
+	}, 200*time.Millisecond)
+
+	testutil.AssertEqual(t, true, callbackInvoked)
+	testutil.AssertEqual(t, 9600, capturedBaudRate)
+	testutil.AssertEqual(t, 8, capturedDataBits)
+}
+
+// TestNotifyConfigChangedAndReconnect_NoCallback 测试无回调时不panic
+func TestNotifyConfigChangedAndReconnect_NoCallback(t *testing.T) {
+	tm := newTestTrayManager(t)
+	if tm.onConfigChanged != nil {
+		t.Error("expected onConfigChanged to be nil")
+	}
+
+	tm.notifyConfigChangedAndReconnect()
+}
+
+// TestAutoReconnect_NoPort 测试无端口时不尝试连接
+func TestAutoReconnect_NoPort(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	tm.autoReconnect()
+
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+}
+
+// TestIntegration_SaveLastSerial 集成测试：验证配置变更保存到文件
+func TestIntegration_SaveLastSerial(t *testing.T) {
+	tm := newTestTrayManager(t)
+	svc := service.NewServiceManager()
+
+	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		svc.SaveLastSerial(&service.LastSerialConfig{
+			Port:     port,
+			BaudRate: baudRate,
+			DataBits: dataBits,
+			Parity:   parity,
+			StopBits: float32(stopBits),
+		})
+	})
+
+	tm.mBaudRateItems[19200] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	callWithTimeout(t, func() {
+		tm.setBaudRate(19200)
+	}, 200*time.Millisecond)
+
+	loaded, err := svc.LoadLastSerial()
+	if err != nil {
+		t.Fatalf("LoadLastSerial failed: %v", err)
+	}
+
+	testutil.AssertNotNil(t, loaded)
+	testutil.AssertEqual(t, 19200, loaded.BaudRate)
+
+	svc.ClearLastSerial()
+}
