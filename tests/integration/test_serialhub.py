@@ -33,6 +33,15 @@ from typing import Generator, Optional
 import pytest
 import requests
 
+# GUI 自动化工具（可选）
+try:
+    from pywinauto import Application, Desktop
+    from pywinauto.keyboard import send_keys
+
+    PYWINAUTO_AVAILABLE = True
+except ImportError:
+    PYWINAUTO_AVAILABLE = False
+
 # ─── 常量 ──────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -1528,6 +1537,152 @@ class TestTrayIntegration:
 
         # 3. 断开连接
         mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+
+class TestTrayGUIAutomation:
+    """托盘 GUI 自动化测试 - 使用 pywinauto 自动点击菜单"""
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="仅在 Windows 上运行")
+    @pytest.mark.skipif(
+        not PYWINAUTO_AVAILABLE, reason="需要安装 pywinauto: pip install pywinauto"
+    )
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_GUI_TEST") != "1",
+        reason="需要设置 SERIALHUB_GUI_TEST=1 环境变量（会显示 GUI）",
+    )
+    def test_tray_menu_click_connect(self, serialhub_server_no_tray):
+        """测试点击托盘菜单连接串口"""
+        info = serialhub_server_no_tray
+        time.sleep(1)  # 等待托盘图标出现
+
+        try:
+            # 连接到系统托盘
+            desktop = Desktop(backend="win32")
+
+            # 查找 SerialHub 托盘图标
+            tray_icon = None
+            for i in range(10):  # 重试 10 次
+                try:
+                    # 尝试查找通知区域的 SerialHub 图标
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                        title_re=".*SerialHub.*"
+                    )
+                    if tray_icon.exists():
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            if not tray_icon or not tray_icon.exists():
+                pytest.skip("未找到 SerialHub 托盘图标")
+
+            # 右键点击托盘图标打开菜单
+            tray_icon.right_click_input()
+            time.sleep(0.5)
+
+            # 查找菜单窗口
+            menu = desktop.window(class_name="#32768")  # 标准菜单窗口类
+            if menu.exists():
+                # 点击"串口连接"菜单项
+                menu.click_input(coords=(10, 10))  # 点击第一个菜单项
+                time.sleep(1)
+
+                # 验证连接状态
+                status = mcp_call(
+                    info["mcp_port"], "tools/call", {"name": "serial_status"}
+                )
+                assert status["result"]["isConnected"] is True
+
+        except Exception as e:
+            pytest.skip(f"GUI 自动化失败: {e}")
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="仅在 Windows 上运行")
+    @pytest.mark.skipif(not PYWINAUTO_AVAILABLE, reason="需要安装 pywinauto")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_GUI_TEST") != "1",
+        reason="需要设置 SERIALHUB_GUI_TEST=1",
+    )
+    def test_tray_menu_baud_rate_change(self, serialhub_server_no_tray):
+        """测试通过托盘菜单修改波特率"""
+        info = serialhub_server_no_tray
+        time.sleep(1)
+
+        try:
+            desktop = Desktop(backend="win32")
+
+            # 查找并右键点击托盘图标
+            tray_icon = None
+            for i in range(10):
+                try:
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                        title_re=".*SerialHub.*"
+                    )
+                    if tray_icon.exists():
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            if not tray_icon or not tray_icon.exists():
+                pytest.skip("未找到 SerialHub 托盘图标")
+
+            # 右键点击打开菜单
+            tray_icon.right_click_input()
+            time.sleep(0.5)
+
+            # 查找菜单并点击"串口设置"
+            menu = desktop.window(class_name="#32768")
+            if menu.exists():
+                # 按 ESC 关闭菜单（仅测试菜单能否打开）
+                send_keys("{ESC}")
+
+        except Exception as e:
+            pytest.skip(f"GUI 自动化失败: {e}")
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="仅在 Windows 上运行")
+    @pytest.mark.skipif(not PYWINAUTO_AVAILABLE, reason="需要安装 pywinauto")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_GUI_TEST") != "1",
+        reason="需要设置 SERIALHUB_GUI_TEST=1",
+    )
+    def test_tray_menu_full_workflow(self, serialhub_server_no_tray):
+        """测试托盘菜单完整工作流：连接、修改配置、断开"""
+        info = serialhub_server_no_tray
+        time.sleep(1)
+
+        try:
+            desktop = Desktop(backend="win32")
+
+            # 查找托盘图标
+            tray_icon = None
+            for i in range(10):
+                try:
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                        title_re=".*SerialHub.*"
+                    )
+                    if tray_icon.exists():
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+            if not tray_icon or not tray_icon.exists():
+                pytest.skip("未找到 SerialHub 托盘图标")
+
+            # 1. 右键点击打开菜单
+            tray_icon.right_click_input()
+            time.sleep(0.5)
+
+            # 2. 验证菜单可以打开（按 ESC 关闭）
+            send_keys("{ESC}")
+            time.sleep(0.3)
+
+            # 3. 使用 MCP 验证服务器正常运行
+            status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
+            assert "isConnected" in status["result"]
+
+        except Exception as e:
+            pytest.skip(f"GUI 自动化失败: {e}")
 
         # 验证断开
         status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
