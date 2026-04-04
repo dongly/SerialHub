@@ -1392,3 +1392,143 @@ class TestSerialHardware:
 
         # 断开连接
         mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+
+class TestTrayIntegration:
+    """托盘功能集成测试 - 需要 Windows 环境和系统托盘支持"""
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="托盘功能仅在 Windows 上可用")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1",
+        reason="需要设置 SERIALHUB_INTEGRATION_TEST=1 环境变量",
+    )
+    def test_tray_config_change_callback(self, serialhub_server_no_tray):
+        """测试托盘配置变更回调被正确调用"""
+        info = serialhub_server_no_tray
+
+        # 连接串口
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_connect",
+                "arguments": {"port": get_test_port(), "baudRate": 115200},
+            },
+        )
+
+        # 验证连接成功
+        status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
+        assert status["result"]["isConnected"] is True
+
+        # 断开连接
+        mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="托盘功能仅在 Windows 上可用")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1",
+        reason="需要设置 SERIALHUB_INTEGRATION_TEST=1 环境变量",
+    )
+    def test_tray_auto_reconnect_on_config_change(self, serialhub_server_no_tray):
+        """测试托盘修改配置后自动重连"""
+        info = serialhub_server_no_tray
+
+        # 初始连接
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_connect",
+                "arguments": {"port": get_test_port(), "baudRate": 115200},
+            },
+        )
+
+        # 断开连接
+        mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="托盘功能仅在 Windows 上可用")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1",
+        reason="需要设置 SERIALHUB_INTEGRATION_TEST=1 环境变量",
+    )
+    def test_tray_config_persistence(self, serialhub_server_no_tray):
+        """测试托盘配置持久化到文件"""
+        info = serialhub_server_no_tray
+
+        # 连接并修改配置
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_connect",
+                "arguments": {"port": get_test_port(), "baudRate": 9600},
+            },
+        )
+
+        # 断开连接
+        mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="托盘功能仅在 Windows 上可用")
+    @pytest.mark.skipif(
+        os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1",
+        reason="需要设置 SERIALHUB_INTEGRATION_TEST=1 环境变量",
+    )
+    def test_tray_full_workflow(self, serialhub_server_no_tray):
+        """测试托盘完整工作流：连接、配置变更、断开"""
+        info = serialhub_server_no_tray
+
+        # 1. 初始连接
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_connect",
+                "arguments": {"port": get_test_port(), "baudRate": 115200},
+            },
+        )
+
+        # 验证状态
+        status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
+        assert status["result"]["isConnected"] is True
+
+        # 2. 测试数据通信
+        test_data = "TRAY_TEST_12345"
+        mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {
+                "name": "serial_write",
+                "arguments": {"data": test_data, "addNewline": False},
+            },
+        )
+
+        time.sleep(0.1)
+
+        read_result = mcp_call(
+            info["mcp_port"],
+            "tools/call",
+            {"name": "serial_read", "arguments": {"timeout": 2000}},
+        )
+
+        # 验证数据回环
+        received = ""
+        for item in read_result.get("result", {}).get("content", []):
+            if item.get("type") == "text":
+                text = item.get("text", "")
+                if "data:" in text:
+                    import re
+
+                    match = re.search(r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text)
+                    if match:
+                        received = match.group(1).strip()
+                        break
+
+        assert received == test_data, (
+            f"数据不匹配: 期望 {test_data!r}, 实际 {received!r}"
+        )
+
+        # 3. 断开连接
+        mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
+
+        # 验证断开
+        status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
+        assert status["result"]["isConnected"] is False
