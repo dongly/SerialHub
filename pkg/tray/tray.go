@@ -314,7 +314,21 @@ func (t *TrayManager) setPort(port string) {
 		}
 	}
 
+	// 更新配置
 	t.config.Serial.Port = port
+
+	// 同步更新 SerialManager 的配置
+	serialCfg := &serial.Config{
+		Port:     port,
+		BaudRate: t.config.Serial.BaudRate,
+		DataBits: t.config.Serial.DataBits,
+		Parity:   t.config.Serial.Parity,
+		StopBits: float32(t.config.Serial.StopBits),
+	}
+	if err := t.serial.UpdateConfig(serialCfg); err != nil {
+		logrus.Warnf("[SerialHub] 更新串口配置失败: %v", err)
+	}
+
 	logrus.Infof("[SerialHub] 切换串口: %s", port)
 }
 
@@ -334,6 +348,7 @@ func (t *TrayManager) setBaudRate(rate int) {
 	}
 
 	t.config.Serial.BaudRate = rate
+	t.syncSerialConfig()
 	t.mBaudRate.SetTitle(fmt.Sprintf("波特率: %d ▶", rate))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置波特率: %d", rate)
@@ -355,6 +370,7 @@ func (t *TrayManager) setDataBits(bits int) {
 	}
 
 	t.config.Serial.DataBits = bits
+	t.syncSerialConfig()
 	t.mDataBits.SetTitle(fmt.Sprintf("数据位: %d ▶", bits))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置数据位: %d", bits)
@@ -380,6 +396,7 @@ func (t *TrayManager) setStopBits(bits float64) {
 	}
 
 	t.config.Serial.StopBits = bits
+	t.syncSerialConfig()
 	label := fmt.Sprintf("%.0f", bits)
 	if bits == 1.5 {
 		label = "1.5"
@@ -405,9 +422,24 @@ func (t *TrayManager) setParity(parity string) {
 	}
 
 	t.config.Serial.Parity = parity
+	t.syncSerialConfig()
 	t.mParity.SetTitle(fmt.Sprintf("校验位: %s ▶", parity))
 	t.updateConfigDisplay()
 	logrus.Infof("[SerialHub] 设置校验位: %s", parity)
+}
+
+// syncSerialConfig 同步更新 SerialManager 的配置
+func (t *TrayManager) syncSerialConfig() {
+	serialCfg := &serial.Config{
+		Port:     t.config.Serial.Port,
+		BaudRate: t.config.Serial.BaudRate,
+		DataBits: t.config.Serial.DataBits,
+		Parity:   t.config.Serial.Parity,
+		StopBits: float32(t.config.Serial.StopBits),
+	}
+	if err := t.serial.UpdateConfig(serialCfg); err != nil {
+		logrus.Debugf("[SerialHub] 更新串口配置失败: %v", err)
+	}
 }
 
 func (t *TrayManager) updateConfigDisplay() {
