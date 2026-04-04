@@ -560,6 +560,12 @@ func newTestTrayManager(t *testing.T) *TrayManager {
 	}
 	t.Cleanup(func() { serialMgr.Close() })
 	conf := config.GetDefault()
+	// 确保 conf.Serial 与 serialMgr 的配置一致
+	conf.Serial.Port = cfg.Port
+	conf.Serial.BaudRate = cfg.BaudRate
+	conf.Serial.DataBits = cfg.DataBits
+	conf.Serial.Parity = cfg.Parity
+	conf.Serial.StopBits = float64(cfg.StopBits)
 	tm := NewTrayManager(serialMgr, conf, 2323, 5000, "0.1.0", true)
 
 	// 手动初始化 MenuItem 字段，使 setXxx 方法可安全调用
@@ -718,9 +724,141 @@ func TestSetPort_未连接时更新(t *testing.T) {
 
 	tm.setPort("COM_TEST1")
 	testutil.AssertEqual(t, "COM_TEST1", tm.config.Serial.Port)
+	// 验证 SerialManager 配置也同步更新
+	testutil.AssertEqual(t, "COM_TEST1", tm.serial.GetConfig().Port)
 
 	tm.setPort("COM_TEST2")
 	testutil.AssertEqual(t, "COM_TEST2", tm.config.Serial.Port)
+	// 验证 SerialManager 配置也同步更新
+	testutil.AssertEqual(t, "COM_TEST2", tm.serial.GetConfig().Port)
+}
+
+// TestSetPort_同步到SerialManager 测试设置串口时同步到SerialManager
+func TestSetPort_同步到SerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 初始配置
+	initialPort := tm.config.Serial.Port
+	testutil.AssertEqual(t, initialPort, tm.serial.GetConfig().Port)
+
+	// 添加模拟端口菜单项
+	tm.mPortItems["COM4"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 设置新端口
+	tm.setPort("COM4")
+
+	// 验证 TrayManager 配置更新
+	testutil.AssertEqual(t, "COM4", tm.config.Serial.Port)
+	// 验证 SerialManager 配置同步更新
+	testutil.AssertEqual(t, "COM4", tm.serial.GetConfig().Port)
+}
+
+// TestSetBaudRate_同步到SerialManager 测试设置波特率时同步到SerialManager
+func TestSetBaudRate_同步到SerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 添加模拟波特率菜单项
+	tm.mBaudRateItems[9600] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mBaudRateItems[115200] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 设置新波特率
+	tm.setBaudRate(9600)
+
+	// 验证 TrayManager 配置更新
+	testutil.AssertEqual(t, 9600, tm.config.Serial.BaudRate)
+	// 验证 SerialManager 配置同步更新
+	testutil.AssertEqual(t, 9600, tm.serial.GetConfig().BaudRate)
+
+	// 再次设置
+	tm.setBaudRate(115200)
+	testutil.AssertEqual(t, 115200, tm.config.Serial.BaudRate)
+	testutil.AssertEqual(t, 115200, tm.serial.GetConfig().BaudRate)
+}
+
+// TestSetDataBits_同步到SerialManager 测试设置数据位时同步到SerialManager
+func TestSetDataBits_同步到SerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 添加模拟数据位菜单项
+	tm.mDataBitsItems[7] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mDataBitsItems[8] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 设置新数据位
+	tm.setDataBits(7)
+
+	// 验证 TrayManager 配置更新
+	testutil.AssertEqual(t, 7, tm.config.Serial.DataBits)
+	// 验证 SerialManager 配置同步更新
+	testutil.AssertEqual(t, 7, tm.serial.GetConfig().DataBits)
+}
+
+// TestSetStopBits_同步到SerialManager 测试设置停止位时同步到SerialManager
+func TestSetStopBits_同步到SerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 添加模拟停止位菜单项
+	tm.mStopBitsItems[1] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mStopBitsItems[2] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 设置新停止位
+	tm.setStopBits(2)
+
+	// 验证 TrayManager 配置更新
+	testutil.AssertEqual(t, float64(2), tm.config.Serial.StopBits)
+	// 验证 SerialManager 配置同步更新（注意：SerialManager 使用 float32）
+	testutil.AssertEqual(t, float32(2), tm.serial.GetConfig().StopBits)
+}
+
+// TestSetParity_同步到SerialManager 测试设置校验位时同步到SerialManager
+func TestSetParity_同步到SerialManager(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 添加模拟校验位菜单项
+	tm.mParityItems["none"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mParityItems["even"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.mParityItems["odd"] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	// 设置新校验位
+	tm.setParity("even")
+
+	// 验证 TrayManager 配置更新
+	testutil.AssertEqual(t, "even", tm.config.Serial.Parity)
+	// 验证 SerialManager 配置同步更新
+	testutil.AssertEqual(t, "even", tm.serial.GetConfig().Parity)
+
+	// 再次设置
+	tm.setParity("odd")
+	testutil.AssertEqual(t, "odd", tm.config.Serial.Parity)
+	testutil.AssertEqual(t, "odd", tm.serial.GetConfig().Parity)
+}
+
+// TestSyncSerialConfig_完整配置同步 测试完整配置同步功能
+func TestSyncSerialConfig_完整配置同步(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	// 修改所有配置
+	tm.config.Serial.Port = "COM4"
+	tm.config.Serial.BaudRate = 9600
+	tm.config.Serial.DataBits = 7
+	tm.config.Serial.StopBits = 2
+	tm.config.Serial.Parity = "even"
+
+	// 调用同步
+	tm.syncSerialConfig()
+
+	// 验证 SerialManager 配置已同步
+	serialCfg := tm.serial.GetConfig()
+	testutil.AssertEqual(t, "COM4", serialCfg.Port)
+	testutil.AssertEqual(t, 9600, serialCfg.BaudRate)
+	testutil.AssertEqual(t, 7, serialCfg.DataBits)
+	testutil.AssertEqual(t, float32(2), serialCfg.StopBits)
+	testutil.AssertEqual(t, "even", serialCfg.Parity)
 }
 
 // TestUpdateConfigDisplay 测试更新配置显示
