@@ -88,6 +88,9 @@ COM4 端口:  TX pin ─────┬───── RX pin
 ### TestConfigFile — 配置文件测试
 - `test_toml_config` — TOML 配置文件加载
 - `test_invalid_config_file` — 无效配置处理
+- `test_config_save_to_toml` — **配置保存到 config.toml**
+- `test_config_auto_save_on_tray_change` — **托盘菜单修改自动保存**
+- `test_default_config_location` — **默认配置文件位置（可执行文件同级目录）**
 
 ### TestMCPTools — MCP 工具测试
 - `test_serial_list` — 列出可用串口

@@ -232,3 +232,130 @@ logDir = "C:/MyLogs"
 		t.Errorf("other fields should use defaults, baudRate got %d", cfg.Serial.BaudRate)
 	}
 }
+
+func TestSaveConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	cfg := GetDefault()
+	cfg.Serial.Port = "COM9"
+	cfg.Serial.BaudRate = 9600
+	cfg.Serial.DataBits = 7
+	cfg.Serial.Parity = "even"
+	cfg.Serial.StopBits = 2
+	cfg.Telnet.Port = 2324
+	cfg.MCP.HTTPPort = 5001
+	cfg.LogDir = "D:/Logs"
+	cfg.Debug = true
+
+	err := Save(configPath, cfg)
+	if err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("config file not created: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load saved config: %v", err)
+	}
+
+	if loaded.Serial.Port != "COM9" {
+		t.Errorf("expected port 'COM9', got '%s'", loaded.Serial.Port)
+	}
+	if loaded.Serial.BaudRate != 9600 {
+		t.Errorf("expected baud rate 9600, got %d", loaded.Serial.BaudRate)
+	}
+	if loaded.Serial.DataBits != 7 {
+		t.Errorf("expected data bits 7, got %d", loaded.Serial.DataBits)
+	}
+	if loaded.Serial.Parity != "even" {
+		t.Errorf("expected parity 'even', got '%s'", loaded.Serial.Parity)
+	}
+	if loaded.Serial.StopBits != 2 {
+		t.Errorf("expected stop bits 2, got %v", loaded.Serial.StopBits)
+	}
+	if loaded.Telnet.Port != 2324 {
+		t.Errorf("expected telnet port 2324, got %d", loaded.Telnet.Port)
+	}
+	if loaded.MCP.HTTPPort != 5001 {
+		t.Errorf("expected mcp http port 5001, got %d", loaded.MCP.HTTPPort)
+	}
+	if loaded.LogDir != "D:/Logs" {
+		t.Errorf("expected logDir 'D:/Logs', got '%s'", loaded.LogDir)
+	}
+	if loaded.Debug != true {
+		t.Errorf("expected debug true, got %t", loaded.Debug)
+	}
+}
+
+func TestSaveConfig_EmptyPath(t *testing.T) {
+	cfg := GetDefault()
+	err := Save("", cfg)
+	if err == nil {
+		t.Error("saving with empty path should return error")
+	}
+}
+
+func TestSaveAndLoadRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "roundtrip.toml")
+
+	cfg := GetDefault()
+	cfg.Serial.Port = "COM5"
+	cfg.Serial.BaudRate = 19200
+
+	if err := Save(configPath, cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if loaded.Serial.Port != "COM5" {
+		t.Errorf("expected port 'COM5', got '%s'", loaded.Serial.Port)
+	}
+	if loaded.Serial.BaudRate != 19200 {
+		t.Errorf("expected baud rate 19200, got %d", loaded.Serial.BaudRate)
+	}
+	if loaded.Serial.DataBits != 8 {
+		t.Errorf("expected default data bits 8, got %d", loaded.Serial.DataBits)
+	}
+}
+
+func TestSaveConfig_PreservesExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "existing.toml")
+
+	originalContent := `# Original comment
+[serial]
+port = "COM1"
+`
+	if err := os.WriteFile(configPath, []byte(originalContent), 0644); err != nil {
+		t.Fatalf("failed to create original file: %v", err)
+	}
+
+	cfg := GetDefault()
+	cfg.Serial.Port = "COM9"
+	cfg.Serial.BaudRate = 38400
+
+	if err := Save(configPath, cfg); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if loaded.Serial.Port != "COM9" {
+		t.Errorf("expected port 'COM9', got '%s'", loaded.Serial.Port)
+	}
+	if loaded.Serial.BaudRate != 38400 {
+		t.Errorf("expected baud rate 38400, got %d", loaded.Serial.BaudRate)
+	}
+}

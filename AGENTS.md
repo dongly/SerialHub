@@ -109,7 +109,7 @@ pkg/bridge/                     # 数据桥接（bridge.go, events.go）
 pkg/config/config.go            # TOML 配置（BurntSushi/toml）
 pkg/tray/                       # 系统托盘（tray.go, assets/, console_*.go）
 internal/buffer/                # 数据缓冲区（buffer.go）
-internal/service/               # 串口配置记忆（manager.go）
+internal/service/               # 服务管理（manager.go, singleton_*.go, lock_*.go）
 internal/testutil/              # 测试工具（helpers.go, mock_serial.go, mock_net.go）
 tests/e2e/                      # 端到端硬件测试
 tools/genicons.py               # 托盘图标生成（Python + PIL）
