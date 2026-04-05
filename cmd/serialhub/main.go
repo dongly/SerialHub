@@ -59,11 +59,18 @@ func main() {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", version))
 
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	if err := service.EnsureSingleInstance(); err != nil {
+		fmt.Fprintln(os.Stderr, "错误:", err)
+		os.Exit(1)
+	}
+	defer service.ReleaseSingleInstance()
+
 	cfg := loadConfig()
 	setupLogger(cfg)
 	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", version)
@@ -100,15 +107,17 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
 
-	svc := service.NewServiceManager()
 	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
-		svc.SaveLastSerial(&service.LastSerialConfig{
-			Port:     port,
-			BaudRate: baudRate,
-			DataBits: dataBits,
-			Parity:   parity,
-			StopBits: float32(stopBits),
-		})
+		cfg.Serial.Port = port
+		cfg.Serial.BaudRate = baudRate
+		cfg.Serial.DataBits = dataBits
+		cfg.Serial.Parity = parity
+		cfg.Serial.StopBits = stopBits
+		if configPath != "" {
+			if err := config.Save(configPath, cfg); err != nil {
+				logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
+			}
+		}
 	})
 
 	sm.SetEventHandler(func(event serial.Event) {
@@ -299,6 +308,13 @@ func loadConfig() *config.Config {
 		cfg.LogDir = logDir
 	}
 
+	if configPath == "" {
+		exePath, err := os.Executable()
+		if err == nil {
+			configPath = filepath.Join(filepath.Dir(exePath), "config.toml")
+		}
+	}
+
 	if configPath != "" {
 		loaded, err := config.Load(configPath)
 		if err != nil {
@@ -314,21 +330,6 @@ func loadConfig() *config.Config {
 	}
 	if baudRate != 115200 {
 		cfg.Serial.BaudRate = baudRate
-	}
-
-	if cfg.Serial.Port == "" {
-		svc := service.NewServiceManager()
-		lastSerial, err := svc.LoadLastSerial()
-		if err != nil {
-			logrus.Debugf("[SerialHub] 读取上次串口配置失败: %v", err)
-		} else if lastSerial != nil && lastSerial.Port != "" {
-			cfg.Serial.Port = lastSerial.Port
-			cfg.Serial.BaudRate = lastSerial.BaudRate
-			cfg.Serial.DataBits = lastSerial.DataBits
-			cfg.Serial.Parity = lastSerial.Parity
-			cfg.Serial.StopBits = float64(lastSerial.StopBits)
-			logrus.Infof("[SerialHub] 使用上次连接的串口: %s@%d", lastSerial.Port, lastSerial.BaudRate)
-		}
 	}
 
 	return cfg

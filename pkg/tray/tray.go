@@ -330,10 +330,8 @@ func (t *TrayManager) setPort(port string) {
 
 	if wasConnected {
 		t.autoReconnect()
-	} else if port != "" {
-		t.autoReconnect()
 	}
-	logrus.Infof("[SerialHub] 切换串口: %s", port)
+	logrus.Infof("[SerialHub] 选择串口: %s", port)
 }
 
 func (t *TrayManager) setBaudRate(rate int) {
@@ -575,10 +573,8 @@ func (t *TrayManager) UpdateSerialStatus() {
 
 	if connected {
 		t.mSerialConfig.Disable()
-		t.mSelectPort.Disable()
 	} else {
 		t.mSerialConfig.Enable()
-		t.mSelectPort.Enable()
 	}
 }
 

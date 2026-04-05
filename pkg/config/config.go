@@ -73,3 +73,22 @@ func Load(configPath string) (*Config, error) {
 	logrus.Debugf("[SerialHub] 配置内容: %+v", cfg)
 	return cfg, nil
 }
+
+func Save(configPath string, cfg *Config) error {
+	if configPath == "" {
+		return fmt.Errorf("配置文件路径为空")
+	}
+
+	file, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("创建配置文件失败: %w", err)
+	}
+	defer file.Close()
+
+	if err := toml.NewEncoder(file).Encode(cfg); err != nil {
+		return fmt.Errorf("编码配置失败: %w", err)
+	}
+
+	logrus.Debugf("[SerialHub] 已保存配置文件: %s", configPath)
+	return nil
+}
