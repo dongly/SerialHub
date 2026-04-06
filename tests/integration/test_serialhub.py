@@ -2039,40 +2039,38 @@ class TestTrayAutoConnect:
 
     def test_tray_auto_connect_last_serial(self, tmp_path):
         """测试托盘自动连接上次保存的串口（带托盘启动）"""
-        import tempfile
-        import json
+        test_port = get_test_port()
 
-        # 创建临时目录用于保存配置
-        temp_dir = tempfile.mkdtemp()
-        last_serial_file = Path(temp_dir) / "serialhub_last_serial.json"
+        # Go 代码使用 config.toml 保存在可执行文件同级目录
+        # 所以需要在 bin/ 目录创建配置文件
+        config_dir = BINARY_PATH.parent
+        config_file = config_dir / "config.toml"
 
-        # 准备上次连接的配置
-        last_config = {
-            "port": get_test_port(),
-            "baudRate": 115200,
-            "dataBits": 8,
-            "parity": "none",
-            "stopBits": 1.0,
-        }
+        # 准备上次连接的配置（TOML 格式）
+        config_content = f"""[serial]
+port = "{test_port}"
+baudRate = 115200
+dataBits = 8
+parity = "none"
+stopBits = 1
 
-        # 写入上次配置
-        with open(last_serial_file, "w", encoding="utf-8") as f:
-            json.dump(last_config, f)
+[telnet]
+port = 2323
+
+[mcp]
+httpPort = 5000
+"""
+
+        # 写入配置文件
+        config_file.write_text(config_content, encoding="utf-8")
 
         try:
-            # 设置环境变量让 SerialHub 读取配置
-            env = os.environ.copy()
-            env["TEMP"] = temp_dir
-            env["TMP"] = temp_dir
-
-            # 启动 SerialHub（不带 --no-tray，以便测试托盘自动连接）
+            # 启动 SerialHub（不带 --no-tray，不带 --serial-port，让它从 config.toml 读取）
             port = find_free_port()
             mcp_port = find_free_port()
 
             cmd = [
                 str(BINARY_PATH),
-                "--serial-port",
-                "",  # 不指定串口，让它从上次配置读取
                 "--telnet-port",
                 str(port),
                 "--mcp-port",
@@ -2086,7 +2084,6 @@ class TestTrayAutoConnect:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
-                env=env,
             )
 
             # 等待服务启动
@@ -2097,8 +2094,9 @@ class TestTrayAutoConnect:
                 health = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=5)
                 assert health.status_code == 200
 
-                # 验证串口状态（应该尝试连接上次保存的端口）
+                # 验证串口状态（应该尝试连接 config.toml 中保存的端口）
                 status = mcp_call(mcp_port, "tools/call", {"name": "serial_status"})
+                assert "result" in status
 
                 # 验证配置已加载（从 content text 中解析）
                 status_text = ""
@@ -2106,8 +2104,10 @@ class TestTrayAutoConnect:
                     if item.get("type") == "text":
                         status_text += item.get("text", "")
                 # 配置应被加载，port 信息应出现在状态中
-                assert "result" in status
-                # 注意：由于没有真实硬件，连接可能失败，但配置应该被加载
+                assert (
+                    test_port.upper() in status_text.upper()
+                    or "connected" in status_text.lower()
+                )
 
             finally:
                 # 清理进程
@@ -2119,11 +2119,9 @@ class TestTrayAutoConnect:
                     process.wait()
 
         finally:
-            if last_serial_file.exists():
-                last_serial_file.unlink()
-            import shutil
-
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            # 清理配置文件
+            if config_file.exists():
+                config_file.unlink()
 
     def test_tray_menu_click_reconnect(self, serialhub_server_with_tray):
         """测试点击托盘菜单重新连接"""
