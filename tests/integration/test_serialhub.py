@@ -449,6 +449,16 @@ class TestServerLifecycle:
             wait_for_health(mcp_port)
             resp = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=5)
             assert resp.status_code == 200
+
+            status = mcp_call(mcp_port, "tools/call", {"name": "serial_status"})
+            status_text = ""
+            for item in status.get("result", {}).get("content", []):
+                if item.get("type") == "text":
+                    status_text += item.get("text", "")
+            assert (
+                "未连接" in status_text
+                or "connected:false" in status_text.replace(" ", "").lower()
+            )
         finally:
             proc.terminate()
             proc.wait(timeout=5)
@@ -500,6 +510,9 @@ httpPort = 99999
                 wait_for_health(mcp_port)
                 resp = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=5)
                 assert resp.status_code == 200
+
+                saved = config_path.read_text(encoding="utf-8")
+                assert "115200" in saved, f"配置文件未包含波特率: {saved}"
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
@@ -509,7 +522,6 @@ httpPort = 99999
             bad_config = Path(tmpdir) / "bad.toml"
             bad_config.write_text("this is [[ invalid toml")
 
-            # 使用 start_server_with_retry 确保端口可用
             mcp_port = find_free_port()
             proc = subprocess.Popen(
                 [
@@ -527,6 +539,16 @@ httpPort = 99999
                 wait_for_health(mcp_port)
                 resp = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=5)
                 assert resp.status_code == 200
+
+                status = mcp_call(mcp_port, "tools/call", {"name": "serial_status"})
+                status_text = ""
+                for item in status.get("result", {}).get("content", []):
+                    if item.get("type") == "text":
+                        status_text += item.get("text", "")
+                assert (
+                    "未连接" in status_text
+                    or "connected:false" in status_text.replace(" ", "").lower()
+                )
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
@@ -699,15 +721,12 @@ debug = true
             try:
                 wait_for_health(mcp_port)
 
-                # 验证配置被加载（通过 MCP 状态检查）
                 result = mcp_call(mcp_port, "tools/call", {"name": "serial_status"})
-                assert "result" in result
-
-                # 验证日志目录被创建
-                log_dir = Path(tmpdir) / "logs"
-                if not Path("D:/TestLogs").exists():
-                    # 如果配置的日志目录不存在，会使用默认路径
-                    pass
+                status_text = ""
+                for item in result.get("result", {}).get("content", []):
+                    if item.get("type") == "text":
+                        status_text += item.get("text", "")
+                assert "COM_FROM_DEFAULT" in status_text or "未连接" in status_text
 
             finally:
                 proc.terminate()
@@ -717,6 +736,14 @@ debug = true
 # ─── 4. MCP 工具测试 ──────────────────────────────────
 
 
+def _get_content_text(result):
+    texts = []
+    for item in result.get("result", {}).get("content", []):
+        if item.get("type") == "text":
+            texts.append(item.get("text", ""))
+    return "".join(texts)
+
+
 class TestMCPTools:
     def test_serial_list(self, serialhub_server):
         info = serialhub_server
@@ -724,11 +751,14 @@ class TestMCPTools:
         assert "result" in result
         content = result["result"].get("content", [])
         assert len(content) > 0
+        text = _get_content_text(result).lower()
+        assert "串口" in text or "serial" in text or "port" in text or "找到" in text
 
     def test_serial_status_not_connected(self, serialhub_server):
         info = serialhub_server
         result = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
-        assert "result" in result
+        text = _get_content_text(result)
+        assert "未连接" in text or "connected:false" in text.replace(" ", "").lower()
 
     def test_serial_connect_invalid(self, serialhub_server):
         info = serialhub_server
@@ -740,12 +770,14 @@ class TestMCPTools:
                 "arguments": {"port": "INVALID_99999"},
             },
         )
-        assert "result" in result
+        text = _get_content_text(result).lower()
+        assert "失败" in text or "false" in text or "error" in text
 
     def test_serial_disconnect_not_connected(self, serialhub_server):
         info = serialhub_server
         result = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
-        assert "result" in result
+        text = _get_content_text(result)
+        assert "未连接" in text
 
     def test_serial_write_not_connected(self, serialhub_server):
         info = serialhub_server
@@ -757,7 +789,8 @@ class TestMCPTools:
                 "arguments": {"data": "test"},
             },
         )
-        assert "result" in result
+        text = _get_content_text(result)
+        assert "未连接" in text
 
     def test_serial_read_not_connected(self, serialhub_server):
         info = serialhub_server
@@ -769,7 +802,8 @@ class TestMCPTools:
                 "arguments": {"timeout": 100},
             },
         )
-        assert "result" in result
+        text = _get_content_text(result)
+        assert "未连接" in text or "超时" in text or "timedOut" in text
 
     def test_mcp_health_endpoint(self, serialhub_server):
         info = serialhub_server
@@ -780,7 +814,7 @@ class TestMCPTools:
     def test_mcp_unknown_tool(self, serialhub_server):
         info = serialhub_server
         result = mcp_call(info["mcp_port"], "tools/call", {"name": "nonexistent_tool"})
-        assert "error" in result or "result" in result
+        assert "error" in result
 
 
 # ─── 5. Telnet 测试 ───────────────────────────────────
@@ -800,8 +834,15 @@ class TestTelnet:
         with socket.create_connection(
             ("127.0.0.1", info["telnet_port"]), timeout=5
         ) as sock:
-            time.sleep(0.5)
+            data = sock.recv(1024)
+            assert len(data) > 0
             sock.sendall(b"hello\r\n")
+            sock.settimeout(2)
+            try:
+                response = sock.recv(4096)
+                assert len(response) >= 0
+            except socket.timeout:
+                pass
 
     def test_telnet_multiple_clients(self, serialhub_server):
         info = serialhub_server
@@ -810,9 +851,9 @@ class TestTelnet:
             s = socket.create_connection(("127.0.0.1", info["telnet_port"]), timeout=5)
             clients.append(s)
 
-        for s in clients:
+        for i, s in enumerate(clients):
             data = s.recv(1024)
-            assert len(data) >= 0
+            assert len(data) > 0, f"客户端 {i} 未收到欢迎数据"
             s.close()
 
     def test_telnet_loopback(self, serialhub_server):
@@ -1783,7 +1824,7 @@ class TestTrayGUIAutomation:
         for i in range(10):
             try:
                 tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
-                    title_re=".*SerialHub.*"
+                    title_re=".*SerialHub.*", found_index=0
                 )
                 if tray_icon.exists():
                     break
@@ -1960,6 +2001,8 @@ class TestTrayGUIAdvanced:
             initial_status = mcp_call(
                 info["mcp_port"], "tools/call", {"name": "serial_status"}
             )
+            initial_text = _get_content_text(initial_status)
+            assert "connected" in initial_text.lower()
 
             # 打开菜单查看配置显示
             menu = self._open_tray_menu(tray_icon)
@@ -1968,11 +2011,11 @@ class TestTrayGUIAdvanced:
                 send_keys("{ESC}")
                 time.sleep(0.3)
 
-            # 验证配置状态
             current_status = mcp_call(
                 info["mcp_port"], "tools/call", {"name": "serial_status"}
             )
-            assert "result" in current_status
+            current_text = _get_content_text(current_status)
+            assert "connected" in current_text.lower()
 
         except Exception as e:
             pytest.fail(f"GUI 自动化失败: {e}")
@@ -2124,14 +2167,12 @@ httpPort = 5000
                 config_file.unlink()
 
     def test_tray_menu_click_reconnect(self, serialhub_server_with_tray):
-        """测试点击托盘菜单重新连接"""
         info = serialhub_server_with_tray
         time.sleep(2)
 
         try:
             desktop = Desktop(backend="uia")
 
-            # 查找托盘图标
             tray_icon = None
             for i in range(10):
                 try:
@@ -2147,32 +2188,26 @@ httpPort = 5000
             if not tray_icon or not tray_icon.exists():
                 pytest.fail("未找到 SerialHub 托盘图标")
 
-            # 打开菜单
             tray_icon.right_click_input()
             time.sleep(0.8)
 
-            # 按 ESC 关闭
             send_keys("{ESC}")
             time.sleep(0.3)
 
-            # 验证服务仍然正常
-            health = requests.get(
-                f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5
-            )
-            assert health.status_code == 200
+            status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
+            status_text = _get_content_text(status)
+            assert "未连接" in status_text or "connected:false" in status_text.lower()
 
         except Exception as e:
             pytest.fail(f"GUI 自动化失败: {e}")
 
     def test_tray_config_change_triggers_save(self, serialhub_server_with_tray):
-        """测试托盘配置变更触发保存"""
         info = serialhub_server_with_tray
         time.sleep(2)
 
         try:
             desktop = Desktop(backend="uia")
 
-            # 查找托盘图标
             tray_icon = None
             for i in range(10):
                 try:
@@ -2188,13 +2223,11 @@ httpPort = 5000
             if not tray_icon or not tray_icon.exists():
                 pytest.fail("未找到 SerialHub 托盘图标")
 
-            # 打开菜单并关闭（模拟查看配置）
             tray_icon.right_click_input()
             time.sleep(0.5)
             send_keys("{ESC}")
             time.sleep(0.3)
 
-            # 验证服务健康
             health = requests.get(
                 f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5
             )

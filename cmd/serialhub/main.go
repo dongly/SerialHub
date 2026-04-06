@@ -358,6 +358,13 @@ func loadConfig() *config.Config {
 		cfg.Serial.BaudRate = baudRate
 	}
 
+	if telnetPort != 2323 {
+		cfg.Telnet.Port = telnetPort
+	}
+	if mcpPort != 5000 {
+		cfg.MCP.HTTPPort = mcpPort
+	}
+
 	if configPath != "" {
 		if err := config.Save(configPath, cfg); err != nil {
 			logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
