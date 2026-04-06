@@ -4,6 +4,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -98,12 +99,11 @@ func (db *DataBridge) forwardLoop() {
 
 		case data, ok := <-telnetDataChan:
 			if !ok {
-				// Telnet channel 已关闭
-				logrus.Debugln("[SerialHub] Telnet 数据通道已关闭")
+				logrus.Warnln("[SerialHub] Telnet 数据通道已关闭")
 				return
 			}
 			if len(data) > 0 {
-				// Telnet 数据 → 串口写入
+				logrus.Infof("[SerialHub] 收到 Telnet 数据: %d 字节, 内容: %q", len(data), string(data))
 				db.forwardTelnetToSerial(data)
 			}
 		}
@@ -112,15 +112,21 @@ func (db *DataBridge) forwardLoop() {
 
 // forwardSerialToBoth 将串口数据同时转发到 Telnet 和 MCP
 func (db *DataBridge) forwardSerialToBoth(data []byte) {
+	// 转换换行符：将 \r\n 或 \r 统一转换为 \n
+	// 这样可以避免 Telnet 客户端显示时出现重复行或空行
+	cleaned := strings.ReplaceAll(string(data), "\r\n", "\n")
+	cleaned = strings.ReplaceAll(cleaned, "\r", "\n")
+	cleanedData := []byte(cleaned)
+
 	// 转发到 Telnet（广播给所有客户端）
-	telnetCount := db.telnet.Broadcast(data)
+	telnetCount := db.telnet.Broadcast(cleanedData)
 	if telnetCount > 0 {
-		logrus.Debugf("[SerialHub] 转发串口数据到 Telnet: %d 字节, %d 客户端", len(data), telnetCount)
+		logrus.Debugf("[SerialHub] 转发串口数据到 Telnet: %d 字节, %d 客户端", len(cleanedData), telnetCount)
 	}
 
 	// 转发到 MCP 缓冲区
-	db.mcpBuffer.Append(data)
-	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(data))
+	db.mcpBuffer.Append(cleanedData)
+	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(cleanedData))
 }
 
 // forwardTelnetToSerial 将 Telnet 数据转发到串口

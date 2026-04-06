@@ -232,6 +232,9 @@ func (ts *TelnetServer) acceptLoop() {
 			clientID := uuid.New().String()
 			client := newTelnetClient(clientID, conn, ts)
 
+			// Send IAC WILL ECHO to disable local echo
+			conn.Write([]byte{IAC, WILL, ECHO})
+
 			// Add to clients map
 			ts.mu.Lock()
 			if ts.clients == nil {

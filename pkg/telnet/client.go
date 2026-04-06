@@ -10,6 +10,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	IAC  byte = 255
+	WILL byte = 251
+	WONT byte = 252
+	DO   byte = 253
+	DONT byte = 254
+	ECHO byte = 1
+)
+
 // TelnetClient represents a connected Telnet client.
 type TelnetClient struct {
 	id        string
