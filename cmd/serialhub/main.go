@@ -107,18 +107,32 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
 
-	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
-		cfg.Serial.Port = port
-		cfg.Serial.BaudRate = baudRate
-		cfg.Serial.DataBits = dataBits
-		cfg.Serial.Parity = parity
-		cfg.Serial.StopBits = stopBits
+	// 统一配置保存逻辑
+	saveConfigFunc := func(serialCfg *serial.Config) {
+		cfg.Serial.Port = serialCfg.Port
+		cfg.Serial.BaudRate = serialCfg.BaudRate
+		cfg.Serial.DataBits = serialCfg.DataBits
+		cfg.Serial.Parity = serialCfg.Parity
+		cfg.Serial.StopBits = float64(serialCfg.StopBits)
 		if configPath != "" {
 			if err := config.Save(configPath, cfg); err != nil {
 				logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
 			}
 		}
+	}
+
+	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		saveConfigFunc(&serial.Config{
+			Port:     port,
+			BaudRate: baudRate,
+			DataBits: dataBits,
+			Parity:   parity,
+			StopBits: float32(stopBits),
+		})
 	})
+
+	// 设置 SerialManager 配置变更回调
+	sm.SetConfigChangeHandler(saveConfigFunc)
 
 	sm.SetEventHandler(func(event serial.Event) {
 		trayMgr.UpdateSerialStatus()
@@ -203,6 +217,20 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 }
 
 func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer) error {
+	// 设置配置变更回调（无托盘模式也需要保存配置）
+	sm.SetConfigChangeHandler(func(serialCfg *serial.Config) {
+		cfg.Serial.Port = serialCfg.Port
+		cfg.Serial.BaudRate = serialCfg.BaudRate
+		cfg.Serial.DataBits = serialCfg.DataBits
+		cfg.Serial.Parity = serialCfg.Parity
+		cfg.Serial.StopBits = float64(serialCfg.StopBits)
+		if configPath != "" {
+			if err := config.Save(configPath, cfg); err != nil {
+				logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
+			}
+		}
+	})
+
 	// 尝试自动连接串口（如果配置了端口）
 	if err := sm.Connect(); err != nil {
 		logrus.Debugf("[SerialHub] 自动连接串口失败: %v", err)
@@ -303,7 +331,6 @@ func closeLogger() {
 func loadConfig() *config.Config {
 	cfg := config.GetDefault()
 
-	// 环境变量覆盖默认值
 	if logDir := os.Getenv("SERIALHUB_LOG_DIR"); logDir != "" {
 		cfg.LogDir = logDir
 	}
@@ -324,12 +351,17 @@ func loadConfig() *config.Config {
 		}
 	}
 
-	// CLI 参数覆盖配置文件
 	if serialPort != "" {
 		cfg.Serial.Port = serialPort
 	}
 	if baudRate != 115200 {
 		cfg.Serial.BaudRate = baudRate
+	}
+
+	if configPath != "" {
+		if err := config.Save(configPath, cfg); err != nil {
+			logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
+		}
 	}
 
 	return cfg

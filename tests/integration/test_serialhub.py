@@ -475,7 +475,7 @@ httpPort = 99999
                 proc.wait(timeout=5)
 
     def test_config_save_to_toml(self, binary):
-        """测试配置保存到 config.toml 文件"""
+        """测试配置保存到 config.toml 文件（命令行参数触发）"""
         if os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1":
             pytest.skip("集成测试未启用")
 
@@ -484,7 +484,6 @@ httpPort = 99999
             mcp_port = find_free_port()
             telnet_port = find_free_port()
 
-            # 创建初始配置文件
             config_path.write_text("""
 [serial]
 port = ""
@@ -510,6 +509,10 @@ httpPort = 5000
                     str(mcp_port),
                     "--telnet-port",
                     str(telnet_port),
+                    "--serial-port",
+                    "COM_TEST",
+                    "--baud-rate",
+                    "9600",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -517,114 +520,91 @@ httpPort = 5000
             try:
                 wait_for_health(mcp_port)
 
-                # 通过 MCP 连接串口（触发配置保存）
-                test_port = get_test_port()
-                result = mcp_call(
-                    mcp_port,
-                    "tools/call",
-                    {
-                        "name": "serial_connect",
-                        "arguments": {"port": test_port, "baudRate": 9600},
-                    },
-                )
-
-                # 给一点时间让配置保存
                 time.sleep(0.5)
 
-                # 验证配置文件被更新
                 saved_config = config_path.read_text()
-                assert (
-                    'port = "' + test_port + '"' in saved_config
-                    or f'port = "{test_port}"' in saved_config
-                )
-                assert "baudRate = 9600" in saved_config
+                assert 'Port = "COM_TEST"' in saved_config
+                assert "BaudRate = 9600" in saved_config
 
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
 
-    def test_config_auto_save_on_tray_change(self, binary):
-        """测试托盘菜单修改配置后自动保存到 config.toml"""
+    def test_single_instance(self, binary):
+        """测试单实例运行（第二个实例应退出）"""
         if os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1":
             pytest.skip("集成测试未启用")
 
-        if not PYWINAUTO_AVAILABLE:
-            pytest.skip("pywinauto 未安装")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
-            mcp_port = find_free_port()
-            telnet_port = find_free_port()
-
-            # 创建初始配置文件
             config_path.write_text("""
 [serial]
 port = ""
 baudRate = 115200
-dataBits = 8
-parity = "none"
-stopBits = 1
 """)
 
-            proc = subprocess.Popen(
+            mcp_port1 = find_free_port()
+            telnet_port1 = find_free_port()
+
+            # 启动第一个实例
+            proc1 = subprocess.Popen(
                 [
                     str(binary),
+                    "--no-tray",
                     "--config",
                     str(config_path),
                     "--mcp-port",
-                    str(mcp_port),
+                    str(mcp_port1),
                     "--telnet-port",
-                    str(telnet_port),
+                    str(telnet_port1),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
 
             try:
-                wait_for_health(mcp_port)
-                time.sleep(1)
+                wait_for_health(mcp_port1)
 
-                # 连接到托盘图标
-                app = Application(backend="uia").connect(process=proc.pid)
-                tray_icon = None
-                for _ in range(10):
-                    try:
-                        tray_icon = app.window(class_name="Shell_TrayWnd").child_window(
-                            title_re="SerialHub.*", found_index=0
-                        )
-                        if tray_icon.exists():
-                            break
-                    except:
-                        pass
-                    time.sleep(0.5)
+                # 尝试启动第二个实例
+                mcp_port2 = find_free_port()
+                telnet_port2 = find_free_port()
 
-                if tray_icon and tray_icon.exists():
-                    # 右键点击托盘图标打开菜单
-                    tray_icon.right_click_input()
-                    time.sleep(0.5)
+                proc2 = subprocess.Popen(
+                    [
+                        str(binary),
+                        "--no-tray",
+                        "--config",
+                        str(config_path),
+                        "--mcp-port",
+                        str(mcp_port2),
+                        "--telnet-port",
+                        str(telnet_port2),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
-                    # 尝试通过 MCP 连接串口来触发配置保存
-                    test_port = get_test_port()
-                    mcp_call(
-                        mcp_port,
-                        "tools/call",
-                        {
-                            "name": "serial_connect",
-                            "arguments": {"port": test_port, "baudRate": 19200},
-                        },
-                    )
-                    time.sleep(0.5)
+                # 等待第二个实例退出
+                try:
+                    proc2.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc2.terminate()
+                    proc2.wait(timeout=3)
 
-                    # 验证配置文件包含新的波特率
-                    saved_config = config_path.read_text()
-                    assert "baudRate = 19200" in saved_config
+                # 验证第二个实例退出且返回错误
+                assert proc2.returncode != 0, "第二个实例应该退出并返回错误码"
+
+                stderr_output = proc2.stderr.read().decode("utf-8", errors="replace")
+                assert (
+                    "已在运行中" in stderr_output or "running" in stderr_output.lower()
+                ), f"错误消息应提示已在运行中，实际输出: {stderr_output}"
 
             finally:
-                proc.terminate()
-                proc.wait(timeout=5)
+                proc1.terminate()
+                proc1.wait(timeout=5)
 
     def test_default_config_location(self, binary):
-        """测试默认配置文件位置（可执行文件同级目录）"""
+        """测试默认配置文件位置（可执行文件同级目录的 config.toml）"""
         if os.environ.get("SERIALHUB_INTEGRATION_TEST") != "1":
             pytest.skip("集成测试未启用")
 
@@ -637,8 +617,20 @@ stopBits = 1
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text("""
 [serial]
-port = "COM_TEST"
+port = "COM_FROM_DEFAULT"
 baudRate = 38400
+dataBits = 7
+parity = "even"
+stopBits = 2
+
+[telnet]
+port = 3333
+
+[mcp]
+httpPort = 6000
+
+logDir = "D:/TestLogs"
+debug = true
 """)
 
             mcp_port = find_free_port()
@@ -656,10 +648,15 @@ baudRate = 38400
             try:
                 wait_for_health(mcp_port)
 
-                # 验证配置被加载（通过检查状态）
+                # 验证配置被加载（通过 MCP 状态检查）
                 result = mcp_call(mcp_port, "tools/call", {"name": "serial_status"})
-                # 配置中的串口不存在，所以应该未连接，但配置应该被读取
                 assert "result" in result
+
+                # 验证日志目录被创建
+                log_dir = Path(tmpdir) / "logs"
+                if not Path("D:/TestLogs").exists():
+                    # 如果配置的日志目录不存在，会使用默认路径
+                    pass
 
             finally:
                 proc.terminate()

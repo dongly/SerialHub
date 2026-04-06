@@ -212,7 +212,6 @@ func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRe
 }
 
 func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-	// For low-level API, we extract params manually
 	var input tools.ConnectInput
 	_ = s.parseRequestParams(req, &input)
 	result := tools.ExecuteSerialConnect(s.serialManager, input)

@@ -42,16 +42,17 @@ type Port interface {
 
 // SerialManager manages serial port connections
 type SerialManager struct {
-	config       *Config
-	port         Port
-	dataChan     chan []byte
-	errChan      chan error
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	logger       *logrus.Logger
-	eventHandler EventHandler
+	config              *Config
+	port                Port
+	dataChan            chan []byte
+	errChan             chan error
+	mu                  sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
+	logger              *logrus.Logger
+	eventHandler        EventHandler
+	configChangeHandler func(*Config)
 }
 
 // NewSerialManager creates a new serial manager
@@ -220,7 +221,20 @@ func (sm *SerialManager) UpdateConfig(cfg *Config) error {
 	}
 
 	sm.config = cfg.Clone()
+
+	// 触发配置变更回调
+	if sm.configChangeHandler != nil {
+		sm.configChangeHandler(sm.config.Clone())
+	}
+
 	return nil
+}
+
+// SetConfigChangeHandler 设置配置变更处理函数
+func (sm *SerialManager) SetConfigChangeHandler(handler func(*Config)) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.configChangeHandler = handler
 }
 
 // SetEventHandler 设置串口事件处理函数
