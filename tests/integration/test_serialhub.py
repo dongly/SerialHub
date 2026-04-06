@@ -1782,7 +1782,7 @@ class TestTrayGUIAutomation:
         tray_icon = None
         for i in range(10):
             try:
-                tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
                     title_re=".*SerialHub.*"
                 )
                 if tray_icon.exists():
@@ -1817,7 +1817,7 @@ class TestTrayGUIAutomation:
             tray_icon = None
             for i in range(10):
                 try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
                         title_re=".*SerialHub.*"
                     )
                     if tray_icon.exists():
@@ -1854,7 +1854,7 @@ class TestTrayGUIAutomation:
             tray_icon = None
             for i in range(10):
                 try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
                         title_re=".*SerialHub.*"
                     )
                     if tray_icon.exists():
@@ -2135,7 +2135,7 @@ httpPort = 5000
             tray_icon = None
             for i in range(10):
                 try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
                         title_re=".*SerialHub.*"
                     )
                     if tray_icon.exists():
@@ -2176,7 +2176,7 @@ httpPort = 5000
             tray_icon = None
             for i in range(10):
                 try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").window(
+                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
                         title_re=".*SerialHub.*"
                     )
                     if tray_icon.exists():
