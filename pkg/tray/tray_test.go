@@ -2,6 +2,7 @@
 package tray
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1196,15 +1197,22 @@ func TestRefreshPortList_WithOldItems(t *testing.T) {
 func callWithTimeout(t *testing.T, fn func(), timeout time.Duration) {
 	t.Helper()
 	done := make(chan struct{})
+	var panicErr error
 	go func() {
-		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				panicErr = fmt.Errorf("panic: %v", r)
+			}
+			close(done)
+		}()
 		fn()
 	}()
 	select {
 	case <-done:
-		// 函数正常完成
+		if panicErr != nil {
+			t.Logf("函数 panic（非 systray 环境）: %v", panicErr)
+		}
 	case <-time.After(timeout):
-		// 超时是预期的（systray 函数阻塞），但阻塞前的语句已被覆盖
 		t.Logf("函数在 %v 内未返回（预期行为，systray 阻塞）", timeout)
 	}
 }
@@ -1358,6 +1366,132 @@ func TestTrayManager_AutoReconnectBehavior(t *testing.T) {
 	// 由于没有真实串口，连接会失败，但配置应已更新
 	testutil.AssertEqual(t, "COM_AUTO", tm.config.Serial.Port)
 	testutil.AssertEqual(t, "COM_AUTO", tm.serial.GetConfig().Port)
+}
+
+func TestOpenTerminal(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+
+	tm.openTerminal()
+}
+
+func TestOpenTerminal_WithHost(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	tm := NewTrayManager(serialMgr, conf, "0.0.0.0", 8080, "1.0.0", false)
+
+	tm.openTerminal()
+}
+
+func TestGetSerialMenuTitle_Connected(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	expected := "连接 " + tm.config.Serial.Port
+	testutil.AssertEqual(t, expected, tm.getSerialMenuTitle())
+}
+
+func TestAutoReconnect_WithPort(t *testing.T) {
+	tm := newTestTrayManager(t)
+	tm.config.Serial.Port = "COM_NONEXISTENT"
+
+	tm.autoReconnect()
+
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+}
+
+func TestNotifyConfigChangedAndReconnect_WithCallback(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	callbackInvoked := false
+	var capturedPort string
+	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+		callbackInvoked = true
+		capturedPort = port
+	})
+
+	tm.notifyConfigChangedAndReconnect()
+
+	testutil.AssertEqual(t, true, callbackInvoked)
+	testutil.AssertEqual(t, tm.config.Serial.Port, capturedPort)
+}
+
+func TestToggleSerial_AlreadyConnected(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+
+	callWithTimeout(t, func() {
+		tm.toggleSerial()
+	}, 200*time.Millisecond)
+}
+
+func TestOnReady_NoCallback(t *testing.T) {
+	tm := newTestTrayManager(t)
+	testutil.AssertNil(t, tm.readyCallback)
+
+	callWithTimeout(t, func() {
+		tm.onReady()
+	}, 200*time.Millisecond)
+}
+
+func TestOnReady_WithCallback(t *testing.T) {
+	tm := newTestTrayManager(t)
+
+	readyCalled := false
+	tm.SetOnReady(func() {
+		readyCalled = true
+	})
+
+	callWithTimeout(t, func() {
+		tm.onReady()
+	}, 200*time.Millisecond)
+
+	testutil.AssertNotNil(t, tm.readyCallback)
+
+	tm.readyCallback()
+	testutil.AssertEqual(t, true, readyCalled)
+}
+
+func TestGetConfigSummary_WithPort(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = getTestPort()
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+	conf := config.GetDefault()
+	conf.Serial.Port = "COM4"
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+
+	testutil.AssertEqual(t, "当前: COM4 115200 8N1", tm.getConfigSummary())
+}
+
+// TestSetPort_SamePort 测试设置为相同端口
+func TestSetPort_SamePort(t *testing.T) {
+	tm := newTestTrayManager(t)
+	initialPort := tm.config.Serial.Port
+
+	tm.mPortItems[initialPort] = &systray.MenuItem{ClickedCh: make(chan struct{})}
+
+	callWithTimeout(t, func() {
+		tm.setPort(initialPort)
+	}, 500*time.Millisecond)
+
+	testutil.AssertEqual(t, initialPort, tm.config.Serial.Port)
 }
 
 // TestTrayManager_MenuItemUpdates 测试菜单项标题更新

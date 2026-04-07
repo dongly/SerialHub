@@ -576,6 +576,131 @@ func TestSerialStatus_Connected(t *testing.T) {
 	}
 }
 
+// ==================== Nil Manager Tests ====================
+
+func TestSerialList_NilManager(t *testing.T) {
+	result := ExecuteSerialList(nil)
+	if result.Success {
+		t.Error("nil manager 预期失败")
+	}
+	if result.Message != "串口管理器未初始化" {
+		t.Errorf("预期消息 '串口管理器未初始化'，实际 '%s'", result.Message)
+	}
+}
+
+func TestSerialConnect_NilManager(t *testing.T) {
+	result := ExecuteSerialConnect(nil, ConnectInput{Port: "COM1", BaudRate: 115200})
+	if result.Success {
+		t.Error("nil manager 预期失败")
+	}
+	if result.Message != "串口管理器未初始化" {
+		t.Errorf("预期消息 '串口管理器未初始化'，实际 '%s'", result.Message)
+	}
+}
+
+func TestSerialDisconnect_NilManager(t *testing.T) {
+	result := ExecuteSerialDisconnect(nil)
+	if result.Success {
+		t.Error("nil manager 预期失败")
+	}
+	if result.Message != "串口管理器未初始化" {
+		t.Errorf("预期消息 '串口管理器未初始化'，实际 '%s'", result.Message)
+	}
+}
+
+func TestSerialWrite_NilManager(t *testing.T) {
+	result := ExecuteSerialWrite(nil, WriteInput{Data: "test"})
+	if result.Success {
+		t.Error("nil manager 预期失败")
+	}
+	if result.Message != "串口管理器未初始化" {
+		t.Errorf("预期消息 '串口管理器未初始化'，实际 '%s'", result.Message)
+	}
+}
+
+func TestSerialStatus_NilManager(t *testing.T) {
+	result := ExecuteSerialStatus(nil)
+	if !result.Success {
+		t.Error("nil manager 状态查询应该成功（返回未连接状态）")
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatal("Data 类型不正确")
+	}
+	if data["connected"].(bool) {
+		t.Error("nil manager 时 connected 应为 false")
+	}
+}
+
+func TestToolResult_Fields(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  ToolResult
+		success bool
+		message string
+	}{
+		{
+			name:    "成功结果",
+			result:  ToolResult{Success: true, Message: "操作成功", Data: "test"},
+			success: true,
+			message: "操作成功",
+		},
+		{
+			name:    "失败结果",
+			result:  ToolResult{Success: false, Message: "操作失败"},
+			success: false,
+			message: "操作失败",
+		},
+		{
+			name:    "nil Data",
+			result:  ToolResult{Success: true, Message: "成功", Data: nil},
+			success: true,
+			message: "成功",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.result.Success != tt.success {
+				t.Errorf("Success = %v, want %v", tt.result.Success, tt.success)
+			}
+			if tt.result.Message != tt.message {
+				t.Errorf("Message = %s, want %s", tt.result.Message, tt.message)
+			}
+		})
+	}
+}
+
+func TestConnectInput_Defaults(t *testing.T) {
+	input := ConnectInput{Port: "COM1"}
+	if input.Port != "COM1" {
+		t.Errorf("Port = %s, want COM1", input.Port)
+	}
+	if input.BaudRate != 0 {
+		t.Errorf("默认 BaudRate 应为 0，实际 %d", input.BaudRate)
+	}
+}
+
+func TestWriteInput_Defaults(t *testing.T) {
+	input := WriteInput{Data: "hello"}
+	if input.Data != "hello" {
+		t.Errorf("Data = %s, want hello", input.Data)
+	}
+	if input.AddNewline {
+		t.Error("默认 AddNewline 应为 false")
+	}
+}
+
+func TestReadInput_Defaults(t *testing.T) {
+	input := ReadInput{}
+	if input.Timeout != 0 {
+		t.Errorf("默认 Timeout 应为 0，实际 %d", input.Timeout)
+	}
+	if input.MaxSize != 0 {
+		t.Errorf("默认 MaxSize 应为 0，实际 %d", input.MaxSize)
+	}
+}
+
 // ==================== Hardware Tests ====================
 
 func TestSerialWriteRead_Hardware(t *testing.T) {
