@@ -163,6 +163,19 @@ taskkill /F /IM serialhub.exe
 
 ```
 tests/integration/
+├── conftest.py               # 共享 fixtures 和辅助函数
+├── test_cli.py               # CLI 命令行测试
+├── test_config.py            # 配置文件测试
+├── test_logging.py           # 日志测试
+├── test_mcp_tools.py         # MCP 工具测试
+├── test_serial_hardware.py   # 串口硬件测试
+├── test_server_lifecycle.py  # 服务器生命周期测试
+├── test_telnet.py            # Telnet/WebSocket 测试
+├── test_tray.py              # 系统托盘测试
+├── test_web_terminal.py      # Web 终端测试
+└── README.md                 # 本说明文件
+```
+tests/integration/
 ├── test_serialhub.py      # 主测试文件
 ├── __init__.py            # （可选）Python 包标记
 └── README.md              # 本说明文件
