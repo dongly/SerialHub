@@ -19,8 +19,8 @@ import (
 	"github.com/yourname/serialhub/pkg/config"
 	"github.com/yourname/serialhub/pkg/mcp"
 	"github.com/yourname/serialhub/pkg/serial"
-	"github.com/yourname/serialhub/pkg/telnet"
 	"github.com/yourname/serialhub/pkg/tray"
+	"github.com/yourname/serialhub/pkg/web"
 )
 
 var (
@@ -29,7 +29,7 @@ var (
 	baudRate   int
 	configPath string
 	debugMode  bool
-	telnetPort int
+	wsPort     int
 	mcpPort    int
 	host       string
 	noTray     bool
@@ -40,7 +40,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "serialhub",
 		Short: "SerialHub - 串口与网络连接的双向桥接器",
-		Long:  "SerialHub 将 MCU 串口数据同时转发到 Telnet（人工监视）和 MCP（AI 工具程序化访问）。",
+		Long:  "SerialHub 将 MCU 串口数据同时转发到 WebSocket（人工监视）和 MCP（AI 工具程序化访问）。",
 		RunE:  runServe,
 		Args:  cobra.NoArgs,
 	}
@@ -49,7 +49,7 @@ func main() {
 	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, "波特率")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, "启用调试模式")
-	rootCmd.Flags().IntVarP(&telnetPort, "telnet-port", "t", 2323, "Telnet 服务端口")
+	rootCmd.Flags().IntVarP(&wsPort, "ws-port", "t", 2323, "WebSocket 服务端口")
 	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&noTray, "no-tray", false, "禁用系统托盘")
@@ -105,7 +105,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		tray.HideConsole()
 	}
 
-	trayMgr := tray.NewTrayManager(sm, cfg, telnetPort, mcpPort, version, minimized)
+	trayMgr := tray.NewTrayManager(sm, cfg, host, wsPort, mcpPort, version, minimized)
 
 	// 统一配置保存逻辑
 	saveConfigFunc := func(serialCfg *serial.Config) {
@@ -138,7 +138,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		trayMgr.UpdateSerialStatus()
 	})
 
-	var telnetSrv *telnet.TelnetServer
+	var wsSrv *web.WebSocketServer
 	var cancelFunc context.CancelFunc
 
 	trayMgr.SetOnReady(func() {
@@ -153,24 +153,24 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		}
 
 		var err error
-		telnetSrv, err = telnet.NewTelnetServer(host, telnetPort, func() string {
+		wsSrv, err = web.NewWebSocketServer(host, wsPort, func() string {
 			if sm.IsConnected() {
 				return sm.GetConfig().String()
 			}
 			return ""
 		})
 		if err != nil {
-			logrus.Errorf("[SerialHub] 创建 Telnet 服务失败: %v", err)
+			logrus.Errorf("[SerialHub] 创建 WebSocket 服务失败: %v", err)
 			return
 		}
-		if err := telnetSrv.Start(); err != nil {
-			logrus.Errorf("[SerialHub] 启动 Telnet 服务失败: %v", err)
+		if err := wsSrv.Start(); err != nil {
+			logrus.Errorf("[SerialHub] 启动 WebSocket 服务失败: %v", err)
 			return
 		}
-		logrus.Infof("[SerialHub] Telnet 服务已启动: %s:%d", host, telnetPort)
+		logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, wsPort)
 
 		// 始终创建 DataBridge，即使串口未连接
-		bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
+		bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
 		if err != nil {
 			logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
 		} else {
@@ -178,7 +178,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			logrus.Info("[SerialHub] 数据桥接已启动")
 		}
 
-		mcpSrv, err := mcp.NewMCPServer(sm, buf)
+		mcpSrv, err := mcp.NewMCPServer(sm, buf, wsSrv)
 		if err != nil {
 			logrus.Errorf("[SerialHub] 创建 MCP 服务失败: %v", err)
 			return
@@ -196,15 +196,15 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 		logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
-		logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
+		logrus.Infof("[SerialHub] WebSocket 端口: %d", wsPort)
 	})
 
 	trayMgr.SetOnExit(func() {
 		if cancelFunc != nil {
 			cancelFunc()
 		}
-		if telnetSrv != nil {
-			telnetSrv.Stop()
+		if wsSrv != nil {
+			wsSrv.Stop()
 		}
 	})
 
@@ -238,22 +238,22 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 		logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
 	}
 
-	telnetSrv, err := telnet.NewTelnetServer(host, telnetPort, func() string {
+	wsSrv, err := web.NewWebSocketServer(host, wsPort, func() string {
 		if sm.IsConnected() {
 			return sm.GetConfig().String()
 		}
 		return ""
 	})
 	if err != nil {
-		return fmt.Errorf("创建 Telnet 服务失败: %w", err)
+		return fmt.Errorf("创建 WebSocket 服务失败: %w", err)
 	}
-	if err := telnetSrv.Start(); err != nil {
-		return fmt.Errorf("启动 Telnet 服务失败: %w", err)
+	if err := wsSrv.Start(); err != nil {
+		return fmt.Errorf("启动 WebSocket 服务失败: %w", err)
 	}
-	logrus.Infof("[SerialHub] Telnet 服务已启动: %s:%d", host, telnetPort)
+	logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, wsPort)
 
 	// 始终创建 DataBridge，即使串口未连接
-	bridgeSrv, err := bridge.NewDataBridge(sm, telnetSrv, buf)
+	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
 	if err != nil {
 		logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
 	} else {
@@ -261,7 +261,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 		logrus.Info("[SerialHub] 数据桥接已启动")
 	}
 
-	mcpSrv, err := mcp.NewMCPServer(sm, buf)
+	mcpSrv, err := mcp.NewMCPServer(sm, buf, wsSrv)
 	if err != nil {
 		return fmt.Errorf("创建 MCP 服务失败: %w", err)
 	}
@@ -276,7 +276,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 	logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
-	logrus.Infof("[SerialHub] Telnet 端口: %d", telnetPort)
+	logrus.Infof("[SerialHub] WebSocket 端口: %d", wsPort)
 	logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
 
 	sigChan := make(chan os.Signal, 1)
@@ -285,7 +285,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 
 	logrus.Info("[SerialHub] 正在关闭...")
 	closeLogger()
-	telnetSrv.Stop()
+	wsSrv.Stop()
 	return nil
 }
 
@@ -357,9 +357,11 @@ func loadConfig() *config.Config {
 	if baudRate != 115200 {
 		cfg.Serial.BaudRate = baudRate
 	}
-
-	if telnetPort != 2323 {
-		cfg.Telnet.Port = telnetPort
+	if host != "" && host != "127.0.0.1" {
+		cfg.Host = host
+	}
+	if wsPort != 2323 {
+		cfg.WebSocket.Port = wsPort
 	}
 	if mcpPort != 5000 {
 		cfg.MCP.HTTPPort = mcpPort

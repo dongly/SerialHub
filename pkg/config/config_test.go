@@ -22,10 +22,6 @@ func TestGetDefault(t *testing.T) {
 		t.Errorf("default stop bits should be 1, got %v", cfg.Serial.StopBits)
 	}
 
-	if cfg.Telnet.Port != 2323 {
-		t.Errorf("default telnet port should be 2323, got %d", cfg.Telnet.Port)
-	}
-
 	if cfg.MCP.HTTPPort != 5000 {
 		t.Errorf("default mcp http port should be 5000, got %d", cfg.MCP.HTTPPort)
 	}
@@ -49,9 +45,6 @@ dataBits = 8
 parity = "none"
 stopBits = 1
 
-[telnet]
-port = 2324
-
 [mcp]
 httpPort = 5001
 `
@@ -67,9 +60,6 @@ httpPort = 5001
 	}
 	if cfg.Serial.BaudRate != 9600 {
 		t.Errorf("expected baud rate 9600, got %d", cfg.Serial.BaudRate)
-	}
-	if cfg.Telnet.Port != 2324 {
-		t.Errorf("expected telnet port 2324, got %d", cfg.Telnet.Port)
 	}
 	if cfg.MCP.HTTPPort != 5001 {
 		t.Errorf("expected mcp http port 5001, got %d", cfg.MCP.HTTPPort)
@@ -88,15 +78,12 @@ func TestLoadConfig_FileNotFound(t *testing.T) {
 	if cfg.Serial.BaudRate != 115200 {
 		t.Errorf("expected default baud rate 115200, got %d", cfg.Serial.BaudRate)
 	}
-	if cfg.Telnet.Port != 2323 {
-		t.Errorf("expected default telnet port 2323, got %d", cfg.Telnet.Port)
-	}
 }
 
 func TestLoadConfig_InvalidTOML(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "invalid.toml")
-	invalidTOML := `[serial
+	invalidTOML := `[serial 
 port = "missing bracket"`
 	if err := os.WriteFile(configPath, []byte(invalidTOML), 0644); err != nil {
 		t.Fatalf("failed to create config file: %v", err)
@@ -140,9 +127,6 @@ httpPort = 6000
 	if cfg.Serial.Parity != "none" {
 		t.Errorf("unconfigured Parity should use default 'none', got '%s'", cfg.Serial.Parity)
 	}
-	if cfg.Telnet.Port != 2323 {
-		t.Errorf("unconfigured telnet port should use default 2323, got %d", cfg.Telnet.Port)
-	}
 }
 
 func TestConfig_EmptyPath(t *testing.T) {
@@ -170,16 +154,13 @@ debug = true
 
 # 串口配置
 [serial]
-port = "COM3"      # Windows 串口
+port = "COM3" # Windows 串口
 baudRate = 9600
-dataBits = 8       # 数据位：5/6/7/8
-parity = "none"    # 校验位：none/even/odd
+dataBits = 8 # 数据位：5/6/7/8
+parity = "none" # 校验位：none/even/odd
 stopBits = 1
 
 # 网络服务
-[telnet]
-port = 3333
-
 [mcp]
 httpPort = 6000
 `
@@ -196,9 +177,6 @@ httpPort = 6000
 	}
 	if cfg.Serial.BaudRate != 9600 {
 		t.Errorf("expected baud rate 9600, got %d", cfg.Serial.BaudRate)
-	}
-	if cfg.Telnet.Port != 3333 {
-		t.Errorf("expected telnet port 3333, got %d", cfg.Telnet.Port)
 	}
 	if cfg.MCP.HTTPPort != 6000 {
 		t.Errorf("expected mcp http port 6000, got %d", cfg.MCP.HTTPPort)
@@ -236,14 +214,12 @@ logDir = "C:/MyLogs"
 func TestSaveConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
-
 	cfg := GetDefault()
 	cfg.Serial.Port = "COM9"
 	cfg.Serial.BaudRate = 9600
 	cfg.Serial.DataBits = 7
 	cfg.Serial.Parity = "even"
 	cfg.Serial.StopBits = 2
-	cfg.Telnet.Port = 2324
 	cfg.MCP.HTTPPort = 5001
 	cfg.LogDir = "D:/Logs"
 	cfg.Debug = true
@@ -277,9 +253,6 @@ func TestSaveConfig(t *testing.T) {
 	if loaded.Serial.StopBits != 2 {
 		t.Errorf("expected stop bits 2, got %v", loaded.Serial.StopBits)
 	}
-	if loaded.Telnet.Port != 2324 {
-		t.Errorf("expected telnet port 2324, got %d", loaded.Telnet.Port)
-	}
 	if loaded.MCP.HTTPPort != 5001 {
 		t.Errorf("expected mcp http port 5001, got %d", loaded.MCP.HTTPPort)
 	}
@@ -302,7 +275,6 @@ func TestSaveConfig_EmptyPath(t *testing.T) {
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "roundtrip.toml")
-
 	cfg := GetDefault()
 	cfg.Serial.Port = "COM5"
 	cfg.Serial.BaudRate = 19200
@@ -330,7 +302,6 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 func TestSaveConfig_PreservesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "existing.toml")
-
 	originalContent := `# Original comment
 [serial]
 port = "COM1"

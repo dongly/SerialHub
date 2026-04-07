@@ -16,20 +16,21 @@ type SerialConfig struct {
 	StopBits float64
 }
 
-type TelnetConfig struct {
-	Port int
-}
-
 type MCPConfig struct {
 	HTTPPort int
 }
 
+type WebSocketConfig struct {
+	Port int
+}
+
 type Config struct {
-	Serial SerialConfig
-	Telnet TelnetConfig
-	MCP    MCPConfig
-	LogDir string
-	Debug  bool
+	Serial    SerialConfig
+	WebSocket WebSocketConfig
+	MCP       MCPConfig
+	Host      string
+	LogDir    string
+	Debug     bool
 }
 
 func GetDefault() *Config {
@@ -41,12 +42,13 @@ func GetDefault() *Config {
 			Parity:   "none",
 			StopBits: 1,
 		},
-		Telnet: TelnetConfig{
+		WebSocket: WebSocketConfig{
 			Port: 2323,
 		},
 		MCP: MCPConfig{
 			HTTPPort: 5000,
 		},
+		Host:  "127.0.0.1",
 		Debug: false,
 	}
 }

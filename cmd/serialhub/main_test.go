@@ -144,9 +144,6 @@ dataBits = 7
 parity = "even"
 stopBits = 2
 
-[telnet]
-port = 3000
-
 [mcp]
 httpPort = 6000
 `
@@ -164,7 +161,6 @@ httpPort = 6000
 	testutil.AssertEqual(t, 7, cfg.Serial.DataBits)
 	testutil.AssertEqual(t, "even", cfg.Serial.Parity)
 	testutil.AssertEqual(t, float64(2), cfg.Serial.StopBits)
-	testutil.AssertEqual(t, 3000, cfg.Telnet.Port)
 	testutil.AssertEqual(t, 6000, cfg.MCP.HTTPPort)
 
 	configPath = originalPath

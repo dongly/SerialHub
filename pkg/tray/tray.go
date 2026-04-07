@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -28,7 +29,8 @@ type OnConfigChangedFunc func(port string, baudRate int, dataBits int, parity st
 type TrayManager struct {
 	serial          *serial.SerialManager
 	config          *config.Config
-	telnetPort      int
+	host            string
+	wsPort          int
 	mcpPort         int
 	version         string
 	state           TrayState
@@ -53,6 +55,7 @@ type TrayManager struct {
 	mParityItems    map[string]*systray.MenuItem
 	mCurrentConfig  *systray.MenuItem
 	mNetworkStatus  *systray.MenuItem
+	mOpenTerminal   *systray.MenuItem
 	mShowLog        *systray.MenuItem
 }
 
@@ -64,11 +67,12 @@ var parityList = []string{"none", "even", "odd"}
 //go:embed assets/*.ico
 var iconFS embed.FS
 
-func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, telnetPort, mcpPort int, version string, showConsoleMenu bool) *TrayManager {
+func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, host string, wsPort, mcpPort int, version string, showConsoleMenu bool) *TrayManager {
 	return &TrayManager{
 		serial:          serialMgr,
 		config:          cfg,
-		telnetPort:      telnetPort,
+		host:            host,
+		wsPort:          wsPort,
 		mcpPort:         mcpPort,
 		version:         version,
 		state:           TrayIdle,
@@ -190,9 +194,17 @@ func (t *TrayManager) createMenu() {
 	t.mNetworkStatus = systray.AddMenuItem(t.getNetworkStatus(), "网络状态")
 	t.mNetworkStatus.Disable()
 
+	// 6. 打开终端 (xterm.js)
+	t.mOpenTerminal = systray.AddMenuItem("打开终端 🌐", "在浏览器中打开 Web 终端")
+	go func() {
+		for range t.mOpenTerminal.ClickedCh {
+			t.openTerminal()
+		}
+	}()
+
 	systray.AddSeparator()
 
-	// 6. 显示/隐藏窗口（仅当 showConsoleMenu=true 时显示）
+	// 7. 显示/隐藏窗口（仅当 showConsoleMenu=true 时显示）
 	if t.showConsoleMenu {
 		t.mShowLog = systray.AddMenuItem("显示窗口", "显示控制台窗口")
 		systray.AddSeparator()
@@ -520,7 +532,7 @@ func (t *TrayManager) getConfigSummary() string {
 }
 
 func (t *TrayManager) getNetworkStatus() string {
-	return fmt.Sprintf("Telnet: %d | MCP: %d", t.telnetPort, t.mcpPort)
+	return fmt.Sprintf("WebSocket: %d | MCP: %d", t.wsPort, t.mcpPort)
 }
 
 func (t *TrayManager) getSerialMenuTitle() string {
@@ -642,4 +654,16 @@ func (t *TrayManager) toggleSerial() {
 		}
 	}
 	t.UpdateSerialStatus()
+}
+
+// openTerminal 在浏览器中打开 Web 终端页面
+func (t *TrayManager) openTerminal() {
+	url := fmt.Sprintf("http://%s:%d/terminal", t.host, t.wsPort)
+	logrus.Infof("[SerialHub] 打开终端: %s", url)
+
+	// 使用 Windows 的 start 命令打开浏览器
+	cmd := exec.Command("cmd", "/c", "start", url)
+	if err := cmd.Start(); err != nil {
+		logrus.Errorf("[SerialHub] 打开浏览器失败: %v", err)
+	}
 }

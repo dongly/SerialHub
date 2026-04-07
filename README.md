@@ -1,6 +1,6 @@
 # SerialHub
 
-串口（MCU）与网络连接（Telnet/AI）之间的双向桥接器。
+串口（MCU）与网络连接（Web终端/AI）之间的双向桥接器。
 
 **📚 文档**: [MCP 使用指南](./MCP.md) | [项目架构](./AGENTS.md) | [集成测试](./tests/integration/README.md)
 
@@ -8,8 +8,8 @@
 
 SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 
-- 将 MCU 串口输出同时转发到 Telnet（供人工监视）和 AI 接口（供程序化分析）
-- 支持人工操作员（通过 MobaXterm 等）和 AI 工具的双向通信
+- 将 MCU 串口输出同时转发到 Web 终端（供人工监视）和 AI 接口（供程序化分析）
+- 支持人工操作员（通过浏览器）和 AI 工具的双向通信
 - 支持 MCU Shell 操作，用于运行时控制和调试
 
 ## 系统架构
@@ -32,15 +32,15 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 │              ┌──────────────┼────────┐ │
 │              ▼              ▼        ▼ │
 │       ┌───────────┐  ┌──────────┐ ... │
-│       │  Telnet   │  │   MCP    │     │
-│       │  服务端    │  │  服务    │     │
-│       │ (端口 2323)│ │(HTTP) │    │
+│       │   Web     │  │   MCP    │     │
+│       │  终端     │  │  服务    │     │
+│       │ (端口5000)│  │ (HTTP)   │     │
 │       └───────────┘  └──────────┘     │
 └─────────────────────────────────────────┘
        │                    │
        ▼                    ▼
 ┌─────────────┐     ┌─────────────┐
-│ MobaXterm   │     │  AI 工具     │
+│   浏览器     │     │  AI 工具     │
 │ (人工操作)   │     │ (OpenCode,  │
 │             │     │  iFlow CLI) │
 └─────────────┘     └─────────────┘
@@ -53,6 +53,7 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 | 语言 | Go 1.26+ |
 | 串口通信 | go.bug.st/serial |
 | AI 接口 | MCP (Model Context Protocol) / go-sdk |
+| Web 终端 | WebSocket / xterm.js |
 | CLI | spf13/cobra |
 | 配置 | spf13/viper |
 | 系统托盘 | getlantern/systray |
@@ -60,10 +61,11 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 
 ## 功能特性
 
-- **双路转发**：串口数据同时转发到 Telnet 和 AI 接口
-- **双向通信**：Telnet 或 AI 发送的命令均可传输到 MCU
+- **双路转发**：串口数据同时转发到 Web 终端和 AI 接口
+- **双向通信**：Web 终端或 AI 发送的命令均可传输到 MCU
+- **Web 终端**：基于 WebSocket 的浏览器终端，支持 xterm.js
 - **MCP 协议**：通过 HTTP (StreamableHTTP) 提供 AI 工具集成
-- **可配置**：所有端口、波特率、超时参数均可通过 JSON(C) 或命令行配置
+- **可配置**：所有端口、波特率、超时参数均可通过 TOML 或命令行配置
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
 
@@ -77,14 +79,13 @@ go build -o bin/serialhub.exe ./cmd/serialhub
 
 ### `serialhub`（默认：serve 模式）
 
-启动 HTTP + Telnet 服务器：
+启动 HTTP + Web 终端服务器：
 
 ```bash
 serialhub                                    # 默认配置启动
 serialhub -p COM8                            # 指定串口
 serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
 serialhub -m 8080                            # 使用 8080 端口
-serialhub -t 2323                            # Telnet 端口
 serialhub --host 0.0.0.0                     # 监听所有网络接口
 serialhub -c config.toml                     # 使用配置文件
 serialhub -D                                 # 调试模式
@@ -99,7 +100,6 @@ serialhub -D                                 # 调试模式
 | `--data-bits <bits>` | `-d` | 数据位（5/6/7/8） | 8 |
 | `--parity <type>` | - | 校验位（none/even/odd） | none |
 | `--stop-bits <bits>` | `-s` | 停止位（1/2） | 1 |
-| `--telnet-port <port>` | `-t` | Telnet 服务端口 | 2323 |
 | `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5000 |
 | `--host <host>` | - | 监听地址 | 127.0.0.1 |
 | `--config <path>` | `-c` | 配置文件路径 | - |
@@ -120,7 +120,7 @@ serialhub -D                                 # 调试模式
 | 菜单项 | 功能 |
 |--------|------|
 | 串口信息 | 点击可连接/断开串口 |
-| 端口信息 | 显示 Telnet 和 MCP 端口（不可点击） |
+| 端口信息 | 显示 MCP 端口（不可点击） |
 | 显示/隐藏控制台 | 切换控制台窗口 |
 | 退出 | 关闭 SerialHub |
 
@@ -143,11 +143,9 @@ serialhub --no-tray
 serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
-2. 人工通过 Telnet 连接监视：
+2. 人工通过 Web 终端连接监视：
 
-```bash
-telnet localhost 2323
-```
+打开浏览器访问 `http://localhost:5000/terminal`
 
 3. AI 工具通过 HTTP MCP 连接：
 
@@ -162,15 +160,19 @@ telnet localhost 2323
 }
 ```
 
-4. 串口数据同时转发到 Telnet 和 AI 接口，两者可独立向串口发送命令。
+4. 串口数据同时转发到 Web 终端和 AI 接口，两者可独立向串口发送命令。
 
-### 通过 Telnet 连接
+### 通过 Web 终端访问
 
-```bash
-telnet localhost 2323
-```
+SerialHub 内置基于 WebSocket 的终端界面，使用 xterm.js 提供完整的终端体验。
 
-连接后输入的内容将直接发送到串口，串口的输出将实时显示。
+**访问地址**：`http://localhost:5000/terminal`
+
+**功能特性**：
+- 实时显示串口输出
+- 支持键盘输入发送到串口
+- 支持 Ctrl+C、Ctrl+D 等控制字符
+- 自动重连
 
 ### MCP HTTP API 调用
 
@@ -321,9 +323,6 @@ dataBits = 8
 parity = "none"     # none / even / odd
 stopBits = 1
 
-[telnet]
-port = 2323
-
 [mcp]
 httpPort = 5000
 ```
@@ -335,8 +334,7 @@ httpPort = 5000
 | `serial.dataBits` | `8` | 数据位（5/6/7/8） |
 | `serial.parity` | `"none"` | 校验位（none/even/odd） |
 | `serial.stopBits` | `1` | 停止位（1/2） |
-| `telnet.port` | `2323` | Telnet 服务端口 |
-| `mcp.httpPort` | `5000` | MCP HTTP 服务端口 |
+| `mcp.httpPort` | `5000` | MCP HTTP 服务端口（同时提供 Web 终端） |
 | `logDir` | `""` | 日志目录，为空则保存到可执行文件目录下的 `logs/` |
 | `debug` | `false` | 调试模式开关 |
 

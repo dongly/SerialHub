@@ -37,21 +37,21 @@ func (m *mockSerialReader) getWriteData() []byte {
 	return cp
 }
 
-type mockTelnetBroadcaster struct {
+type mockWsBroadcaster struct {
 	dataChan      chan []byte
 	broadcastData []byte
 	clientCount   int
 	mu            sync.Mutex
 }
 
-func (m *mockTelnetBroadcaster) DataChan() <-chan []byte { return m.dataChan }
-func (m *mockTelnetBroadcaster) Broadcast(data []byte) int {
+func (m *mockWsBroadcaster) DataChan() <-chan []byte { return m.dataChan }
+func (m *mockWsBroadcaster) Broadcast(data []byte) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.broadcastData = append(m.broadcastData, data...)
 	return m.clientCount
 }
-func (m *mockTelnetBroadcaster) getBroadcastData() []byte {
+func (m *mockWsBroadcaster) getBroadcastData() []byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make([]byte, len(m.broadcastData))
@@ -61,36 +61,36 @@ func (m *mockTelnetBroadcaster) getBroadcastData() []byte {
 
 // --- 辅助函数 ---
 
-func newTestBridge() (*DataBridge, *mockSerialReader, *mockTelnetBroadcaster, *buffer.DataBuffer) {
+func newTestBridge() (*DataBridge, *mockSerialReader, *mockWsBroadcaster, *buffer.DataBuffer) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 10)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 10)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte, 10)}
 	buf := buffer.NewDataBuffer(4096)
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
-	return b, serialMock, telnetMock, buf
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
+	return b, serialMock, wsMock, buf
 }
 
 // --- NewDataBridge 构造测试 ---
 
 func TestNewDataBridge_ParameterValidation(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte)}
 	buf := buffer.NewDataBuffer()
 
 	tests := []struct {
 		name      string
 		serialMgr SerialReader
-		telnetSrv TelnetBroadcaster
+		wsSrv     WebSocketBroadcaster
 		mcpBuf    *buffer.DataBuffer
 		wantErr   string
 	}{
-		{"serialMgr为nil", nil, telnetMock, buf, "串口管理器不能为空"},
-		{"telnetSrv为nil", serialMock, nil, buf, "Telnet 服务器不能为空"},
-		{"mcpBuf为nil", serialMock, telnetMock, nil, "MCP 缓冲区不能为空"},
+		{"serialMgr为nil", nil, wsMock, buf, "串口管理器不能为空"},
+		{"wsSrv为nil", serialMock, nil, buf, "WebSocket 服务器不能为空"},
+		{"mcpBuf为nil", serialMock, wsMock, nil, "MCP 缓冲区不能为空"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewDataBridge(tt.serialMgr, tt.telnetSrv, tt.mcpBuf)
+			_, err := NewDataBridge(tt.serialMgr, tt.wsSrv, tt.mcpBuf)
 			if err == nil {
 				t.Fatalf("期望返回错误，但没有")
 			}
@@ -107,8 +107,8 @@ func TestNewDataBridge_NormalCreation(t *testing.T) {
 	if b.serial == nil {
 		t.Error("bridge.serial 不应为 nil")
 	}
-	if b.telnet == nil {
-		t.Error("bridge.telnet 不应为 nil")
+	if b.ws == nil {
+		t.Error("bridge.ws 不应为 nil")
 	}
 	if b.mcpBuffer == nil {
 		t.Error("bridge.mcpBuffer 不应为 nil")
@@ -157,8 +157,8 @@ func TestDataBridge_StopReturnsNil(t *testing.T) {
 // --- 串口 → Telnet + MCP 转发 ---
 
 func TestForwardLoop_SerialToTelnetAndMCP(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 2 // 模拟有 Telnet 客户端
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 2 // 模拟有 Telnet 客户端
 
 	b.Start()
 	defer b.Stop()
@@ -169,7 +169,7 @@ func TestForwardLoop_SerialToTelnetAndMCP(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 验证 Telnet 广播
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	if string(got) != string(testData) {
 		t.Errorf("Telnet 广播数据 = %q, 期望 %q", got, testData)
 	}
@@ -182,8 +182,8 @@ func TestForwardLoop_SerialToTelnetAndMCP(t *testing.T) {
 }
 
 func TestForwardLoop_SerialDataNoTelnetClient(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 0 // 无 Telnet 客户端
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 0 // 无 Telnet 客户端
 
 	b.Start()
 	defer b.Stop()
@@ -194,7 +194,7 @@ func TestForwardLoop_SerialDataNoTelnetClient(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 即使 clientCount=0, Broadcast 仍被调用（只是返回 0）
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	if string(got) != string(testData) {
 		t.Errorf("Telnet 广播数据 = %q, 期望 %q", got, testData)
 	}
@@ -207,8 +207,8 @@ func TestForwardLoop_SerialDataNoTelnetClient(t *testing.T) {
 }
 
 func TestForwardLoop_SerialMultipleDataForward(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 1
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 1
 
 	b.Start()
 	defer b.Stop()
@@ -221,7 +221,7 @@ func TestForwardLoop_SerialMultipleDataForward(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// 验证 Telnet 广播合并
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	expected := "AAABBB"
 	if string(got) != expected {
 		t.Errorf("Telnet 广播数据 = %q, 期望 %q", got, expected)
@@ -235,8 +235,8 @@ func TestForwardLoop_SerialMultipleDataForward(t *testing.T) {
 }
 
 func TestForwardLoop_SerialEmptyDataIgnored(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 1
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 1
 
 	b.Start()
 	defer b.Stop()
@@ -247,7 +247,7 @@ func TestForwardLoop_SerialEmptyDataIgnored(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 空数据不应被转发
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	if len(got) != 0 {
 		t.Errorf("空数据不应转发到 Telnet, 但得到 %q", got)
 	}
@@ -261,13 +261,13 @@ func TestForwardLoop_SerialEmptyDataIgnored(t *testing.T) {
 // --- Telnet → 串口 转发 ---
 
 func TestForwardLoop_TelnetToSerial(t *testing.T) {
-	b, serialMock, telnetMock, _ := newTestBridge()
+	b, serialMock, wsMock, _ := newTestBridge()
 
 	b.Start()
 	defer b.Stop()
 
 	testData := []byte("AT+RST\r\n")
-	telnetMock.dataChan <- testData
+	wsMock.dataChan <- testData
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -278,21 +278,21 @@ func TestForwardLoop_TelnetToSerial(t *testing.T) {
 }
 
 func TestForwardLoop_TelnetToSerialWriteError(t *testing.T) {
-	b, serialMock, telnetMock, _ := newTestBridge()
+	b, serialMock, wsMock, _ := newTestBridge()
 	serialMock.writeErr = errors.New("写入失败")
 
 	b.Start()
 	defer b.Stop()
 
 	testData := []byte("will fail")
-	telnetMock.dataChan <- testData
+	wsMock.dataChan <- testData
 
 	time.Sleep(100 * time.Millisecond)
 
 	// 写入出错不应 panic, bridge 应继续运行
 	// 验证 bridge 仍然存活：修正 writeErr, 发新数据应能成功
 	serialMock.writeErr = nil
-	telnetMock.dataChan <- []byte("ok")
+	wsMock.dataChan <- []byte("ok")
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -303,13 +303,13 @@ func TestForwardLoop_TelnetToSerialWriteError(t *testing.T) {
 }
 
 func TestForwardLoop_TelnetEmptyDataIgnored(t *testing.T) {
-	b, serialMock, telnetMock, _ := newTestBridge()
+	b, serialMock, wsMock, _ := newTestBridge()
 
 	b.Start()
 	defer b.Stop()
 
 	// 发送空数据
-	telnetMock.dataChan <- []byte{}
+	wsMock.dataChan <- []byte{}
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -323,10 +323,10 @@ func TestForwardLoop_TelnetEmptyDataIgnored(t *testing.T) {
 
 func TestForwardLoop_SerialChannelClosed(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 10)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte, 10)}
 	buf := buffer.NewDataBuffer(4096)
 
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
 	b.Start()
 
 	// 关闭串口 channel → forwardLoop 应退出
@@ -348,14 +348,14 @@ func TestForwardLoop_SerialChannelClosed(t *testing.T) {
 
 func TestForwardLoop_TelnetChannelClosed(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 10)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte)}
 	buf := buffer.NewDataBuffer(4096)
 
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
 	b.Start()
 
 	// 关闭 telnet channel → forwardLoop 应退出
-	close(telnetMock.dataChan)
+	close(wsMock.dataChan)
 
 	done := make(chan struct{})
 	go func() {
@@ -395,8 +395,8 @@ func TestForwardLoop_ContextCancel(t *testing.T) {
 // --- 双向同时转发 ---
 
 func TestForwardLoop_BidirectionalSimultaneousForward(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 1
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 1
 
 	b.Start()
 	defer b.Stop()
@@ -406,12 +406,12 @@ func TestForwardLoop_BidirectionalSimultaneousForward(t *testing.T) {
 	telnetData := []byte("from-telnet")
 
 	serialMock.dataChan <- serialData
-	telnetMock.dataChan <- telnetData
+	wsMock.dataChan <- telnetData
 
 	time.Sleep(150 * time.Millisecond)
 
 	// 串口数据 → Telnet + MCP
-	telnetGot := telnetMock.getBroadcastData()
+	telnetGot := wsMock.getBroadcastData()
 	if string(telnetGot) != string(serialData) {
 		t.Errorf("Telnet 广播数据 = %q, 期望 %q", telnetGot, serialData)
 	}
@@ -437,23 +437,23 @@ func TestDataBridge_MultipleStartStop(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	b.Stop()
 
-	b2, serialMock2, telnetMock2, _ := newTestBridge()
-	telnetMock2.clientCount = 1
+	b2, serialMock2, wsMock2, _ := newTestBridge()
+	wsMock2.clientCount = 1
 	b2.Start()
 	serialMock2.dataChan <- []byte("round2")
 	time.Sleep(50 * time.Millisecond)
 	b2.Stop()
 
 	// 验证第二次的数据不与第一次混淆
-	got := telnetMock2.getBroadcastData()
+	got := wsMock2.getBroadcastData()
 	if string(got) != "round2" {
 		t.Errorf("第二轮 Telnet 广播 = %q, 期望 %q", got, "round2")
 	}
 }
 
 func TestDataBridge_LargeDataForward(t *testing.T) {
-	b, serialMock, telnetMock, mcpBuf := newTestBridge()
-	telnetMock.clientCount = 1
+	b, serialMock, wsMock, mcpBuf := newTestBridge()
+	wsMock.clientCount = 1
 
 	b.Start()
 	defer b.Stop()
@@ -468,7 +468,7 @@ func TestDataBridge_LargeDataForward(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	if string(got) != expected {
 		t.Errorf("大数据量 Telnet 广播长度=%d 期望=%d", len(got), len(expected))
 	}
@@ -483,16 +483,16 @@ func TestDataBridge_LargeDataForward(t *testing.T) {
 
 func TestForwardSerialToBoth_NormalForward(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 1)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 1), clientCount: 3}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte, 1), clientCount: 3}
 	buf := buffer.NewDataBuffer(4096)
 
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
 
 	data := []byte("test-data")
 	b.forwardSerialToBoth(data)
 
 	// 验证 Telnet 广播
-	got := telnetMock.getBroadcastData()
+	got := wsMock.getBroadcastData()
 	if string(got) != "test-data" {
 		t.Errorf("Telnet 广播 = %q, 期望 %q", got, "test-data")
 	}
@@ -506,13 +506,13 @@ func TestForwardSerialToBoth_NormalForward(t *testing.T) {
 
 func TestForwardTelnetToSerial_NormalForward(t *testing.T) {
 	serialMock := &mockSerialReader{dataChan: make(chan []byte, 1)}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 1)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte, 1)}
 	buf := buffer.NewDataBuffer(4096)
 
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
 
 	data := []byte("telnet-cmd")
-	b.forwardTelnetToSerial(data)
+	b.forwardWsToSerial(data)
 
 	got := serialMock.getWriteData()
 	if string(got) != "telnet-cmd" {
@@ -525,13 +525,13 @@ func TestForwardTelnetToSerial_WriteError(t *testing.T) {
 		dataChan: make(chan []byte, 1),
 		writeErr: errors.New("串口写入失败"),
 	}
-	telnetMock := &mockTelnetBroadcaster{dataChan: make(chan []byte, 1)}
+	wsMock := &mockWsBroadcaster{dataChan: make(chan []byte, 1)}
 	buf := buffer.NewDataBuffer(4096)
 
-	b, _ := NewDataBridge(serialMock, telnetMock, buf)
+	b, _ := NewDataBridge(serialMock, wsMock, buf)
 
 	// 不应 panic
-	b.forwardTelnetToSerial([]byte("data"))
+	b.forwardWsToSerial([]byte("data"))
 
 	got := serialMock.getWriteData()
 	if len(got) != 0 {
@@ -549,10 +549,10 @@ func TestEventDataTypes(t *testing.T) {
 		}
 	})
 
-	t.Run("TelnetDataEvent", func(t *testing.T) {
-		e := TelnetDataEvent{Data: []byte("telnet data")}
-		if string(e.Data) != "telnet data" {
-			t.Errorf("Data = %q, 期望 %q", e.Data, "telnet data")
+	t.Run("WebSocketDataEvent", func(t *testing.T) {
+		e := WebSocketDataEvent{Data: []byte("websocket data")}
+		if string(e.Data) != "websocket data" {
+			t.Errorf("Data = %q, 期望 %q", e.Data, "websocket data")
 		}
 	})
 

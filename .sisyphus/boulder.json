@@ -1,15 +1,29 @@
 {
-  "active_plan": "D:\\Develop\\SerialHub\\.sisyphus\\plans\\mcp-streamablehttp.md",
-  "started_at": "2026-04-03T13:54:50.326Z",
+  "active_plan": "D:\\Develop\\SerialHub\\.sisyphus\\plans\\replace-telnet-with-xterm.md",
+  "started_at": "2026-04-07T02:08:23.000Z",
   "session_ids": [
-    "ses_2ccab43faffeT0m9BnCYEjptBt",
-    "ses_2ac5e118bffeex61Gj6aewBiV3",
-    "ses_2ac5c2780ffeFOsP54COCta5Za",
-    "ses_2ac0e386cffekfaJI090HTe3EJ",
-    "ses_2aa1abcdcffeQOdLpTMyw19xeo",
-    "ses_2a9d9c19affeHd3ohXOTCJY4kO"
+    "ses_29c3ffdb2ffeJkPFYftFqnoqFy",
+    "ses_29a619ffeffeZWwK7kaZ3wc2to",
+    "ses_29a60a845ffedPRZilcrqeoTx0",
+    "ses_29a60a7f3ffevVfgTP6hmTcxfp",
+    "ses_29a60a7cafferEkvWXXFXkGagn",
+    "ses_29a60a7fbffe995f4jnKqVyh7u",
+    "ses_29a5ce8a1ffekeFcj01uK11DJG",
+    "ses_29a4db7cfffeM5Q2uUtH1vsv2L",
+    "ses_29a4db791ffe1dJU6NumuGW4Ym",
+    "ses_29a1e5d4fffeA5opb8WCo1BdxA"
   ],
-  "plan_name": "mcp-streamablehttp",
+  "plan_name": "replace-telnet-with-xterm",
   "agent": "atlas",
-  "task_sessions": {}
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "创建 pkg/web/ WebSocketServer 实现 TelnetBroadcaster 接口",
+      "session_id": "ses_29a5ce8a1ffekeFcj01uK11DJG",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-07T01:59:58.225Z"
+    }
+  }
 }

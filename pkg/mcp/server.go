@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,6 +13,7 @@ import (
 	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
 	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/yourname/serialhub/pkg/web"
 )
 
 // MCPServer manages the MCP server and tool registration
@@ -19,10 +21,11 @@ type MCPServer struct {
 	serialManager *serial.SerialManager
 	dataBuffer    *buffer.DataBuffer
 	mcpServer     *mcpsdk.Server
+	wsServer      *web.WebSocketServer
 }
 
 // NewMCPServer creates a new MCP server instance
-func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer) (*MCPServer, error) {
+func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, wsSrv ...*web.WebSocketServer) (*MCPServer, error) {
 	if buf == nil {
 		buf = buffer.NewDataBuffer()
 	}
@@ -35,11 +38,17 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer) (*MCPServer,
 		},
 	)
 
-	return &MCPServer{
+	s := &MCPServer{
 		serialManager: sm,
 		dataBuffer:    buf,
 		mcpServer:     mcpServer,
-	}, nil
+	}
+
+	if len(wsSrv) > 0 && wsSrv[0] != nil {
+		s.wsServer = wsSrv[0]
+	}
+
+	return s, nil
 }
 
 // RegisterTools registers all 6 serial port tools with the MCP server
@@ -99,7 +108,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_write tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_write",
-		Description: "Write data to the connected serial port. Data is sent as bytes to the device. The written data will also be forwarded to any connected Telnet clients. Returns success message with bytes written or error if not connected.",
+		Description: "Write data to the connected serial port. Data is sent as bytes to the device. The written data will also be forwarded to any connected WebSocket clients. Returns success message with bytes written or error if not connected.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -119,7 +128,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_read tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_read",
-		Description: "Read data from the connected serial port. Blocks until data arrives or timeout expires. Data received from the serial port is also forwarded to connected Telnet clients. Returns received data as string with byte count, or empty if timeout.",
+		Description: "Read data from the connected serial port. Blocks until data arrives or timeout expires. Data received from the serial port is also forwarded to connected WebSocket clients. Returns received data as string with byte count, or empty if timeout.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -165,6 +174,31 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	mux.HandleFunc("/terminal", func(w http.ResponseWriter, r *http.Request) {
+		data, err := web.StaticFiles.ReadFile("static/terminal.html")
+		if err != nil {
+			http.Error(w, "Terminal page not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
+	})
+
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		if s.wsServer != nil {
+			s.wsServer.HandleWebSocket(w, r)
+		} else {
+			http.Error(w, "WebSocket server not available", http.StatusServiceUnavailable)
+		}
+	})
+
+	staticFS, err := fs.Sub(web.StaticFiles, "static")
+	if err != nil {
+		logrus.Warnf("[SerialHub] 静态文件系统初始化失败: %v", err)
+	} else {
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	}
 
 	corsMux := s.withCORS(mux)
 
