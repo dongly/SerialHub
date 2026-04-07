@@ -102,13 +102,6 @@ COM4 端口:  TX pin ─────┬───── RX pin
 - `test_mcp_health_endpoint` — 健康检查端点
 - `test_mcp_unknown_tool` — 未知工具处理
 
-### TestWebTerminal — Web 终端服务测试
-- `test_web_terminal_connect` — 连接测试
-- `test_web_terminal_send_data` — 数据发送
-- `test_web_terminal_multiple_clients` — 多客户端支持
-- `test_web_terminal_loopback` — **回环测试（Web 终端 ↔ 串口）**
-- `test_web_terminal_unicode_and_large_data` — **Unicode 和长数据测试**
-
 ### TestLogging — 日志测试
 - `test_log_file_created` — 日志文件生成
 - `test_debug_mode_logging` — 调试模式日志
