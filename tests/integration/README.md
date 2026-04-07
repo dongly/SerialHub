@@ -2,7 +2,7 @@
 
 ## 简介
 
-`test_serialhub.py` 是 SerialHub 的 Python 集成测试套件，使用 pytest 框架编写。测试覆盖 CLI、服务器生命周期、配置文件、MCP 工具、Telnet、日志和串口硬件等全功能。
+`test_serialhub.py` 是 SerialHub 的 Python 集成测试套件，使用 pytest 框架编写。测试覆盖 CLI、服务器生命周期、配置文件、MCP 工具、Web 终端、日志和串口硬件等全功能。
 
 ## 前置要求
 
@@ -102,12 +102,12 @@ COM4 端口:  TX pin ─────┬───── RX pin
 - `test_mcp_health_endpoint` — 健康检查端点
 - `test_mcp_unknown_tool` — 未知工具处理
 
-### TestTelnet — Telnet 服务测试
-- `test_telnet_connect` — 连接测试
-- `test_telnet_send_data` — 数据发送
-- `test_telnet_multiple_clients` — 多客户端支持
-- `test_telnet_loopback` — **回环测试（Telnet ↔ 串口）**
-- `test_telnet_unicode_and_large_data` — **Unicode 和长数据测试**
+### TestWebTerminal — Web 终端服务测试
+- `test_web_terminal_connect` — 连接测试
+- `test_web_terminal_send_data` — 数据发送
+- `test_web_terminal_multiple_clients` — 多客户端支持
+- `test_web_terminal_loopback` — **回环测试（Web 终端 ↔ 串口）**
+- `test_web_terminal_unicode_and_large_data` — **Unicode 和长数据测试**
 
 ### TestLogging — 日志测试
 - `test_log_file_created` — 日志文件生成
@@ -184,4 +184,4 @@ tests/integration/
 5. **回环模式**：硬件测试需要 COM4 的 TX-RX 短接
 6. **数据流向**：
    - MCP 发送 → 串口回环 → MCP 接收（回环数据）
-   - MCP 发送 → DataBridge 转发 → Telnet 接收（转发数据）
+   - MCP 发送 → DataBridge 转发 → Web 终端接收（转发数据）

@@ -1,11 +1,11 @@
 # SerialHub - AI 代理指南
 
 ## 项目概述
-SerialHub 是串口（MCU）与网络连接（Telnet/AI）的双向桥接器，Go 语言实现。
+SerialHub 是串口（MCU）与网络连接（Web终端/AI）的双向桥接器，Go 语言实现。
 
 ```
 MCU ←→ 串口 ←→ SerialHub
-                  ├→ Telnet Server (人工监视)
+                  ├→ Web Terminal (人工监视)
                   └→ AI Interface (MCP HTTP)
 ```
 
@@ -73,7 +73,7 @@ response = requests.post("http://127.0.0.1:5000/mcp", json={
 
 ## 技术栈
 
-Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | spf13/cobra | BurntSushi/toml | getlantern/systray | sirupsen/logrus
+Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | WebSocket/xterm.js | spf13/cobra | BurntSushi/toml | getlantern/systray | sirupsen/logrus
 
 ## 构建 / 测试命令
 
@@ -102,7 +102,7 @@ go mod tidy                         # 整理依赖
 ```
 cmd/serialhub/main.go           # CLI 主入口
 pkg/serial/                     # 串口管理（manager.go, config.go）
-pkg/telnet/                     # Telnet 服务（server.go, client.go）
+pkg/web/                        # Web 终端服务（WebSocket + xterm.js）
 pkg/mcp/server.go               # MCP 服务（StreamableHTTP，Stateless JSON 模式）
 pkg/mcp/tools/                  # MCP 工具（serial_list/connect/disconnect/write/read/status）
 pkg/bridge/                     # 数据桥接（bridge.go, events.go）
@@ -154,7 +154,7 @@ import (
 
 ## 架构原则
 
-1. **关注点分离**：串口、Telnet、MCP 各自独立包
+1. **关注点分离**：串口、Web 终端、MCP 各自独立包
 2. **Channel 模式**：模块通过 channel 通信
 3. **错误恢复力**：任一模块故障不影响其他模块
 4. **MCP 工具模式**：每个工具定义 Input struct + Execute 函数 + ToolResult
@@ -182,7 +182,7 @@ import (
 
 ### Scope
 
-`serial`, `telnet`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`
+`serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`
 
 ### 原则
 
