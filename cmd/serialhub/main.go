@@ -29,7 +29,6 @@ var (
 	baudRate   int
 	configPath string
 	debugMode  bool
-	wsPort     int
 	mcpPort    int
 	host       string
 	noTray     bool
@@ -49,7 +48,6 @@ func main() {
 	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, "波特率")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, "启用调试模式")
-	rootCmd.Flags().IntVarP(&wsPort, "ws-port", "t", 2323, "WebSocket 服务端口")
 	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&noTray, "no-tray", false, "禁用系统托盘")
@@ -105,7 +103,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		tray.HideConsole()
 	}
 
-	trayMgr := tray.NewTrayManager(sm, cfg, host, wsPort, mcpPort, version, minimized)
+	trayMgr := tray.NewTrayManager(sm, cfg, host, mcpPort, version, minimized)
 
 	// 统一配置保存逻辑
 	saveConfigFunc := func(serialCfg *serial.Config) {
@@ -153,7 +151,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		}
 
 		var err error
-		wsSrv, err = web.NewWebSocketServer(host, wsPort, func() string {
+		wsSrv, err = web.NewWebSocketServer(host, mcpPort, func() string {
 			if sm.IsConnected() {
 				return sm.GetConfig().String()
 			}
@@ -167,7 +165,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			logrus.Errorf("[SerialHub] 启动 WebSocket 服务失败: %v", err)
 			return
 		}
-		logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, wsPort)
+		logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, mcpPort)
 
 		// 始终创建 DataBridge，即使串口未连接
 		bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
@@ -196,7 +194,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 		logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
-		logrus.Infof("[SerialHub] WebSocket 端口: %d", wsPort)
+		logrus.Infof("[SerialHub] WebSocket 端口: %d", mcpPort)
 	})
 
 	trayMgr.SetOnExit(func() {
@@ -238,7 +236,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 		logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
 	}
 
-	wsSrv, err := web.NewWebSocketServer(host, wsPort, func() string {
+	wsSrv, err := web.NewWebSocketServer(host, mcpPort, func() string {
 		if sm.IsConnected() {
 			return sm.GetConfig().String()
 		}
@@ -250,7 +248,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	if err := wsSrv.Start(); err != nil {
 		return fmt.Errorf("启动 WebSocket 服务失败: %w", err)
 	}
-	logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, wsPort)
+	logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, mcpPort)
 
 	// 始终创建 DataBridge，即使串口未连接
 	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
@@ -276,7 +274,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
 	logrus.Infof("[SerialHub] 健康检查: http://%s/health", addr)
-	logrus.Infof("[SerialHub] WebSocket 端口: %d", wsPort)
+	logrus.Infof("[SerialHub] WebSocket 端口: %d", mcpPort)
 	logrus.Info("[SerialHub] 服务已启动，按 Ctrl+C 退出")
 
 	sigChan := make(chan os.Signal, 1)
@@ -360,8 +358,8 @@ func loadConfig() *config.Config {
 	if host != "" && host != "127.0.0.1" {
 		cfg.Host = host
 	}
-	if wsPort != 2323 {
-		cfg.WebSocket.Port = wsPort
+	if mcpPort != 2323 {
+		cfg.WebSocket.Port = mcpPort
 	}
 	if mcpPort != 5000 {
 		cfg.MCP.HTTPPort = mcpPort

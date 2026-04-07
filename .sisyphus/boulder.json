@@ -12,7 +12,11 @@
     "ses_29a4db7cfffeM5Q2uUtH1vsv2L",
     "ses_29a4db791ffe1dJU6NumuGW4Ym",
     "ses_29a1e5d4fffeA5opb8WCo1BdxA",
-    "ses_29a0dc717ffeFIXnuXHa5Of6hY"
+    "ses_29a0dc717ffeFIXnuXHa5Of6hY",
+    "ses_29a057756ffeQhNKjMS5uYMwnP",
+    "ses_29a052191ffeef7W9N9zZpZ8AK",
+    "ses_29a057765ffeUcbXnQDOdgNIIb",
+    "ses_29a057782ffe6OkoMmw8MaFy7x"
   ],
   "plan_name": "replace-telnet-with-xterm",
   "agent": "atlas",

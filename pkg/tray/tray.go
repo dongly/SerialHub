@@ -30,7 +30,6 @@ type TrayManager struct {
 	serial          *serial.SerialManager
 	config          *config.Config
 	host            string
-	wsPort          int
 	mcpPort         int
 	version         string
 	state           TrayState
@@ -67,12 +66,11 @@ var parityList = []string{"none", "even", "odd"}
 //go:embed assets/*.ico
 var iconFS embed.FS
 
-func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, host string, wsPort, mcpPort int, version string, showConsoleMenu bool) *TrayManager {
+func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, host string, mcpPort int, version string, showConsoleMenu bool) *TrayManager {
 	return &TrayManager{
 		serial:          serialMgr,
 		config:          cfg,
 		host:            host,
-		wsPort:          wsPort,
 		mcpPort:         mcpPort,
 		version:         version,
 		state:           TrayIdle,
@@ -532,7 +530,7 @@ func (t *TrayManager) getConfigSummary() string {
 }
 
 func (t *TrayManager) getNetworkStatus() string {
-	return fmt.Sprintf("WebSocket: %d | MCP: %d", t.wsPort, t.mcpPort)
+	return fmt.Sprintf("HTTP: %d", t.mcpPort)
 }
 
 func (t *TrayManager) getSerialMenuTitle() string {
@@ -658,7 +656,7 @@ func (t *TrayManager) toggleSerial() {
 
 // openTerminal 在浏览器中打开 Web 终端页面
 func (t *TrayManager) openTerminal() {
-	url := fmt.Sprintf("http://%s:%d/terminal", t.host, t.wsPort)
+	url := fmt.Sprintf("http://%s:%d/terminal", t.host, t.mcpPort)
 	logrus.Infof("[SerialHub] 打开终端: %s", url)
 
 	// 使用 Windows 的 start 命令打开浏览器

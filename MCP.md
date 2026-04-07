@@ -1,85 +1,96 @@
-# SerialHub MCP (Model Context Protocol) 使用指南
+# SerialHub MCP 使用指南
 
 ## 概述
 
-SerialHub 实现了 MCP (Model Context Protocol) HTTP 服务，允许 AI 工具通过 HTTP API 与串口设备交互。
+SerialHub 实现 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) HTTP 服务，允许 AI 工具通过标准 HTTP API 与串口设备交互。
 
-**传输模式**: StreamableHTTP (Stateless + JSONResponse)  
-**端点**: `http://<host>:<port>/mcp`  
-**协议**: JSON-RPC 2.0
+| 属性 | 值 |
+|------|-----|
+| 传输模式 | StreamableHTTP (Stateless + JSONResponse) |
+| 端点 | `http://<host>:<port>/mcp` |
+| 协议 | JSON-RPC 2.0 |
+| 默认端口 | 5000 |
 
 ---
 
 ## 快速开始
 
-### 启动服务
+### 1. 启动服务
 
 ```bash
-# 默认端口 5000
+# 默认配置启动
 ./bin/serialhub --no-tray
 
 # 指定 MCP 端口
 ./bin/serialhub --no-tray --mcp-port 55555
 ```
 
-### 健康检查
+### 2. 验证服务
 
 ```bash
+# 健康检查
 curl http://127.0.0.1:5000/health
-```
 
----
-
-## MCP 工具列表
-
-| 工具名 | 描述 | 必需参数 |
-|--------|------|----------|
-| `serial_list` | 列出可用串口 | 无 |
-| `serial_status` | 获取串口连接状态 | 无 |
-| `serial_connect` | 连接串口 | `port`: 串口号, `baudRate`: 波特率 |
-| `serial_disconnect` | 断开串口连接 | 无 |
-| `serial_write` | 向串口写入数据 | `data`: 数据内容 |
-| `serial_read` | 从串口读取数据 | `timeout`: 超时时间(ms) |
-
----
-
-## API 调用示例
-
-### 1. 列出串口
-
-**请求**:
-```bash
+# 列出可用串口
 curl -X POST http://127.0.0.1:5000/mcp \
   -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "serial_list"
-    },
-    "id": 1
-  }'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
 ```
 
-**响应**:
+---
+
+## MCP 工具参考
+
+### 工具列表
+
+| 工具名 | 功能 | 必需参数 |
+|--------|------|----------|
+| `serial_list` | 列出系统中所有可用串口 | 无 |
+| `serial_status` | 获取当前串口连接状态 | 无 |
+| `serial_connect` | 连接到指定串口 | `port` |
+| `serial_disconnect` | 断开当前串口连接 | 无 |
+| `serial_write` | 向串口写入数据 | `data` |
+| `serial_read` | 从串口读取数据（阻塞式） | 无 |
+
+### 参数详解
+
+#### serial_connect
+
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "找到 3 个串口\n[COM1, COM3, COM4]"
-      }
-    ]
-  }
+  "port": "COM4",        // 必填：串口号
+  "baudRate": 115200,    // 可选：波特率，默认 115200
+  "dataBits": 8,         // 可选：数据位 (7/8)，默认 8
+  "parity": "none",      // 可选：校验位 (none/even/odd)，默认 none
+  "stopBits": 1          // 可选：停止位 (1/1.5/2)，默认 1
 }
 ```
 
-### 2. 连接串口
+#### serial_write
 
-**请求**:
+```json
+{
+  "data": "Hello World",  // 必填：要写入的数据
+  "addNewline": true      // 可选：是否自动添加 \n，默认 false
+}
+```
+
+#### serial_read
+
+```json
+{
+  "timeout": 3000,   // 可选：超时时间(ms)，0=无限等待，默认 0
+  "maxSize": 4096    // 可选：最大读取字节数，默认 4096
+}
+```
+
+---
+
+## 使用示例
+
+### cURL 示例
+
+#### 连接串口
 ```bash
 curl -X POST http://127.0.0.1:5000/mcp \
   -H "Content-Type: application/json" \
@@ -88,34 +99,13 @@ curl -X POST http://127.0.0.1:5000/mcp \
     "method": "tools/call",
     "params": {
       "name": "serial_connect",
-      "arguments": {
-        "port": "COM4",
-        "baudRate": 115200
-      }
+      "arguments": {"port": "COM4", "baudRate": 115200}
     },
-    "id": 2
+    "id": 1
   }'
 ```
 
-**响应**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "串口连接成功: COM4@115200 8N1"
-      }
-    ]
-  }
-}
-```
-
-### 3. 写入数据
-
-**请求**:
+#### 写入数据
 ```bash
 curl -X POST http://127.0.0.1:5000/mcp \
   -H "Content-Type: application/json" \
@@ -124,18 +114,13 @@ curl -X POST http://127.0.0.1:5000/mcp \
     "method": "tools/call",
     "params": {
       "name": "serial_write",
-      "arguments": {
-        "data": "Hello World",
-        "addNewline": true
-      }
+      "arguments": {"data": "help", "addNewline": true}
     },
-    "id": 3
+    "id": 2
   }'
 ```
 
-### 4. 读取数据
-
-**请求**:
+#### 读取响应
 ```bash
 curl -X POST http://127.0.0.1:5000/mcp \
   -H "Content-Type: application/json" \
@@ -144,127 +129,171 @@ curl -X POST http://127.0.0.1:5000/mcp \
     "method": "tools/call",
     "params": {
       "name": "serial_read",
-      "arguments": {
-        "timeout": 3000,
-        "maxSize": 4096
-      }
+      "arguments": {"timeout": 5000}
     },
-    "id": 4
+    "id": 3
   }'
 ```
 
-**响应**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 4,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "读取成功: 11 字节\ndata: Hello World\nbytes: 11\ntimedOut: false"
-      }
-    ]
-  }
-}
-```
-
-### 5. 断开连接
-
-**请求**:
-```bash
-curl -X POST http://127.0.0.1:5000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "serial_disconnect"
-    },
-    "id": 5
-  }'
-```
-
----
-
-## 参数说明
-
-### serial_connect
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `port` | string | 是 | - | 串口号，如 COM4、/dev/ttyUSB0 |
-| `baudRate` | int | 否 | 115200 | 波特率：9600, 19200, 38400, 57600, 115200 |
-| `dataBits` | int | 否 | 8 | 数据位：7, 8 |
-| `parity` | string | 否 | "none" | 校验位：none, even, odd |
-| `stopBits` | float | 否 | 1 | 停止位：1, 1.5, 2 |
-
-### serial_write
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `data` | string | 是 | - | 要写入的数据 |
-| `addNewline` | bool | 否 | false | 是否自动添加换行符 |
-
-### serial_read
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `timeout` | int | 否 | 0 | 超时时间(毫秒)，0表示无限等待 |
-| `maxSize` | int | 否 | 4096 | 最大读取字节数 |
-
----
-
-## Python 调用示例
+### Python 示例
 
 ```python
 import requests
 
-def mcp_call(mcp_port, method, params=None):
+def mcp_call(port, tool_name, arguments=None):
     """调用 MCP 工具"""
-    url = f"http://127.0.0.1:{mcp_port}/mcp"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    body = {
-        "jsonrpc": "2.0",
-        "method": method,
-        "id": 1,
-    }
-    if params:
-        body["params"] = params
-    
-    resp = requests.post(url, json=body, headers=headers, timeout=10)
+    resp = requests.post(
+        f"http://127.0.0.1:{port}/mcp",
+        headers={"Content-Type": "application/json"},
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments or {}},
+            "id": 1
+        },
+        timeout=10
+    )
     return resp.json()
 
-# 列出串口
-result = mcp_call(5000, "tools/call", {"name": "serial_list"})
-
-# 连接串口
-result = mcp_call(5000, "tools/call", {
-    "name": "serial_connect",
-    "arguments": {"port": "COM4", "baudRate": 115200}
-})
-
-# 写入数据
-result = mcp_call(5000, "tools/call", {
-    "name": "serial_write",
-    "arguments": {"data": "Hello", "addNewline": True}
-})
-
-# 读取数据
-result = mcp_call(5000, "tools/call", {
-    "name": "serial_read",
-    "arguments": {"timeout": 3000}
-})
+# 标准工作流程
+mcp_call(5000, "serial_list")                                    # 1. 查找串口
+mcp_call(5000, "serial_connect", {"port": "COM4"})              # 2. 连接
+mcp_call(5000, "serial_write", {"data": "version"})             # 3. 发送命令
+result = mcp_call(5000, "serial_read", {"timeout": 3000})       # 4. 读取响应
+print(result["result"]["content"][0]["text"])
+mcp_call(5000, "serial_disconnect")                             # 5. 断开连接
 ```
+
+### OpenCode MCP 配置
+
+OpenCode 支持两种配置级别，**项目级 > 用户级**。
+
+| 级别 | 配置文件路径 | 适用场景 |
+|------|-------------|---------|
+| 用户级 | `~/.opencode/mcp.json` | 个人开发，全局共用 |
+| 项目级 | `.opencode/mcp.json` | 团队协作，独立配置 |
+
+```json
+{
+  "mcpServers": {
+    "serialhub": {
+      "type": "streamable_http",
+      "url": "http://127.0.0.1:5000/mcp"
+    }
+  }
+}
+```
+
+**远程 SerialHub 示例**：`"url": "http://192.168.1.100:5000/mcp"`
+
+---
+
+## 典型工作流
+
+### 1. 标准命令-响应模式
+
+```mermaid
+sequenceDiagram
+    participant AI as AI 工具
+    participant MCP as MCP 服务
+    participant Serial as 串口
+    participant MCU as MCU 设备
+
+    AI->>MCP: serial_list
+    MCP-->>AI: 返回可用串口列表
+    AI->>MCP: serial_connect(port="COM4")
+    MCP-->>AI: 连接成功
+    AI->>MCP: serial_write(data="version")
+    MCP->>Serial: 写入数据
+    Serial->>MCU: UART 传输
+    MCU-->>Serial: 响应数据
+    Serial-->>MCP: 读取数据
+    AI->>MCP: serial_read(timeout=3000)
+    MCP-->>AI: 返回响应内容
+    AI->>MCP: serial_disconnect
+    MCP-->>AI: 断开成功
+```
+
+### 2. 持续监听模式
+
+```mermaid
+sequenceDiagram
+    participant AI as AI 工具
+    participant MCP as MCP 服务
+    participant Buffer as MCP 缓冲区
+    participant Serial as 串口
+
+    AI->>MCP: serial_connect
+    MCP-->>AI: 连接成功
+
+    loop 持续监听
+        AI->>MCP: serial_read(timeout=1000)
+        alt 缓冲区有数据
+            Buffer-->>MCP: 返回数据
+            MCP-->>AI: 返回数据
+        else 超时无数据
+            MCP-->>AI: 返回超时
+        end
+    end
+
+    AI->>MCP: serial_disconnect
+```
+
+```python
+# 连接后循环读取
+mcp_call(5000, "serial_connect", {"port": "COM4"})
+while True:
+    result = mcp_call(5000, "serial_read", {"timeout": 1000})
+    if not result["result"]["content"][0]["text"].endswith("timedOut: true"):
+        print("收到数据:", result)
+```
+
+### 3. 系统架构
+
+```mermaid
+flowchart TB
+    subgraph Clients["客户端"]
+        AI["AI 工具<br/>MCP HTTP"]
+        Web["Web 终端<br/>浏览器"]
+    end
+
+    subgraph SerialHub["SerialHub<br/>端口 5000"]
+        MCP["MCP 服务"]
+        WS["WebSocket 服务"]
+        Bridge["DataBridge"]
+        Serial["串口"]
+    end
+
+    subgraph Device["设备"]
+        MCU["MCU"]
+    end
+
+    AI <-->|HTTP/MCP| MCP
+    Web <-->|WebSocket| WS
+    MCP <-->|读/写| Bridge
+    WS <-->|读/写| Bridge
+    Bridge <-->|读/写| Serial
+    Serial <-->|UART| MCU
+```
+
+**架构特点**:
+- **双向通信**: MCP 和 Web 终端均可独立读写串口
+- **数据共享**: 串口数据同时广播到所有客户端
+- **故障隔离**: 任一端故障不影响其他端
 
 ---
 
 ## 错误处理
 
-### 常见错误响应
+### 常见错误
+
+| 错误码 | 场景 | 解决方案 |
+|--------|------|----------|
+| -32600 | 串口未连接时操作 | 先调用 `serial_connect` |
+| -32601 | 工具名错误 | 检查工具名拼写 |
+| -32700 | JSON 解析错误 | 检查请求格式 |
+
+### 错误响应示例
 
 ```json
 {
@@ -277,80 +306,6 @@ result = mcp_call(5000, "tools/call", {
 }
 ```
 
-### 错误码
-
-| 错误码 | 含义 |
-|--------|------|
-| -32600 | 无效请求（如串口未连接时操作） |
-| -32601 | 方法未找到 |
-| -32700 | 解析错误 |
-
----
-
-## 双向数据流向
-
-SerialHub 实现 MCP、Web 终端、串口之间的**双向数据桥接**：
-
-### 1. MCP → 串口 → Web 终端
-
-```
-MCP 工具 ──▶ 串口写入 ──▶ 串口回环 ──▶ DataBridge ──▶ MCP 读取（回环数据）
-                              │
-                              └──▶ DataBridge ──▶ Web 终端接收（转发数据）
-```
-
-**场景**: AI 工具通过 MCP 发送命令到 MCU，同时人工操作员在 Web 终端端可见。
-
-### 2. Web 终端 → 串口 → MCP
-
-```
-Web 终端发送 ──▶ 串口写入 ──▶ 串口回环 ──▶ DataBridge ──▶ Web 终端接收（回环数据）
-                                 │
-                                 └──▶ DataBridge ──▶ MCP 缓冲区（转发数据）
-```
-
-**场景**: 人工操作员在 Web 终端端发送命令，AI 工具通过 MCP 读取响应。
-
-### 3. 完整双向桥接
-
-```
-                           ┌──────────┐
-                           │  MCP     │
-                           │  工具    │
-                           └────┬─────┘
-                                │
-                                │ 写入
-                                ▼
-                      ┌───────────────────┐
-                      │     串口          │
-                      │  ┌─────────────┐  │
-          MCP 读取 ◄──┤  │ DataBridge  │  ├──► Web 终端读取
-          (回环)    │  │ 转发到其他端 │  │  (回环)
-                      │  └─────────────┘  │
-                      └────────┬──────────┘
-                               │
-                               ▼
-                          ┌──────────┐
-                          │  MCU     │
-                          │  设备    │
-                          └──────────┘
-                               │
-                      ┌────────┴────────┐
-                      │                 │
-        Web 终端写入 ▼                 ▼ MCP 读取
-        (转发到MCP) │                 │ (转发到Web终端)
-                      │                 │
-                ┌───────────┐     ┌─────────┐
-                │   Web     │◄────┤  MCP    │
-                │  终端     │     │  缓冲区 │
-                └───────────┘     └─────────┘
-```
-
-**特点**:
-- MCP 和 Web 终端都可以读写串口
-- 任何一端发送的数据，其他端都能收到
-- DataBridge 负责转发数据到所有连接的客户端
-
 ---
 
 ## 相关文件
@@ -359,12 +314,13 @@ Web 终端发送 ──▶ 串口写入 ──▶ 串口回环 ──▶ DataBri
 |------|------|
 | `pkg/mcp/server.go` | MCP HTTP 服务实现 |
 | `pkg/mcp/tools/*.go` | MCP 工具实现 |
+| `pkg/bridge/bridge.go` | 数据桥接核心 |
 | `tests/integration/test_serialhub.py` | Python 集成测试 |
 
 ---
 
-## 更多信息
+## 参考链接
 
 - [MCP 规范](https://modelcontextprotocol.io/)
-- [AGENTS.md](./AGENTS.md) - 项目架构说明
-- [README.md](./README.md) - 项目主文档
+- [项目架构](./AGENTS.md)
+- [主文档](./README.md)

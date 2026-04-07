@@ -1,12 +1,33 @@
 # SerialHub - AI 代理指南
 
 ## 项目概述
+
 SerialHub 是串口（MCU）与网络连接（Web终端/AI）的双向桥接器，Go 语言实现。
 
-```
-MCU ←→ 串口 ←→ SerialHub
-                  ├→ Web Terminal (人工监视)
-                  └→ AI Interface (MCP HTTP)
+```mermaid
+flowchart TB
+    subgraph Clients["客户端"]
+        AI["AI 工具<br/>MCP HTTP"]
+        Web["Web 终端<br/>浏览器"]
+    end
+
+    subgraph SerialHub["SerialHub"]
+        MCP["MCP 服务"]
+        WS["WebSocket 服务"]
+        Bridge["DataBridge"]
+        Serial["串口"]
+    end
+
+    subgraph Device["设备"]
+        MCU["MCU"]
+    end
+
+    AI <-->|HTTP/MCP| MCP
+    Web <-->|WebSocket| WS
+    MCP <-->|读/写| Bridge
+    WS <-->|读/写| Bridge
+    Bridge <-->|读/写| Serial
+    Serial <-->|UART| MCU
 ```
 
 ## MCP (Model Context Protocol) 快速参考
@@ -14,8 +35,11 @@ MCU ←→ 串口 ←→ SerialHub
 SerialHub 通过 MCP HTTP 接口提供串口操作能力，AI 工具可直接调用。
 
 ### 端点
-- **健康检查**: `GET http://127.0.0.1:5000/health`
-- **MCP 服务**: `POST http://127.0.0.1:5000/mcp`
+
+| 服务 | URL | 方法 |
+|------|-----|------|
+| 健康检查 | `http://127.0.0.1:5000/health` | GET |
+| MCP 服务 | `http://127.0.0.1:5000/mcp` | POST |
 
 ### 可用工具
 
@@ -23,53 +47,62 @@ SerialHub 通过 MCP HTTP 接口提供串口操作能力，AI 工具可直接调
 |--------|------|----------|
 | `serial_list` | 列出可用串口 | 无 |
 | `serial_status` | 获取连接状态 | 无 |
-| `serial_connect` | 连接串口 | `port`, `baudRate` |
+| `serial_connect` | 连接串口 | `port` |
 | `serial_disconnect` | 断开连接 | 无 |
 | `serial_write` | 写入数据 | `data` |
-| `serial_read` | 读取数据 | `timeout` |
+| `serial_read` | 读取数据 | 无 |
 
 ### 调用示例 (Python)
 
 ```python
 import requests
 
-# 连接串口
-requests.post("http://127.0.0.1:5000/mcp", json={
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-        "name": "serial_connect",
-        "arguments": {"port": "COM4", "baudRate": 115200}
-    },
-    "id": 1
-})
+def mcp_call(port, tool_name, arguments=None):
+    """调用 MCP 工具"""
+    resp = requests.post(
+        f"http://127.0.0.1:{port}/mcp",
+        headers={"Content-Type": "application/json"},
+        json={
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments or {}},
+            "id": 1
+        },
+        timeout=10
+    )
+    return resp.json()
 
-# 写入数据
-requests.post("http://127.0.0.1:5000/mcp", json={
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-        "name": "serial_write",
-        "arguments": {"data": "Hello", "addNewline": True}
-    },
-    "id": 2
-})
+# 标准工作流程
+mcp_call(5000, "serial_list")                                    # 1. 查找串口
+mcp_call(5000, "serial_connect", {"port": "COM4"})              # 2. 连接
+mcp_call(5000, "serial_write", {"data": "version"})             # 3. 发送命令
+result = mcp_call(5000, "serial_read", {"timeout": 3000})       # 4. 读取响应
+print(result["result"]["content"][0]["text"])
+mcp_call(5000, "serial_disconnect")                             # 5. 断开连接
+```
 
-# 读取数据
-response = requests.post("http://127.0.0.1:5000/mcp", json={
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-        "name": "serial_read",
-        "arguments": {"timeout": 3000}
-    },
-    "id": 3
-})
-# response.json()["result"]["content"][0]["text"] 包含读取的数据
+### OpenCode MCP 配置
+
+OpenCode 支持两种配置级别，**项目级 > 用户级**。
+
+| 级别 | 配置文件路径 | 适用场景 |
+|------|-------------|---------|
+| 用户级 | `~/.opencode/mcp.json` | 个人开发，全局共用 |
+| 项目级 | `.opencode/mcp.json` | 团队协作，独立配置 |
+
+```json
+{
+  "mcpServers": {
+    "serialhub": {
+      "type": "streamable_http",
+      "url": "http://127.0.0.1:5000/mcp"
+    }
+  }
+}
 ```
 
 ### 完整文档
-详见项目根目录 `MCP.md` 文件。
+详见项目根目录 [`MCP.md`](./MCP.md) 文件。
 
 ## 技术栈
 

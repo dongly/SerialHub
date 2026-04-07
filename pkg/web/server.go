@@ -25,6 +25,7 @@ type WebSocketServer struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	getSerialInfo func() string
+	server        *http.Server
 }
 
 // NewWebSocketServer 创建新的 WebSocket 服务器。
@@ -117,17 +118,36 @@ func (s *WebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Request
 	client.Start()
 }
 
-// Start 启动 WebSocket 服务。
-// WebSocket 服务由 MCP HTTP 服务路由调用 HandleWebSocket，
-// 此处保留日志记录。
+// Start 启动 WebSocket HTTP 服务器。
 func (s *WebSocketServer) Start() error {
-	logrus.Infof("[SerialHub] WebSocket 服务已就绪: %s:%d", s.host, s.port)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", s.HandleWebSocket)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SerialHub WebSocket Server\nUse /ws for WebSocket connection"))
+	})
+
+	s.server = &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", s.host, s.port),
+		Handler: mux,
+	}
+
+	go func() {
+		logrus.Infof("[SerialHub] WebSocket 服务器已启动: %s:%d", s.host, s.port)
+		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logrus.Errorf("[SerialHub] WebSocket 服务器错误: %v", err)
+		}
+	}()
+
 	return nil
 }
 
 // Stop 停止 WebSocket 服务，关闭客户端和通道。
 func (s *WebSocketServer) Stop() error {
 	s.cancel()
+
+	if s.server != nil {
+		s.server.Close()
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
