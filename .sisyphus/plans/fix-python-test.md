@@ -53,7 +53,7 @@ Task 1: 修复 test_help_flags 测试
 
 ## TODOs
 
-- [ ] 1. 修复 test_help_flags 测试
+- [x] 1. 修复 test_help_flags 测试
 
   **What to do**:
   - 修改 `tests/integration/test_serialhub.py` 第 375-385 行
@@ -97,7 +97,7 @@ Task 1: 修复 test_help_flags 测试
 
 ## Final Verification
 
-- [ ] F1. **Python CLI 测试** — `quick`
+- [x] F1. **Python CLI 测试** — `quick`
   运行 `pytest tests/integration/test_serialhub.py::TestCLI -v`，确认全部 PASS。
 
 ---
@@ -118,5 +118,5 @@ pytest tests/integration/test_serialhub.py::TestCLI -v  # Expected: 全部 PASS
 ```
 
 ### Final Checklist
-- [ ] test_help_flags PASS
-- [ ] 所有 TestCLI 测试 PASS
+- [x] test_help_flags PASS
+- [x] 所有 TestCLI 测试 PASS
