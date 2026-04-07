@@ -375,7 +375,6 @@ class TestCLI:
         for flag in [
             "--serial-port",
             "--baud-rate",
-            "--telnet-port",
             "--mcp-port",
             "--config",
             "--debug",

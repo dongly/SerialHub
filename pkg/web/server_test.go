@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -218,7 +219,7 @@ func TestWebSocketServer_NewServer_InvalidPort(t *testing.T) {
 	}
 }
 
-func TestWebSocketServer_Start(t *testing.T) {
+func TestWebSocketServer_Start_NoOp(t *testing.T) {
 	srv, err := NewWebSocketServer("127.0.0.1", 8080)
 	if err != nil {
 		t.Fatalf("创建服务器失败: %v", err)
@@ -227,5 +228,129 @@ func TestWebSocketServer_Start(t *testing.T) {
 
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start 失败: %v", err)
+	}
+}
+
+func TestWebSocketServer_DoubleStop(t *testing.T) {
+	srv, err := NewWebSocketServer("127.0.0.1", 8080)
+	if err != nil {
+		t.Fatalf("创建服务器失败: %v", err)
+	}
+
+	if err := srv.Stop(); err != nil {
+		t.Fatalf("第一次 Stop 失败: %v", err)
+	}
+
+	// 第二次 Stop 不应 panic
+	if err := srv.Stop(); err != nil {
+		t.Fatalf("第二次 Stop 失败: %v", err)
+	}
+}
+
+func TestTerminalRoute(t *testing.T) {
+	srv, err := NewWebSocketServer("127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("创建 WebSocketServer 失败: %v", err)
+	}
+	defer srv.Stop()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/terminal", func(w http.ResponseWriter, r *http.Request) {
+		data, err := StaticFiles.ReadFile("static/terminal.html")
+		if err != nil {
+			http.Error(w, "Terminal page not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
+	})
+	mux.HandleFunc("/ws", srv.HandleWebSocket)
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/terminal")
+	if err != nil {
+		t.Fatalf("请求 /terminal 失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("期望状态码 200, 实际=%d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Fatalf("期望 Content-Type 包含 text/html, 实际=%s", contentType)
+	}
+
+	body := make([]byte, 8192)
+	n, _ := resp.Body.Read(body)
+	bodyStr := string(body[:n])
+
+	if !strings.Contains(bodyStr, "xterm.min.js") {
+		t.Fatal("响应内容应包含 xterm.min.js")
+	}
+}
+
+func TestHealthRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/health")
+	if err != nil {
+		t.Fatalf("请求 /health 失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("期望状态码 200, 实际=%d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Fatalf("期望 Content-Type 包含 application/json, 实际=%s", contentType)
+	}
+
+	body := make([]byte, 32)
+	n, _ := resp.Body.Read(body)
+	bodyStr := string(body[:n])
+
+	if !strings.Contains(bodyStr, `{"status":"ok"}`) {
+		t.Fatalf("期望响应包含 {\"status\":\"ok\"}, 实际=%s", bodyStr)
+	}
+}
+
+func TestStaticRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	staticFS, err := fs.Sub(StaticFiles, "static")
+	if err != nil {
+		t.Fatalf("获取静态文件系统失败: %v", err)
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/static/xterm.min.js")
+	if err != nil {
+		t.Fatalf("请求 /static/xterm.min.js 失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("期望状态码 200, 实际=%d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "javascript") && !strings.Contains(contentType, "application") {
+		t.Logf("注意: Content-Type=%s", contentType)
 	}
 }

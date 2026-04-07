@@ -161,11 +161,6 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			logrus.Errorf("[SerialHub] 创建 WebSocket 服务失败: %v", err)
 			return
 		}
-		if err := wsSrv.Start(); err != nil {
-			logrus.Errorf("[SerialHub] 启动 WebSocket 服务失败: %v", err)
-			return
-		}
-		logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, mcpPort)
 
 		// 始终创建 DataBridge，即使串口未连接
 		bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
@@ -200,9 +195,6 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	trayMgr.SetOnExit(func() {
 		if cancelFunc != nil {
 			cancelFunc()
-		}
-		if wsSrv != nil {
-			wsSrv.Stop()
 		}
 	})
 
@@ -245,10 +237,6 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	if err != nil {
 		return fmt.Errorf("创建 WebSocket 服务失败: %w", err)
 	}
-	if err := wsSrv.Start(); err != nil {
-		return fmt.Errorf("启动 WebSocket 服务失败: %w", err)
-	}
-	logrus.Infof("[SerialHub] WebSocket 服务已启动: %s:%d", host, mcpPort)
 
 	// 始终创建 DataBridge，即使串口未连接
 	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
@@ -283,7 +271,6 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 
 	logrus.Info("[SerialHub] 正在关闭...")
 	closeLogger()
-	wsSrv.Stop()
 	return nil
 }
 
@@ -358,7 +345,7 @@ func loadConfig() *config.Config {
 	if host != "" && host != "127.0.0.1" {
 		cfg.Host = host
 	}
-	if mcpPort != 5000 {
+	if mcpPort != 5000 && mcpPort != 0 {
 		cfg.MCP.HTTPPort = mcpPort
 	}
 
