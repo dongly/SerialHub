@@ -20,17 +20,12 @@ type MCPConfig struct {
 	HTTPPort int
 }
 
-type WebSocketConfig struct {
-	Port int
-}
-
 type Config struct {
-	Serial    SerialConfig
-	WebSocket WebSocketConfig
-	MCP       MCPConfig
-	Host      string
-	LogDir    string
-	Debug     bool
+	Serial SerialConfig
+	MCP    MCPConfig
+	Host   string
+	LogDir string
+	Debug  bool
 }
 
 func GetDefault() *Config {
@@ -41,9 +36,6 @@ func GetDefault() *Config {
 			DataBits: 8,
 			Parity:   "none",
 			StopBits: 1,
-		},
-		WebSocket: WebSocketConfig{
-			Port: 2323,
 		},
 		MCP: MCPConfig{
 			HTTPPort: 5000,

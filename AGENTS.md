@@ -110,7 +110,9 @@ Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | WebSocket/xterm.js |
 
 ## 构建 / 测试命令
 
-```bash
+> **注意**: 当前开发环境为 Windows PowerShell。Bash 命令需使用 Git Bash 或 WSL。
+
+```powershell
 # 开发
 go run ./cmd/serialhub              # 启动服务（默认开启托盘）
 go run ./cmd/serialhub --no-tray    # 无托盘模式
@@ -123,7 +125,7 @@ go test ./...                       # 所有测试
 go test ./pkg/serial                # 单个包
 go test -run TestConnect ./pkg/serial  # 单个测试函数
 go test -cover ./...                # 覆盖率
-SERIALHUB_HARDWARE_TEST=1 SERIALHUB_TEST_PORT=COM9 go test ./...  # 硬件测试
+$env:SERIALHUB_HARDWARE_TEST=1; $env:SERIALHUB_TEST_PORT="COM9"; go test ./...  # 硬件测试
 
 # 检查
 go vet ./...                        # 静态分析（零错误）
@@ -240,6 +242,7 @@ git commit -m "fix(serial): 修复断开连接后端口未释放的问题"
 - `go test ./...` — 测试通过
 - **review** — 自查代码（见下方清单）
 - `git commit` — 遵循提交规范
+- 运行 git 命令前 **不能** 用 `export` (powershell 不支持)
 
 ### Review 自查清单
 

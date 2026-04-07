@@ -19,8 +19,5 @@ parity = "none"
 # 停止位：1 / 1.5 / 2
 stopBits = 1
 
-[websocket]
-port = 2323
-
 [mcp]
 httpPort = 5000

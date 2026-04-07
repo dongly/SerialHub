@@ -358,9 +358,6 @@ func loadConfig() *config.Config {
 	if host != "" && host != "127.0.0.1" {
 		cfg.Host = host
 	}
-	if mcpPort != 2323 {
-		cfg.WebSocket.Port = mcpPort
-	}
 	if mcpPort != 5000 {
 		cfg.MCP.HTTPPort = mcpPort
 	}
