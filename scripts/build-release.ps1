@@ -67,11 +67,9 @@ Write-Host "`n[4/5] 复制配置文件和资源..." -ForegroundColor Yellow
 # 复制配置文件模板
 Copy-Item -Path ".\config.example.toml" -Destination "$BuildDir\config.toml" -ErrorAction SilentlyContinue
 # 复制启动脚本
-Copy-Item -Path ".\scripts\start.ps1" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
-Copy-Item -Path ".\scripts\start.sh" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
+Copy-Item -Path ".\start.ps1" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
 # 复制文档
 Copy-Item -Path ".\README.md" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
-Copy-Item -Path ".\DEPLOY.md" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
 Copy-Item -Path ".\MCP.md" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
 
 Write-Host "`n[5/5] 打包发布文件..." -ForegroundColor Yellow

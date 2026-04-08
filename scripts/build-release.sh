@@ -66,14 +66,9 @@ go build -ldflags "-s -w" -o "$BUILD_DIR/serialhub" ./cmd/serialhub
 echo -e "\033[32m构建成功: $BUILD_DIR/serialhub\033[0m"
 
 echo -e "\n\033[33m[4/5] 复制配置文件和资源...\033[0m"
-# 复制配置文件模板
 cp -f ./config.example.toml "$BUILD_DIR/config.toml" 2>/dev/null || true
-# 复制启动脚本
-cp -f ./scripts/start.sh "$BUILD_DIR/" 2>/dev/null || true
-cp -f ./scripts/start.ps1 "$BUILD_DIR/" 2>/dev/null || true
-# 复制文档
+cp -f ./start.ps1 "$BUILD_DIR/" 2>/dev/null || true
 cp -f ./README.md "$BUILD_DIR/" 2>/dev/null || true
-cp -f ./DEPLOY.md "$BUILD_DIR/" 2>/dev/null || true
 cp -f ./MCP.md "$BUILD_DIR/" 2>/dev/null || true
 
 echo -e "\n\033[33m[5/5] 打包发布文件...\033[0m"
