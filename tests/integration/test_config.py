@@ -16,7 +16,12 @@ from typing import Generator
 import pytest
 import requests
 
-from conftest import ensure_binary, find_free_port, mcp_call, wait_for_health
+from conftest import (
+    ensure_binary,
+    find_free_port,
+    mcp_call,
+    wait_for_health,
+)
 
 
 # ─── Fixtures ──────────────────────────────────────────
