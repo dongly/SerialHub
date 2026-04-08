@@ -147,7 +147,7 @@ func (c *WebSocketClient) writeLoop() {
 				return
 			}
 
-			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			if err := c.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 				logrus.Warnf("[SerialHub] WebSocket 写入错误: %v", err)
 				return
 			}

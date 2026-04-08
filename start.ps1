@@ -15,6 +15,16 @@ param(
 
 $exePath = Join-Path $PSScriptRoot "bin\serialhub.exe"
 
+# 先杀掉已运行的 serialhub 进程
+$existingProcs = Get-Process -Name "serialhub" -ErrorAction SilentlyContinue
+if ($existingProcs) {
+    Write-Host "正在终止已运行的 serialhub 进程..."
+    $existingProcs | ForEach-Object { 
+        Stop-Process -Id $_.Id -Force
+        Write-Host "  已终止 PID: $($_.Id)"
+    }
+}
+
 if (-not (Test-Path $exePath)) {
     Write-Error "找不到 SerialHub 可执行文件: $exePath"
     Write-Host "请先运行: go build -o bin\serialhub.exe ./cmd/serialhub"

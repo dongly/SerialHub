@@ -63,14 +63,30 @@
             };
 
             ws.onmessage = function(event) {
-                // 处理换行符，确保正确显示
+                // 处理 binary 数据（ArrayBuffer 或 Blob）
                 let data = event.data;
-                // 将 \r\n 转换为 \r\n，\n 转换为 \r\n（xterm.js 需要 \r\n 来正确换行）
-                data = data.replace(/\r?\n/g, '\r\n');
-                // 处理 \r 单独出现的情况
-                data = data.replace(/\r([^\n])/g, '\r\n$1');
-                terminal.write(data);
+                if (data instanceof Blob) {
+                    // 如果是 Blob，使用 FileReader 读取
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const text = new TextDecoder().decode(reader.result);
+                        processAndWrite(text);
+                    };
+                    reader.readAsArrayBuffer(data);
+                    return;
+                } else if (data instanceof ArrayBuffer) {
+                    // 如果是 ArrayBuffer，直接解码
+                    data = new TextDecoder().decode(data);
+                }
+                // 此时 data 是字符串
+                processAndWrite(data);
             };
+
+            function processAndWrite(text) {
+                // xterm.js 会自动处理换行符，直接写入原始数据
+                // 避免修改 ANSI 转义序列
+                terminal.write(text);
+            }
 
             ws.onerror = function(error) {
                 terminal.writeln('\r\n\x1b[31mWebSocket Error\x1b[0m');
