@@ -105,14 +105,23 @@ func (db *DataBridge) forwardLoop() {
 
 // forwardSerialToBoth 将串口数据同时转发到 WebSocket 和 MCP
 func (db *DataBridge) forwardSerialToBoth(data []byte) {
+	// xterm.js 需要 \r\n 来正确换行
+	// 将单独的 \n 转换为 \r\n，保留已有的 \r\n
 	original := string(data)
-	cleaned := strings.ReplaceAll(original, "\r\n", "\n")
-	cleaned = strings.ReplaceAll(cleaned, "\r", "\n")
-	cleanedData := []byte(cleaned)
 
-	if strings.Contains(original, "\r") || strings.Contains(original, "msh") {
-		logrus.Infof("[SerialHub] 换行符转换: 原始=%q, 转换后=%q", original, cleaned)
-	}
+	// 先处理 \r\n，避免重复转换
+	// 将 \r\n 临时替换为特殊标记
+	marker := "\x00CRLF\x00"
+	withMarker := strings.ReplaceAll(original, "\r\n", marker)
+
+	// 将剩余的 \r 或 \n 统一转换为 \r\n
+	withMarker = strings.ReplaceAll(withMarker, "\r", "\r\n")
+	withMarker = strings.ReplaceAll(withMarker, "\n", "\r\n")
+
+	// 恢复原始的 \r\n
+	cleaned := strings.ReplaceAll(withMarker, marker, "\r\n")
+
+	cleanedData := []byte(cleaned)
 
 	wsCount := db.ws.Broadcast(cleanedData)
 	if wsCount > 0 {

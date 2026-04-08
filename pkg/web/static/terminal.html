@@ -40,7 +40,13 @@
                     foreground: '#d4d4d4',
                     cursor: '#ffffff',
                     selection: 'rgba(255, 255, 255, 0.3)'
-                }
+                },
+                // 禁用自动换行，让终端自己处理
+                wordWrap: false,
+                // 启用回车换行转换
+                convertEol: true,
+                // 设置合适的滚动缓冲区
+                scrollback: 10000
             });
 
             const fitAddon = new FitAddon.FitAddon();
@@ -57,7 +63,13 @@
             };
 
             ws.onmessage = function(event) {
-                terminal.write(event.data);
+                // 处理换行符，确保正确显示
+                let data = event.data;
+                // 将 \r\n 转换为 \r\n，\n 转换为 \r\n（xterm.js 需要 \r\n 来正确换行）
+                data = data.replace(/\r?\n/g, '\r\n');
+                // 处理 \r 单独出现的情况
+                data = data.replace(/\r([^\n])/g, '\r\n$1');
+                terminal.write(data);
             };
 
             ws.onerror = function(error) {
@@ -76,7 +88,12 @@
 
             window.addEventListener('resize', function() {
                 fitAddon.fit();
-                ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
+                // 延迟发送 resize 消息，确保终端已调整大小
+                setTimeout(function() {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
+                    }
+                }, 100);
             });
         })();
     </script>
