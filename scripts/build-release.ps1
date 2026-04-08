@@ -44,18 +44,10 @@ $BuildDir = Join-Path $DistDir "serialhub-$Version-windows-amd64"
 Write-Host "`n[1/4] 清理旧构建文件..." -ForegroundColor Yellow
 Write-Host "  输出目录: $DistDir"
 
-# 清理旧的构建目录和 zip 文件
-if (Test-Path $BuildDir) {
-    Remove-Item -Path $BuildDir -Recurse -Force
-    Write-Host "  删除旧构建目录: serialhub-$Version-windows-amd64" -ForegroundColor Gray
-}
-
-$oldFiles = Get-Item "$DistDir\*.zip" -ErrorAction SilentlyContinue
-if ($oldFiles) {
-    foreach ($file in $oldFiles) {
-        Write-Host "  删除: $($file.Name)"
-        Remove-Item $file.FullName
-    }
+# 清理整个 $DistDir 目录
+if (Test-Path $DistDir) {
+    Remove-Item -Path "$DistDir\*" -Recurse -Force
+    Write-Host "  清理输出目录完成" -ForegroundColor Gray
 }
 
 # 创建新的构建目录
