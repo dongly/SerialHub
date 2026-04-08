@@ -82,7 +82,11 @@
 
             terminal.onData(function(data) {
                 if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(data);
+                    // 将数据转换为 Uint8Array 以二进制方式发送
+                    // 处理 \r 等特殊字符
+                    const encoder = new TextEncoder();
+                    const uint8Array = encoder.encode(data);
+                    ws.send(uint8Array);
                 }
             });
 
