@@ -55,13 +55,15 @@ Write-Host "测试通过!" -ForegroundColor Green
 
 Write-Host "`n[3/5] 构建可执行文件..." -ForegroundColor Yellow
 $env:CGO_ENABLED = "0"
-go build -ldflags "-s -w" -o "$BuildDir\serialhub.exe" .\cmd\serialhub
+$BinDir = Join-Path $BuildDir "bin"
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+go build -ldflags "-s -w" -o "$BinDir\serialhub.exe" .\cmd\serialhub
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "构建失败"
     exit 1
 }
-Write-Host "构建成功: $BuildDir\serialhub.exe" -ForegroundColor Green
+Write-Host "构建成功: $BinDir\serialhub.exe" -ForegroundColor Green
 
 Write-Host "`n[4/5] 复制配置文件和资源..." -ForegroundColor Yellow
 # 复制配置文件模板

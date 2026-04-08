@@ -61,9 +61,10 @@ echo -e "\033[32m测试通过!\033[0m"
 
 echo -e "\n\033[33m[3/5] 构建可执行文件...\033[0m"
 export CGO_ENABLED=0
-go build -ldflags "-s -w" -o "$BUILD_DIR/serialhub" ./cmd/serialhub
+mkdir -p "$BUILD_DIR/bin"
+go build -ldflags "-s -w" -o "$BUILD_DIR/bin/serialhub" ./cmd/serialhub
 
-echo -e "\033[32m构建成功: $BUILD_DIR/serialhub\033[0m"
+echo -e "\033[32m构建成功: $BUILD_DIR/bin/serialhub\033[0m"
 
 echo -e "\n\033[33m[4/5] 复制配置文件和资源...\033[0m"
 cp -f ./config.example.toml "$BUILD_DIR/config.toml" 2>/dev/null || true
