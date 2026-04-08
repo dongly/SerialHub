@@ -106,20 +106,15 @@ func (db *DataBridge) forwardLoop() {
 // forwardSerialToBoth 将串口数据同时转发到 WebSocket 和 MCP
 func (db *DataBridge) forwardSerialToBoth(data []byte) {
 	// xterm.js 需要 \r\n 来正确换行
-	// 将单独的 \n 转换为 \r\n，保留已有的 \r\n
-	original := string(data)
-
-	// 先处理 \r\n，避免重复转换
-	// 将 \r\n 临时替换为特殊标记
-	marker := "\x00CRLF\x00"
-	withMarker := strings.ReplaceAll(original, "\r\n", marker)
-
-	// 将剩余的 \r 或 \n 统一转换为 \r\n
-	withMarker = strings.ReplaceAll(withMarker, "\r", "\r\n")
-	withMarker = strings.ReplaceAll(withMarker, "\n", "\r\n")
-
-	// 恢复原始的 \r\n
-	cleaned := strings.ReplaceAll(withMarker, marker, "\r\n")
+	// 处理逻辑：
+	// 1. 如果已经有 \r\n，保持不变
+	// 2. 如果只有 \n，转换为 \r\n
+	// 先将 \r\n 替换为临时标记
+	temp := strings.ReplaceAll(string(data), "\r\n", "\x00CRLF\x00")
+	// 将单独的 \n 转换为 \r\n
+	temp = strings.ReplaceAll(temp, "\n", "\r\n")
+	// 将临时标记恢复为 \r\n
+	cleaned := strings.ReplaceAll(temp, "\x00CRLF\x00", "\r\n")
 
 	cleanedData := []byte(cleaned)
 
