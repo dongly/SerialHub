@@ -170,15 +170,16 @@ OpenCode 支持两种配置级别，**项目级 > 用户级**。
 
 | 级别 | 配置文件路径 | 适用场景 |
 |------|-------------|---------|
-| 用户级 | `~/.opencode/mcp.json` | 个人开发，全局共用 |
-| 项目级 | `.opencode/mcp.json` | 团队协作，独立配置 |
+| 用户级 | `~/.opencode/opencode.json` | 个人开发，全局共用 |
+| 项目级 | `opencode.json`（项目根目录） | 团队协作，独立配置 |
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "serialhub": {
-      "type": "streamable_http",
-      "url": "http://127.0.0.1:5000/mcp"
+      "type": "remote",
+      "url": "http://127.0.0.1:5000/mcp",
+      "enabled": true
     }
   }
 }
