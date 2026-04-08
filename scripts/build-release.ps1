@@ -9,14 +9,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# 获取版本号: 手动指定 > Git tag > 默认值
-if (-not $Version) {
-    $gitTag = git describe --tags --always 2>$null
-    if ($gitTag) {
-        $Version = $gitTag
-    } else {
-        $Version = "0.1.0"
+# 从代码中获取基础版本号
+function Get-BaseVersion {
+    $mainFile = Join-Path $PSScriptRoot "..\cmd\serialhub\main.go"
+    $content = Get-Content $mainFile -Raw
+    if ($content -match 'const\s+baseVersion\s*=\s*"([^"]+)"') {
+        return $matches[1]
     }
+    return "0.1.0"
+}
+
+# 获取版本号: 手动指定 > 代码中的 baseVersion
+$baseVersion = Get-BaseVersion
+if (-not $Version) {
+    $Version = $baseVersion
 }
 
 # 移除版本号前缀 v（如果有）

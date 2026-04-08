@@ -7,9 +7,19 @@ set -e
 VERSION=${1:-""}
 OUTPUT_DIR="dist"
 
-# 获取版本号: 手动指定 > Git tag > 默认值
+# 从代码中获取基础版本号
+get_base_version() {
+    grep -E 'const\s+baseVersion\s*=' "$(dirname "$0")/../cmd/serialhub/main.go" | sed -E 's/.*"([^"]+)".*/\1/'
+}
+
+BASE_VERSION=$(get_base_version)
+if [ -z "$BASE_VERSION" ]; then
+    BASE_VERSION="0.1.0"
+fi
+
+# 获取版本号: 手动指定 > 代码中的 baseVersion
 if [ -z "$VERSION" ]; then
-    VERSION=$(git describe --tags --always 2>/dev/null || echo "0.1.0")
+    VERSION="$BASE_VERSION"
 fi
 
 # 移除版本号前缀 v（如果有）

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
@@ -24,7 +25,7 @@ import (
 )
 
 var (
-	version    = "0.1.0"
+	version    = getVersion()
 	serialPort string
 	baudRate   int
 	configPath string
@@ -34,6 +35,24 @@ var (
 	noTray     bool
 	minimized  bool
 )
+
+const baseVersion = "0.1.0"
+
+func getVersion() string {
+	vcsInfo := ""
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				vcsInfo = setting.Value[:7]
+				break
+			}
+		}
+	}
+	if vcsInfo != "" {
+		return baseVersion + "-" + vcsInfo
+	}
+	return baseVersion + "-dev"
+}
 
 func main() {
 	rootCmd := &cobra.Command{
