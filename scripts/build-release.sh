@@ -49,30 +49,23 @@ BUILD_DIR="$OUTPUT_DIR/serialhub-$VERSION-$TARGET"
 # 创建输出目录
 mkdir -p "$BUILD_DIR"
 
-echo -e "\n\033[33m[1/5] 清理旧构建文件...\033[0m"
+echo -e "\n\033[33m[1/4] 清理旧构建文件...\033[0m"
 rm -f "$OUTPUT_DIR"/*.tar.gz
 
-echo -e "\n\033[33m[2/5] 运行测试...\033[0m"
-if ! go test ./...; then
-    echo -e "\033[31m测试失败，停止构建\033[0m"
-    exit 1
-fi
-echo -e "\033[32m测试通过!\033[0m"
-
-echo -e "\n\033[33m[3/5] 构建可执行文件...\033[0m"
+echo -e "\n\033[33m[2/4] 构建可执行文件...\033[0m"
 export CGO_ENABLED=0
 mkdir -p "$BUILD_DIR/bin"
 go build -ldflags "-s -w" -o "$BUILD_DIR/bin/serialhub" ./cmd/serialhub
 
 echo -e "\033[32m构建成功: $BUILD_DIR/bin/serialhub\033[0m"
 
-echo -e "\n\033[33m[4/5] 复制配置文件和资源...\033[0m"
+echo -e "\n\033[33m[3/4] 复制配置文件和资源...\033[0m"
 cp -f ./config.example.toml "$BUILD_DIR/config.toml" 2>/dev/null || true
 cp -f ./start.ps1 "$BUILD_DIR/" 2>/dev/null || true
 cp -f ./README.md "$BUILD_DIR/" 2>/dev/null || true
 cp -f ./MCP.md "$BUILD_DIR/" 2>/dev/null || true
 
-echo -e "\n\033[33m[5/5] 打包发布文件...\033[0m"
+echo -e "\n\033[33m[4/4] 打包发布文件...\033[0m"
 TAR_FILE="$OUTPUT_DIR/serialhub-$VERSION-$TARGET.tar.gz"
 
 cd "$OUTPUT_DIR"

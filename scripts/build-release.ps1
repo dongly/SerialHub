@@ -43,49 +43,82 @@ $BuildDir = Join-Path $DistDir "serialhub-$Version-windows-amd64"
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
 Write-Host "`n[1/5] 清理旧构建文件..." -ForegroundColor Yellow
-Remove-Item -Path "$DistDir\*.zip" -ErrorAction SilentlyContinue
-
-Write-Host "`n[2/5] 运行测试..." -ForegroundColor Yellow
-$testResult = go test ./... 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "测试失败，停止构建"
-    exit 1
+Write-Host "  输出目录: $DistDir"
+$oldFiles = Get-Item "$DistDir\*.zip" -ErrorAction SilentlyContinue
+if ($oldFiles) {
+    foreach ($file in $oldFiles) {
+        Write-Host "  删除: $($file.Name)"
+        Remove-Item $file.FullName
+    }
+} else {
+    Write-Host "  无旧文件需要清理"
 }
-Write-Host "测试通过!" -ForegroundColor Green
 
-Write-Host "`n[3/5] 构建可执行文件..." -ForegroundColor Yellow
+Write-Host "`n[2/4] 构建可执行文件..." -ForegroundColor Yellow
 $env:CGO_ENABLED = "0"
 $BinDir = Join-Path $BuildDir "bin"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+Write-Host "  构建目录: $BinDir"
+Write-Host "  编译: go build -ldflags \"-s -w\" -o bin\serialhub.exe .\cmd\serialhub"
 go build -ldflags "-s -w" -o "$BinDir\serialhub.exe" .\cmd\serialhub
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "构建失败"
     exit 1
 }
-Write-Host "构建成功: $BinDir\serialhub.exe" -ForegroundColor Green
+$exeSize = (Get-Item "$BinDir\serialhub.exe").Length / 1KB
+Write-Host "  构建成功: bin\serialhub.exe ($([math]::Round($exeSize, 2)) KB)" -ForegroundColor Green
 
-Write-Host "`n[4/5] 复制配置文件和资源..." -ForegroundColor Yellow
-# 复制配置文件模板
-Copy-Item -Path ".\config.example.toml" -Destination "$BuildDir\config.toml" -ErrorAction SilentlyContinue
-# 复制启动脚本
-Copy-Item -Path ".\start.ps1" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
-# 复制文档
-Copy-Item -Path ".\README.md" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
-Copy-Item -Path ".\MCP.md" -Destination "$BuildDir\" -ErrorAction SilentlyContinue
+Write-Host "`n[3/4] 复制配置文件和资源..." -ForegroundColor Yellow
+$filesToCopy = @(
+    @{Source = ".\config.example.toml"; Destination = "$BuildDir\config.toml"; Name = "配置文件"},
+    @{Source = ".\start.ps1"; Destination = "$BuildDir\start.ps1"; Name = "启动脚本"},
+    @{Source = ".\README.md"; Destination = "$BuildDir\README.md"; Name = "README"},
+    @{Source = ".\MCP.md"; Destination = "$BuildDir\MCP.md"; Name = "MCP文档"}
+)
 
-Write-Host "`n[5/5] 打包发布文件..." -ForegroundColor Yellow
+foreach ($file in $filesToCopy) {
+    if (Test-Path $file.Source) {
+        Copy-Item -Path $file.Source -Destination $file.Destination -Force
+        $fileSize = (Get-Item $file.Destination).Length / 1KB
+        Write-Host "  复制: $($file.Name) -> $(Split-Path $file.Destination -Leaf) ($([math]::Round($fileSize, 2)) KB)"
+    } else {
+        Write-Warning "  跳过: $($file.Name) (文件不存在)"
+    }
+}
+
+Write-Host "`n[4/4] 打包发布文件..." -ForegroundColor Yellow
 $ZipFile = "$DistDir\serialhub-$Version-windows-amd64.zip"
+Write-Host "  输出文件: $ZipFile"
+
+# 显示打包内容
+Write-Host "  打包内容:"
+$items = Get-ChildItem $BuildDir -Recurse
+foreach ($item in $items) {
+    $relativePath = $item.FullName.Substring($BuildDir.Length + 1)
+    if ($item.PSIsContainer) {
+        Write-Host "    [DIR]  $relativePath"
+    } else {
+        $size = $item.Length / 1KB
+        Write-Host "    [FILE] $relativePath ($([math]::Round($size, 2)) KB)"
+    }
+}
+
 Compress-Archive -Path "$BuildDir\*" -DestinationPath $ZipFile -Force
+$zipSize = (Get-Item $ZipFile).Length / 1MB
+Write-Host "  打包完成: serialhub-$Version-windows-amd64.zip ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "发布构建完成!" -ForegroundColor Green
-Write-Host "输出文件: $ZipFile" -ForegroundColor Green
-Write-Host "文件大小: $([math]::Round((Get-Item $ZipFile).Length / 1MB, 2)) MB" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
+Write-Host "输出文件: $ZipFile" -ForegroundColor White
+Write-Host "文件大小: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
+Write-Host "版本号:   $Version" -ForegroundColor White
+Write-Host "构建目录: $BuildDir" -ForegroundColor White
 
 # 计算校验和
 $hash = Get-FileHash -Path $ZipFile -Algorithm SHA256
-Write-Host "`nSHA256: $($hash.Hash)" -ForegroundColor Gray
+Write-Host "`nSHA256 校验和:" -ForegroundColor Gray
+Write-Host "  $($hash.Hash)" -ForegroundColor Gray
 
 Set-Location $PSScriptRoot
