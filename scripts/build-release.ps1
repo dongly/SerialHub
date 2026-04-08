@@ -40,19 +40,26 @@ Set-Location $ProjectRoot
 # 创建输出目录
 $DistDir = Join-Path $ProjectRoot $OutputDir
 $BuildDir = Join-Path $DistDir "serialhub-$Version-windows-amd64"
-New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
-Write-Host "`n[1/5] 清理旧构建文件..." -ForegroundColor Yellow
+Write-Host "`n[1/4] 清理旧构建文件..." -ForegroundColor Yellow
 Write-Host "  输出目录: $DistDir"
+
+# 清理旧的构建目录和 zip 文件
+if (Test-Path $BuildDir) {
+    Remove-Item -Path $BuildDir -Recurse -Force
+    Write-Host "  删除旧构建目录: serialhub-$Version-windows-amd64" -ForegroundColor Gray
+}
+
 $oldFiles = Get-Item "$DistDir\*.zip" -ErrorAction SilentlyContinue
 if ($oldFiles) {
     foreach ($file in $oldFiles) {
         Write-Host "  删除: $($file.Name)"
         Remove-Item $file.FullName
     }
-} else {
-    Write-Host "  无旧文件需要清理"
 }
+
+# 创建新的构建目录
+New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
 Write-Host "`n[2/4] 构建可执行文件..." -ForegroundColor Yellow
 $env:CGO_ENABLED = "0"
