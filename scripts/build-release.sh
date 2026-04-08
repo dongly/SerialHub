@@ -54,7 +54,11 @@ rm -f "$OUTPUT_DIR"/*.tar.gz
 
 echo -e "\n\033[33m[2/4] 构建可执行文件...\033[0m"
 export CGO_ENABLED=0
+
+# 清理并创建 bin 目录
+rm -rf "$BUILD_DIR/bin"
 mkdir -p "$BUILD_DIR/bin"
+
 go build -ldflags "-s -w" -o "$BUILD_DIR/bin/serialhub" ./cmd/serialhub
 
 echo -e "\033[32m构建成功: $BUILD_DIR/bin/serialhub\033[0m"

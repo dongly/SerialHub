@@ -57,7 +57,14 @@ if ($oldFiles) {
 Write-Host "`n[2/4] 构建可执行文件..." -ForegroundColor Yellow
 $env:CGO_ENABLED = "0"
 $BinDir = Join-Path $BuildDir "bin"
+
+# 清理并创建 bin 目录
+if (Test-Path $BinDir) {
+    Remove-Item -Path "$BinDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "  清理旧构建文件" -ForegroundColor Gray
+}
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+
 Write-Host "  构建目录: $BinDir"
 Write-Host "  编译: go build -ldflags \"-s -w\" -o bin\serialhub.exe .\cmd\serialhub"
 go build -ldflags "-s -w" -o "$BinDir\serialhub.exe" .\cmd\serialhub
