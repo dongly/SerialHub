@@ -115,8 +115,7 @@ Go 1.26+ | go.bug.st/serial | modelcontextprotocol/go-sdk | WebSocket/xterm.js |
 
 ```powershell
 # 开发
-go run ./cmd/serialhub              # 启动服务（默认开启托盘）
-go run ./cmd/serialhub --no-tray    # 无托盘模式
+go run ./cmd/serialhub              # 启动服务
 
 # 构建
 go build -o bin/serialhub.exe ./cmd/serialhub
@@ -133,22 +132,45 @@ go vet ./...                        # 静态分析（零错误）
 go mod tidy                         # 整理依赖
 ```
 
+## 启动方式
+
+**推荐使用 `start.ps1` 脚本启动**（编译后）：
+
+```powershell
+.\start.ps1 -p COM7          # 连接 COM7，默认波特率 115200
+.\start.ps1 -p COM7 -D       # 调试模式
+```
+
+脚本会自动：
+1. 终止已运行的 serialhub 进程
+2. 启动最小化窗口（不阻塞 PowerShell）
+3. 输出 PID 和日志文件路径
+
+**日志位置**: `bin\logs\serialhub.log`
+
+## 版本号管理
+
+版本号统一在 `pkg/version/version.go` 中定义，所有模块（cmd、MCP、Web 前端）均引用此包，避免硬编码。
+
 ## 文件结构
 
 ```
 cmd/serialhub/main.go           # CLI 主入口
 pkg/serial/                     # 串口管理（manager.go, config.go）
 pkg/web/                        # Web 终端服务（WebSocket + xterm.js）
+pkg/web/static/                 # 前端静态文件（terminal.html, xterm.js, xterm.css）
 pkg/mcp/server.go               # MCP 服务（StreamableHTTP，Stateless JSON 模式）
 pkg/mcp/tools/                  # MCP 工具（serial_list/connect/disconnect/write/read/status）
 pkg/bridge/                     # 数据桥接（bridge.go, events.go）
 pkg/config/config.go            # TOML 配置（BurntSushi/toml）
 pkg/tray/                       # 系统托盘（tray.go, assets/, console_*.go）
+pkg/version/                    # 版本信息（version.go）
 internal/buffer/                # 数据缓冲区（buffer.go）
 internal/service/               # 服务管理（manager.go, singleton_*.go, lock_*.go）
 internal/testutil/              # 测试工具（helpers.go, mock_serial.go, mock_net.go）
 tests/e2e/                      # 端到端硬件测试
 tools/genicons.py               # 托盘图标生成（Python + PIL）
+start.ps1                       # PowerShell 启动脚本（推荐）
 ```
 
 ## 代码风格
