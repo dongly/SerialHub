@@ -267,7 +267,7 @@
             ws.binaryType = 'arraybuffer';
 
             let isConnected = false;
-            let appVersion = 'v0.2.0';
+            let appVersion = 'v0.3.0';
 
             fetch('/version')
                 .then(function(response) { return response.json(); })
@@ -316,27 +316,29 @@
                 sendCommand('get_status');
             };
 
+            function shouldAutoScroll() {
+                return checkAtBottom() && !terminal.hasSelection();
+            }
+
+            function writeAndScroll(data) {
+                var scroll = shouldAutoScroll();
+                terminal.write(data);
+                if (scroll) {
+                    setTimeout(function() {
+                        terminal.scrollToBottom();
+                    }, 10);
+                }
+            }
+
             ws.onmessage = function(event) {
                 if (event.data instanceof ArrayBuffer) {
-                    var shouldScroll = checkAtBottom();
-                    terminal.write(new Uint8Array(event.data));
-                    if (shouldScroll) {
-                        setTimeout(function() {
-                            terminal.scrollToBottom();
-                        }, 10);
-                    }
+                    writeAndScroll(new Uint8Array(event.data));
                 } else {
                     try {
                         const msg = JSON.parse(event.data);
                         handleMessage(msg);
                     } catch (e) {
-                        var shouldScroll = checkAtBottom();
-                        terminal.write(event.data);
-                        if (shouldScroll) {
-                            setTimeout(function() {
-                                terminal.scrollToBottom();
-                            }, 10);
-                        }
+                        writeAndScroll(event.data);
                     }
                 }
             };
@@ -449,9 +451,9 @@
                 }, 100);
             });
 
-            // 监听用户输入，如果当前在底部则跟随
+            // 监听用户输入，如果当前在底部且无选中则跟随
             terminal.onData(function() {
-                if (checkAtBottom()) {
+                if (shouldAutoScroll()) {
                     setTimeout(function() {
                         terminal.scrollToBottom();
                     }, 10);
