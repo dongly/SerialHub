@@ -16,15 +16,135 @@
             height: 100%;
             background-color: #1e1e1e;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #control-panel {
+            background-color: #2d2d2d;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #3d3d3d;
+            flex-wrap: wrap;
+        }
+        #control-panel label {
+            color: #d4d4d4;
+            font-size: 12px;
+            font-family: Consolas, "Courier New", monospace;
+        }
+        #control-panel select, #control-panel input {
+            background-color: #3d3d3d;
+            color: #d4d4d4;
+            border: 1px solid #4d4d4d;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-family: Consolas, "Courier New", monospace;
+            border-radius: 3px;
+        }
+        #control-panel select option {
+            background-color: #3d3d3d;
+            color: #d4d4d4;
+            font-size: 12px;
+            font-family: Consolas, "Courier New", monospace;
+        }
+        #control-panel select:focus, #control-panel input:focus {
+            outline: none;
+            border-color: #0078d4;
+        }
+        #control-panel button {
+            color: #ffffff;
+            border: none;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-family: Consolas, "Courier New", monospace;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        #control-panel button.connect {
+            background-color: #4caf50;
+        }
+        #control-panel button.connect:hover {
+            background-color: #45a049;
+        }
+        #control-panel button.disconnect {
+            background-color: #f44336;
+        }
+        #control-panel button.disconnect:hover {
+            background-color: #da190b;
+        }
+        #control-panel button.refresh {
+            background-color: #2196f3;
+        }
+        #control-panel button.refresh:hover {
+            background-color: #1976d2;
+        }
+        #control-panel button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        #status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #888;
+        }
+        #status-indicator.connected {
+            background-color: #4caf50;
+        }
+        #status-indicator.disconnected {
+            background-color: #888;
+        }
+        #status-indicator.error {
+            background-color: #f44336;
         }
         #terminal-container {
             width: 100%;
-            height: 100%;
+            flex: 1;
             padding: 8px;
         }
     </style>
 </head>
 <body>
+    <div id="control-panel">
+        <span id="status-indicator" class="disconnected"></span>
+        <label>串口:</label>
+        <select id="port-select">
+            <option value="">-- 刷新列表 --</option>
+        </select>
+        <label>波特率:</label>
+        <select id="baud-rate">
+            <option value="9600">9600</option>
+            <option value="19200">19200</option>
+            <option value="38400">38400</option>
+            <option value="57600">57600</option>
+            <option value="115200" selected>115200</option>
+            <option value="230400">230400</option>
+            <option value="460800">460800</option>
+            <option value="921600">921600</option>
+        </select>
+        <label>数据位:</label>
+        <select id="data-bits">
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8" selected>8</option>
+        </select>
+        <label>校验位:</label>
+        <select id="parity">
+            <option value="none" selected>none</option>
+            <option value="even">even</option>
+            <option value="odd">odd</option>
+        </select>
+        <label>停止位:</label>
+        <select id="stop-bits">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+        </select>
+        <button id="connect-btn" class="connect">连接</button>
+        <button id="disconnect-btn" class="disconnect" disabled>断开</button>
+        <button id="refresh-btn" class="refresh">刷新</button>
+    </div>
     <div id="terminal-container"></div>
     <script src="/static/xterm.min.js"></script>
     <script src="/static/xterm-addon-fit.min.js"></script>
@@ -41,11 +161,8 @@
                     cursor: '#ffffff',
                     selection: 'rgba(255, 255, 255, 0.3)'
                 },
-                // 禁用自动换行，让终端自己处理
                 wordWrap: false,
-                // 启用回车换行转换
                 convertEol: true,
-                // 设置合适的滚动缓冲区
                 scrollback: 10000
             });
 
@@ -54,44 +171,171 @@
             terminal.open(terminalContainer);
             fitAddon.fit();
 
+            const statusIndicator = document.getElementById('status-indicator');
+            const portSelect = document.getElementById('port-select');
+            const baudRateSelect = document.getElementById('baud-rate');
+            const dataBitsSelect = document.getElementById('data-bits');
+            const paritySelect = document.getElementById('parity');
+            const stopBitsSelect = document.getElementById('stop-bits');
+            const connectBtn = document.getElementById('connect-btn');
+            const disconnectBtn = document.getElementById('disconnect-btn');
+            const refreshBtn = document.getElementById('refresh-btn');
+
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host + '/ws';
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
 
+            let isConnected = false;
+
+            function updateConnectionStatus(connected) {
+                isConnected = connected;
+                if (connected) {
+                    statusIndicator.className = 'connected';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    portSelect.disabled = true;
+                    baudRateSelect.disabled = true;
+                    dataBitsSelect.disabled = true;
+                    paritySelect.disabled = true;
+                    stopBitsSelect.disabled = true;
+                } else {
+                    statusIndicator.className = 'disconnected';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    portSelect.disabled = false;
+                    baudRateSelect.disabled = false;
+                    dataBitsSelect.disabled = false;
+                    paritySelect.disabled = false;
+                    stopBitsSelect.disabled = false;
+                }
+            }
+
+            function sendCommand(type, data) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: type, data: data }));
+                }
+            }
+
             ws.onopen = function() {
-                terminal.writeln('SerialHub Terminal Connected');
+                terminal.writeln('\x1b[32m[SerialHub] Terminal Connected\x1b[0m');
+                sendCommand('get_ports');
+                sendCommand('get_status');
             };
 
             ws.onmessage = function(event) {
                 if (event.data instanceof ArrayBuffer) {
                     terminal.write(new Uint8Array(event.data));
                 } else {
-                    terminal.write(event.data);
+                    try {
+                        const msg = JSON.parse(event.data);
+                        handleMessage(msg);
+                    } catch (e) {
+                        terminal.write(event.data);
+                    }
                 }
             };
 
+            function handleMessage(msg) {
+                switch (msg.type) {
+                    case 'ports':
+                        updatePortList(msg.data);
+                        break;
+                    case 'status':
+                        updateConnectionStatus(msg.data.connected);
+                        if (msg.data.connected && msg.data.port) {
+                            terminal.writeln('\x1b[32m[SerialHub] 串口已连接: ' + msg.data.port + '\x1b[0m');
+                            // 自动选择已连接的串口
+                            selectPortFromStatus(msg.data.port);
+                        }
+                        break;
+                    case 'connected':
+                        updateConnectionStatus(true);
+                        terminal.writeln('\x1b[32m[SerialHub] 串口已连接: ' + msg.data + '\x1b[0m');
+                        break;
+                    case 'disconnected':
+                        updateConnectionStatus(false);
+                        terminal.writeln('\x1b[33m[SerialHub] 串口已断开\x1b[0m');
+                        break;
+                    case 'error':
+                        terminal.writeln('\x1b[31m[SerialHub] 错误: ' + msg.data + '\x1b[0m');
+                        statusIndicator.className = 'error';
+                        break;
+                    case 'serial_message':
+                        terminal.write(msg.data);
+                        break;
+                }
+            }
+
+            function updatePortList(ports) {
+                portSelect.innerHTML = '<option value="">-- 选择串口 --</option>';
+                ports.forEach(function(port) {
+                    const option = document.createElement('option');
+                    option.value = port;
+                    option.textContent = port;
+                    portSelect.appendChild(option);
+                });
+            }
+
+            function selectPortFromStatus(portInfo) {
+                // 从端口信息字符串中提取端口号 (如 "COM7@115200 8N1" -> "COM7")
+                const portMatch = portInfo.match(/^(COM\d+|\/dev\/tty\w+)/);
+                if (portMatch) {
+                    const portName = portMatch[1];
+                    // 在下拉框中选择该端口
+                    for (let i = 0; i < portSelect.options.length; i++) {
+                        if (portSelect.options[i].value === portName) {
+                            portSelect.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
             ws.onerror = function(error) {
-                terminal.writeln('\r\n\x1b[31mWebSocket Error\x1b[0m');
+                terminal.writeln('\x1b[31m[SerialHub] WebSocket Error\x1b[0m');
+                statusIndicator.className = 'error';
             };
 
             ws.onclose = function() {
-                terminal.writeln('\r\n\x1b[31mConnection Closed\x1b[0m');
+                terminal.writeln('\x1b[31m[SerialHub] Connection Closed\x1b[0m');
+                updateConnectionStatus(false);
             };
 
             terminal.onData(function(data) {
                 if (ws.readyState === WebSocket.OPEN) {
-                    // 将数据转换为 Uint8Array 以二进制方式发送
-                    // 处理 \r 等特殊字符
                     const encoder = new TextEncoder();
                     const uint8Array = encoder.encode(data);
                     ws.send(uint8Array);
                 }
             });
 
+            connectBtn.onclick = function() {
+                const port = portSelect.value;
+                if (!port) {
+                    terminal.writeln('\x1b[31m[SerialHub] 请先选择串口\x1b[0m');
+                    return;
+                }
+                const baudRate = parseInt(baudRateSelect.value);
+                const dataBits = parseInt(dataBitsSelect.value);
+                const parity = paritySelect.value;
+                const stopBits = parseInt(stopBitsSelect.value);
+                terminal.writeln('\x1b[36m[SerialHub] 正在连接串口: ' + port + '@' + baudRate + '...\x1b[0m');
+                sendCommand('connect', { port: port, baudRate: baudRate, dataBits: dataBits, parity: parity, stopBits: stopBits });
+            };
+
+            disconnectBtn.onclick = function() {
+                terminal.writeln('\x1b[36m[SerialHub] 正在断开串口...\x1b[0m');
+                sendCommand('disconnect');
+            };
+
+            refreshBtn.onclick = function() {
+                terminal.writeln('\x1b[36m[SerialHub] 刷新串口列表...\x1b[0m');
+                sendCommand('get_ports');
+            };
+
             window.addEventListener('resize', function() {
                 fitAddon.fit();
-                // 延迟发送 resize 消息，确保终端已调整大小
                 setTimeout(function() {
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));

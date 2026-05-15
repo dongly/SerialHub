@@ -20,18 +20,22 @@ type SerialReader interface {
 // WebSocketBroadcaster 接口定义了 WebSocket 数据读取和广播行为
 type WebSocketBroadcaster interface {
 	DataChan() <-chan []byte
+	CmdChan() <-chan []byte
 	Broadcast(data []byte) int
 }
 
 // DataBridge 管理串口、WebSocket 和 MCP 之间的数据转发
 type DataBridge struct {
-	serial    SerialReader
-	ws        WebSocketBroadcaster
-	mcpBuffer *buffer.DataBuffer
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	serial      SerialReader
+	ws          WebSocketBroadcaster
+	mcpBuffer   *buffer.DataBuffer
+	cmdHandler  CommandHandler
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
+
+type CommandHandler func(cmd []byte) []byte
 
 // NewDataBridge 创建新的数据桥接器
 func NewDataBridge(serialMgr SerialReader, wsSrv WebSocketBroadcaster, mcpBuf *buffer.DataBuffer) (*DataBridge, error) {
@@ -56,10 +60,15 @@ func NewDataBridge(serialMgr SerialReader, wsSrv WebSocketBroadcaster, mcpBuf *b
 	}, nil
 }
 
+func (db *DataBridge) SetCommandHandler(handler CommandHandler) {
+	db.cmdHandler = handler
+}
+
 // Start 启动数据桥接器
 func (db *DataBridge) Start() {
-	db.wg.Add(1)
+	db.wg.Add(2)
 	go db.forwardLoop()
+	go db.cmdLoop()
 }
 
 // Stop 停止数据桥接器
@@ -99,6 +108,34 @@ func (db *DataBridge) forwardLoop() {
 				logrus.Infof("[SerialHub] 收到 WebSocket 数据: %d 字节, 内容: %q", len(data), string(data))
 				db.forwardWsToSerial(data)
 			}
+		}
+	}
+}
+
+func (db *DataBridge) cmdLoop() {
+	defer db.wg.Done()
+
+	cmdChan := db.ws.CmdChan()
+
+	for {
+		select {
+		case <-db.ctx.Done():
+			return
+
+		case cmd, ok := <-cmdChan:
+			if !ok {
+				return
+			}
+			db.handleCommand(cmd)
+		}
+	}
+}
+
+func (db *DataBridge) handleCommand(cmd []byte) {
+	if db.cmdHandler != nil {
+		response := db.cmdHandler(cmd)
+		if response != nil {
+			db.ws.Broadcast(response)
 		}
 	}
 }

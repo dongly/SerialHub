@@ -326,19 +326,18 @@ func (sm *SerialManager) readLoop() {
 					})
 					return
 				}
-				errMsg := fmt.Errorf("读取错误: %w", err)
 				logrus.Errorf("[SerialHub] 串口读取错误: %v", err)
+				errMsg := fmt.Errorf("读取错误: %w", err)
 				select {
 				case sm.errChan <- errMsg:
 				case <-sm.ctx.Done():
-					return
 				}
 				sm.emitEvent(Event{
 					Type:    EventError,
 					Port:    sm.CurrentPort(),
 					Message: errMsg.Error(),
 				})
-				continue
+				return
 			}
 
 			if n > 0 {

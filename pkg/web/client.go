@@ -120,13 +120,24 @@ func (c *WebSocketClient) readLoop() {
 		}
 
 		if len(message) > 0 {
+			targetChan := c.server.dataChan
+			if c.isCommand(message) {
+				targetChan = c.server.cmdChan
+			}
 			select {
-			case c.server.dataChan <- message:
+			case targetChan <- message:
 			default:
-				logrus.Warnln("[SerialHub] 数据通道已满，丢弃数据")
+				logrus.Warnln("[SerialHub] 通道已满，丢弃数据")
 			}
 		}
 	}
+}
+
+func (c *WebSocketClient) isCommand(message []byte) bool {
+	if len(message) > 0 {
+		return message[0] == '{'
+	}
+	return false
 }
 
 func (c *WebSocketClient) writeLoop() {
@@ -147,7 +158,13 @@ func (c *WebSocketClient) writeLoop() {
 				return
 			}
 
-			if err := c.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+			// JSON 消息以文本发送，串口数据以二进制发送
+			msgType := websocket.BinaryMessage
+			if c.isJSON(data) {
+				msgType = websocket.TextMessage
+			}
+
+			if err := c.conn.WriteMessage(msgType, data); err != nil {
 				logrus.Warnf("[SerialHub] WebSocket 写入错误: %v", err)
 				return
 			}
@@ -158,4 +175,11 @@ func (c *WebSocketClient) writeLoop() {
 			}
 		}
 	}
+}
+
+func (c *WebSocketClient) isJSON(data []byte) bool {
+	if len(data) > 0 && data[0] == '{' {
+		return true
+	}
+	return false
 }

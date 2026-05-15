@@ -20,6 +20,7 @@ type WebSocketServer struct {
 	upgrader      websocket.Upgrader
 	client        *WebSocketClient
 	dataChan      chan []byte
+	cmdChan       chan []byte
 	stopChan      chan struct{}
 	mu            sync.RWMutex
 	ctx           context.Context
@@ -44,6 +45,7 @@ func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (
 			},
 		},
 		dataChan: make(chan []byte, 256),
+		cmdChan:  make(chan []byte, 64),
 		stopChan: make(chan struct{}),
 		ctx:      ctx,
 		cancel:   cancel,
@@ -59,6 +61,11 @@ func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (
 // DataChan 返回数据通道，用于接收客户端发送的数据。
 func (s *WebSocketServer) DataChan() <-chan []byte {
 	return s.dataChan
+}
+
+// CmdChan 返回命令通道，用于接收客户端发送的控制命令。
+func (s *WebSocketServer) CmdChan() <-chan []byte {
+	return s.cmdChan
 }
 
 // Broadcast 向当前连接的 WebSocket 客户端发送数据。
