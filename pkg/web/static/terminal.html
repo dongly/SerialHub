@@ -225,6 +225,32 @@
             fitWithReserve();
             terminal.scrollToBottom();
 
+            // 在数据写入前记录滚动条是否在底部，写入后按此决定是否跟随
+            var wasAtBottom = true;
+
+            function checkAtBottom() {
+                var viewport = document.querySelector('.xterm-viewport');
+                if (!viewport) return true;
+                return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2;
+            }
+
+            // 用户手动滚动时更新状态
+            var xtermViewport = document.querySelector('.xterm-viewport');
+            if (xtermViewport) {
+                xtermViewport.addEventListener('scroll', function() {
+                    wasAtBottom = checkAtBottom();
+                });
+            }
+            // 延迟绑定，确保 xterm-viewport 已渲染
+            setTimeout(function() {
+                var vp = document.querySelector('.xterm-viewport');
+                if (vp) {
+                    vp.addEventListener('scroll', function() {
+                        wasAtBottom = checkAtBottom();
+                    });
+                }
+            }, 500);
+
             const statusIndicator = document.getElementById('status-indicator');
             const portSelect = document.getElementById('port-select');
             const baudRateSelect = document.getElementById('baud-rate');
@@ -292,20 +318,25 @@
 
             ws.onmessage = function(event) {
                 if (event.data instanceof ArrayBuffer) {
+                    var shouldScroll = checkAtBottom();
                     terminal.write(new Uint8Array(event.data));
-                    // 数据到达后滚动到底部
-                    setTimeout(function() {
-                        terminal.scrollToBottom();
-                    }, 10);
+                    if (shouldScroll) {
+                        setTimeout(function() {
+                            terminal.scrollToBottom();
+                        }, 10);
+                    }
                 } else {
                     try {
                         const msg = JSON.parse(event.data);
                         handleMessage(msg);
                     } catch (e) {
+                        var shouldScroll = checkAtBottom();
                         terminal.write(event.data);
-                        setTimeout(function() {
-                            terminal.scrollToBottom();
-                        }, 10);
+                        if (shouldScroll) {
+                            setTimeout(function() {
+                                terminal.scrollToBottom();
+                            }, 10);
+                        }
                     }
                 }
             };
@@ -418,20 +449,13 @@
                 }, 100);
             });
 
-            // 定期滚动到底部，确保新内容可见
-            setInterval(function() {
-                var viewport = document.querySelector('.xterm-viewport');
-                if (viewport) {
-                    viewport.scrollTop = viewport.scrollHeight;
-                }
-                terminal.scrollToBottom();
-            }, 300);
-
-            // 监听数据写入，自动滚动
+            // 监听用户输入，如果当前在底部则跟随
             terminal.onData(function() {
-                setTimeout(function() {
-                    terminal.scrollToBottom();
-                }, 10);
+                if (checkAtBottom()) {
+                    setTimeout(function() {
+                        terminal.scrollToBottom();
+                    }, 10);
+                }
             });
         })();
     </script>
