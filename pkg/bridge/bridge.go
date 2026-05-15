@@ -2,9 +2,9 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -105,18 +105,7 @@ func (db *DataBridge) forwardLoop() {
 
 // forwardSerialToBoth 将串口数据同时转发到 WebSocket 和 MCP
 func (db *DataBridge) forwardSerialToBoth(data []byte) {
-	// xterm.js 需要 \r\n 来正确换行
-	// 处理逻辑：
-	// 1. 如果已经有 \r\n，保持不变
-	// 2. 如果只有 \n，转换为 \r\n
-	// 先将 \r\n 替换为临时标记
-	temp := strings.ReplaceAll(string(data), "\r\n", "\x00CRLF\x00")
-	// 将单独的 \n 转换为 \r\n
-	temp = strings.ReplaceAll(temp, "\n", "\r\n")
-	// 将临时标记恢复为 \r\n
-	cleaned := strings.ReplaceAll(temp, "\x00CRLF\x00", "\r\n")
-
-	cleanedData := []byte(cleaned)
+	cleanedData := convertLFToCRLF(data)
 
 	wsCount := db.ws.Broadcast(cleanedData)
 	if wsCount > 0 {
@@ -125,6 +114,25 @@ func (db *DataBridge) forwardSerialToBoth(data []byte) {
 
 	db.mcpBuffer.Append(cleanedData)
 	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(cleanedData))
+}
+
+func convertLFToCRLF(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
+	result := make([]byte, 0, len(data)+bytes.Count(data, []byte{'\n'}))
+
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\n' {
+			if i == 0 || data[i-1] != '\r' {
+				result = append(result, '\r')
+			}
+		}
+		result = append(result, data[i])
+	}
+
+	return result
 }
 
 // forwardWsToSerial 将 WebSocket 数据转发到串口

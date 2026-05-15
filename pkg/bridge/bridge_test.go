@@ -539,6 +539,39 @@ func TestForwardTelnetToSerial_WriteError(t *testing.T) {
 	}
 }
 
+// --- convertLFToCRLF 单元测试 ---
+
+func TestConvertLFToCRLF(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"空数据", "", ""},
+		{"无换行符", "hello", "hello"},
+		{"纯LF", "hello\nworld", "hello\r\nworld"},
+		{"已有CRLF", "hello\r\nworld", "hello\r\nworld"},
+		{"混合CRLF和LF", "a\r\nb\nc", "a\r\nb\r\nc"},
+		{"LF开头", "\nhello", "\r\nhello"},
+		{"连续LF", "a\n\nb", "a\r\n\r\nb"},
+		{"仅有LF", "\n", "\r\n"},
+		{"中文UTF8含LF", "你好\n世界", "你好\r\n世界"},
+		{"中文UTF8含CRLF", "你好\r\n世界", "你好\r\n世界"},
+		{"中文UTF8混合", "连接成功\r\n开始\n测试", "连接成功\r\n开始\r\n测试"},
+		{"末尾LF", "hello\n", "hello\r\n"},
+		{"末尾CRLF", "hello\r\n", "hello\r\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := convertLFToCRLF([]byte(tt.input))
+			if string(got) != tt.want {
+				t.Errorf("convertLFToCRLF(%q) = %q, 期望 %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- 事件数据类型 ---
 
 func TestEventDataTypes(t *testing.T) {

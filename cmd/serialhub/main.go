@@ -36,7 +36,7 @@ var (
 	minimized  bool
 )
 
-const baseVersion = "0.1.0"
+const baseVersion = "0.2.0"
 
 func getVersion() string {
 	vcsInfo := ""
