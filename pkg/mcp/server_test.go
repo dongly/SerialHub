@@ -260,6 +260,33 @@ func TestStartHTTPServer_HealthEndpoint(t *testing.T) {
 	if !strings.Contains(contentType, "application/json") {
 		t.Errorf("Content-Type 预期包含 'application/json'，实际: %s", contentType)
 	}
+
+	// 测试 version 端点
+	resp2, err := http.Get("http://" + addr + "/version")
+	if err != nil {
+		t.Fatalf("请求 version 端点失败: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("version 端点预期状态码 200，实际: %d", resp2.StatusCode)
+	}
+
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatalf("读取 version 响应体失败: %v", err)
+	}
+
+	// 验证返回的版本号格式
+	bodyStr := strings.TrimSpace(string(body2))
+	if !strings.HasPrefix(bodyStr, `{"version":"`) || !strings.HasSuffix(bodyStr, `"}`) {
+		t.Errorf("version 响应格式不正确，实际: '%s'", bodyStr)
+	}
+
+	// 验证版本号不为空
+	if strings.Contains(bodyStr, `""`) {
+		t.Errorf("version 响应中版本号为空")
+	}
 }
 
 func TestStop(t *testing.T) {

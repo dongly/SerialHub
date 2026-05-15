@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	serial "go.bug.st/serial"
 
@@ -284,8 +285,23 @@ func (sm *SerialManager) Close() error {
 		sm.port = nil
 	}
 
-	close(sm.dataChan)
-	close(sm.errChan)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Debug("[SerialHub] dataChan 已关闭或关闭时发生错误")
+			}
+		}()
+		close(sm.dataChan)
+	}()
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Debug("[SerialHub] errChan 已关闭或关闭时发生错误")
+			}
+		}()
+		close(sm.errChan)
+	}()
 
 	return err
 }
@@ -295,6 +311,9 @@ func (sm *SerialManager) readLoop() {
 	defer sm.wg.Done()
 	buf := make([]byte, 1024)
 	logrus.Debug("[SerialHub] 串口读取循环已启动")
+
+	// 用于保存不完整的 UTF-8 字符尾部
+	var incompleteBuf []byte
 
 	for {
 		select {
@@ -341,15 +360,42 @@ func (sm *SerialManager) readLoop() {
 			}
 
 			if n > 0 {
-				data := make([]byte, n)
-				copy(data, buf[:n])
-				logrus.Debugf("[SerialHub] 串口读取 %d 字节: %q", n, string(data))
-				select {
-				case sm.dataChan <- data:
-				case <-sm.ctx.Done():
-					return
-				default:
-					logrus.Warnln("[SerialHub] 数据通道已满，丢弃数据")
+				// 合并之前不完整的 UTF-8 字符
+				data := append(incompleteBuf, buf[:n]...)
+				incompleteBuf = nil
+
+				// 检查最后一个字符是否完整的 UTF-8
+				if len(data) > 0 {
+					_, size := utf8.DecodeLastRune(data)
+					if size == 0 || (size == 1 && data[len(data)-1] >= 0x80) {
+						// 最后一个字符不完整，找到 UTF-8 序列的起始位置
+						for i := len(data) - 1; i >= 0; i-- {
+							// UTF-8 continuation byte: 10xxxxxx (0x80-0xBF)
+							// UTF-8 start byte: 0xxxxxx (0x00-0x7F) or 11xxxxxx (0xC0-0xFF)
+							if data[i] < 0x80 || data[i] >= 0xC0 {
+								// 找到起始字节，从这里开始都是不完整的
+								incompleteBuf = data[i:]
+								data = data[:i]
+								break
+							}
+							if i == 0 {
+								// 整个 buffer 都是 continuation bytes
+								incompleteBuf = data
+								data = nil
+							}
+						}
+					}
+				}
+
+				if len(data) > 0 {
+					logrus.Debugf("[SerialHub] 串口读取 %d 字节: %q", len(data), string(data))
+					select {
+					case sm.dataChan <- data:
+					case <-sm.ctx.Done():
+						return
+					default:
+						logrus.Warnln("[SerialHub] 数据通道已满，丢弃数据")
+					}
 				}
 			}
 		}

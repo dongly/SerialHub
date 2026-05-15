@@ -27,6 +27,7 @@
             gap: 12px;
             border-bottom: 1px solid #3d3d3d;
             flex-wrap: wrap;
+            justify-content: flex-start;
         }
         #control-panel label {
             color: #d4d4d4;
@@ -102,6 +103,23 @@
             width: 100%;
             flex: 1;
             padding: 8px;
+            position: relative;
+        }
+        #version-info {
+            margin-left: auto;
+            color: #6e6e6e;
+            font-size: 11px;
+            font-family: Consolas, "Courier New", monospace;
+            pointer-events: none;
+            user-select: none;
+            padding-right: 8px;
+        }
+        #version-info .app-name {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        #version-info .version {
+            color: #888;
         }
     </style>
 </head>
@@ -144,6 +162,7 @@
         <button id="connect-btn" class="connect">连接</button>
         <button id="disconnect-btn" class="disconnect" disabled>断开</button>
         <button id="refresh-btn" class="refresh">刷新</button>
+        <div id="version-info"><span class="app-name">SerialHub</span> <span class="version" id="app-version"></span></div>
     </div>
     <div id="terminal-container"></div>
     <script src="/static/xterm.min.js"></script>
@@ -187,6 +206,19 @@
             ws.binaryType = 'arraybuffer';
 
             let isConnected = false;
+            let appVersion = 'v0.2.0';
+
+            fetch('/version')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (data.version) {
+                        appVersion = 'v' + data.version;
+                        document.getElementById('app-version').textContent = appVersion;
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('app-version').textContent = appVersion;
+                });
 
             function updateConnectionStatus(connected) {
                 isConnected = connected;

@@ -1,12 +1,13 @@
-package main
+package version
 
-import (
-	"runtime/debug"
+import "runtime/debug"
 
-	"github.com/yourname/serialhub/pkg/version"
+const (
+	Name    = "serialhub"
+	Version = "0.2.0"
 )
 
-func getVersion() string {
+func FullVersion() string {
 	vcsInfo := ""
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
@@ -17,7 +18,7 @@ func getVersion() string {
 		}
 	}
 	if vcsInfo != "" {
-		return version.Version + "-" + vcsInfo
+		return Version + "-" + vcsInfo
 	}
-	return version.Version + "-dev"
+	return Version + "-dev"
 }

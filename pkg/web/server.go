@@ -13,12 +13,12 @@ import (
 )
 
 // WebSocketServer 管理 WebSocket 服务器和客户端连接。
-// 仅支持单客户端连接，新连接会踢掉旧连接。
+// 支持多客户端同时连接。
 type WebSocketServer struct {
 	host          string
 	port          int
 	upgrader      websocket.Upgrader
-	client        *WebSocketClient
+	clients       map[string]*WebSocketClient
 	dataChan      chan []byte
 	cmdChan       chan []byte
 	stopChan      chan struct{}
@@ -44,6 +44,7 @@ func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (
 				return true
 			},
 		},
+		clients:  make(map[string]*WebSocketClient),
 		dataChan: make(chan []byte, 256),
 		cmdChan:  make(chan []byte, 64),
 		stopChan: make(chan struct{}),
@@ -68,24 +69,27 @@ func (s *WebSocketServer) CmdChan() <-chan []byte {
 	return s.cmdChan
 }
 
-// Broadcast 向当前连接的 WebSocket 客户端发送数据。
-// 返回成功发送的客户端数量（0 或 1）。
+// Broadcast 向所有连接的 WebSocket 客户端发送数据。
+// 返回成功发送的客户端数量。
 func (s *WebSocketServer) Broadcast(data []byte) int {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.client == nil {
-		return 0
+	clients := make([]*WebSocketClient, 0, len(s.clients))
+	for _, client := range s.clients {
+		clients = append(clients, client)
 	}
+	s.mu.RUnlock()
 
-	if s.client.Send(data) {
-		return 1
+	count := 0
+	for _, client := range clients {
+		if client.Send(data) {
+			count++
+		}
 	}
-	return 0
+	return count
 }
 
 // HandleWebSocket 处理 WebSocket 升级请求。
-// 如果已有连接，先关闭旧连接再接受新连接。
+// 支持多客户端同时连接。
 func (s *WebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -94,17 +98,10 @@ func (s *WebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Request
 	}
 
 	s.mu.Lock()
-	// 踢掉旧连接
-	if s.client != nil {
-		logrus.Infof("[SerialHub] 踢出旧 WebSocket 连接: %s", s.client.RemoteAddr())
-		s.client.Stop()
-		s.client = nil
-	}
-
 	// 创建新客户端
 	clientID := uuid.New().String()
 	client := newWebSocketClient(clientID, conn, s)
-	s.client = client
+	s.clients[clientID] = client
 	s.mu.Unlock()
 
 	logrus.Infof("[SerialHub] WebSocket 客户端已连接: %s (%s)", clientID, conn.RemoteAddr())
@@ -129,17 +126,18 @@ func (s *WebSocketServer) Start() error {
 	return nil
 }
 
-// Stop 停止 WebSocket 服务，关闭客户端和通道。
+// Stop 停止 WebSocket 服务，关闭所有客户端和通道。
 func (s *WebSocketServer) Stop() error {
 	s.cancel()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.client != nil {
-		s.client.Stop()
-		s.client = nil
+	// 关闭所有客户端
+	for _, client := range s.clients {
+		client.Stop()
 	}
+	s.clients = make(map[string]*WebSocketClient)
 
 	select {
 	case <-s.stopChan:
@@ -156,24 +154,19 @@ func (s *WebSocketServer) Stop() error {
 func (s *WebSocketServer) ClientCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.client == nil {
-		return 0
-	}
-	return 1
+	return len(s.clients)
 }
 
 // HasClient 返回是否有客户端连接。
 func (s *WebSocketServer) HasClient() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.client != nil
+	return len(s.clients) > 0
 }
 
 // removeClient 从服务器移除指定客户端。
 func (s *WebSocketServer) removeClient(c *WebSocketClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.client == c {
-		s.client = nil
-	}
+	delete(s.clients, c.id)
 }

@@ -29,7 +29,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	cfg := loadConfig()
 	setupLogger(cfg)
-	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", version)
+	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", appVersion)
 	logrus.Info("[SerialHub] 运行模式: serve")
 
 	buf := buffer.NewDataBuffer()
@@ -57,7 +57,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		tray.HideConsole()
 	}
 
-	trayMgr := tray.NewTrayManager(sm, cfg, host, mcpPort, version, minimized)
+	trayMgr := tray.NewTrayManager(sm, cfg, host, mcpPort, appVersion, minimized)
 	saveConfigFunc := createSaveConfigFunc(cfg)
 	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
 		saveConfigFunc(&serial.Config{

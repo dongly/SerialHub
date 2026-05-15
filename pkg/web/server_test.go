@@ -136,7 +136,7 @@ func TestWebSocketServer_Broadcast_NoClient(t *testing.T) {
 	}
 }
 
-func TestWebSocketServer_SingleConnection(t *testing.T) {
+func TestWebSocketServer_MultipleConnections(t *testing.T) {
 	srv, ts := newTestServer(t)
 	defer srv.Stop()
 
@@ -162,28 +162,34 @@ func TestWebSocketServer_SingleConnection(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if srv.ClientCount() != 1 {
-		t.Fatalf("期望 ClientCount=1（踢掉旧连接）, 实际=%d", srv.ClientCount())
+	// 多客户端模式：两个连接都应该存在
+	if srv.ClientCount() != 2 {
+		t.Fatalf("期望 ClientCount=2, 实际=%d", srv.ClientCount())
 	}
 
+	// 广播消息应该发送到两个客户端
+	count := srv.Broadcast([]byte("to all clients"))
+	if count != 2 {
+		t.Fatalf("期望 Broadcast 返回 2, 实际=%d", count)
+	}
+
+	// 验证两个客户端都收到消息
 	conn1.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, err = conn1.ReadMessage()
-	if err == nil {
-		t.Fatal("旧连接应该已被关闭")
+	_, data1, err := conn1.ReadMessage()
+	if err != nil {
+		t.Fatalf("客户端1读取失败: %v", err)
 	}
-
-	count := srv.Broadcast([]byte("to new client"))
-	if count != 1 {
-		t.Fatalf("期望 Broadcast 返回 1, 实际=%d", count)
+	if string(data1) != "to all clients" {
+		t.Fatalf("客户端1期望收到 %q, 实际收到 %q", "to all clients", string(data1))
 	}
 
 	conn2.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, data, err := conn2.ReadMessage()
+	_, data2, err := conn2.ReadMessage()
 	if err != nil {
-		t.Fatalf("新客户端读取失败: %v", err)
+		t.Fatalf("客户端2读取失败: %v", err)
 	}
-	if string(data) != "to new client" {
-		t.Fatalf("新客户端期望收到 %q, 实际收到 %q", "to new client", string(data))
+	if string(data2) != "to all clients" {
+		t.Fatalf("客户端2期望收到 %q, 实际收到 %q", "to all clients", string(data2))
 	}
 }
 

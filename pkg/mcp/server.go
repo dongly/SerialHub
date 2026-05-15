@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os/exec"
+	"runtime"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
 	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
 	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/yourname/serialhub/pkg/version"
 	"github.com/yourname/serialhub/pkg/web"
 )
 
@@ -32,7 +36,7 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, wsSrv ...*we
 
 	// Create MCP server
 	mcpServer := mcpsdk.NewServer(
-		&mcpsdk.Implementation{Name: "serialhub", Version: "v1.0.0"},
+		&mcpsdk.Implementation{Name: version.Name, Version: version.Version},
 		&mcpsdk.ServerOptions{
 			Instructions: "SerialHub MCP server provides serial port operation tools. Use serial_list to discover ports, serial_connect to open a port, then serial_write/serial_read to communicate.",
 		},
@@ -174,6 +178,11 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"version":"` + version.FullVersion() + `"}`))
+	})
 
 	mux.HandleFunc("/terminal", func(w http.ResponseWriter, r *http.Request) {
 		data, err := web.StaticFiles.ReadFile("static/terminal.html")
@@ -214,7 +223,40 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 	}()
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", addr)
+
+	// 自动打开浏览器
+	go func() {
+		// 等待服务器启动
+		time.Sleep(500 * time.Millisecond)
+		url := "http://" + addr + "/terminal"
+		logrus.Infof("[SerialHub] 正在打开浏览器: %s", url)
+		openBrowser(url)
+	}()
+
 	return server, nil
+}
+
+// openBrowser 打开系统默认浏览器
+func openBrowser(url string) {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start", url}
+	case "darwin":
+		cmd = "open"
+		args = []string{url}
+	default:
+		// Linux
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	if err := exec.Command(cmd, args...).Start(); err != nil {
+		logrus.Warnf("[SerialHub] 打开浏览器失败: %v", err)
+	}
 }
 
 // Stop stops the MCP server
@@ -247,7 +289,11 @@ func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRe
 
 func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.ConnectInput
-	_ = s.parseRequestParams(req, &input)
+	if err := s.parseRequestParams(req, &input); err != nil {
+		return &mcpsdk.CallToolResult{
+			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
+		}, nil
+	}
 	result := tools.ExecuteSerialConnect(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
 }
@@ -259,14 +305,22 @@ func (s *MCPServer) handleSerialDisconnect(ctx context.Context, req *mcpsdk.Call
 
 func (s *MCPServer) handleSerialWrite(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.WriteInput
-	_ = s.parseRequestParams(req, &input)
+	if err := s.parseRequestParams(req, &input); err != nil {
+		return &mcpsdk.CallToolResult{
+			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
+		}, nil
+	}
 	result := tools.ExecuteSerialWrite(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
 }
 
 func (s *MCPServer) handleSerialRead(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.ReadInput
-	_ = s.parseRequestParams(req, &input)
+	if err := s.parseRequestParams(req, &input); err != nil {
+		return &mcpsdk.CallToolResult{
+			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
+		}, nil
+	}
 	result := tools.ExecuteSerialRead(s.dataBuffer, input)
 	return s.toolResultToMCPResult(result)
 }

@@ -39,12 +39,14 @@ func (m *mockSerialReader) getWriteData() []byte {
 
 type mockWsBroadcaster struct {
 	dataChan      chan []byte
+	cmdChan       chan []byte
 	broadcastData []byte
 	clientCount   int
 	mu            sync.Mutex
 }
 
 func (m *mockWsBroadcaster) DataChan() <-chan []byte { return m.dataChan }
+func (m *mockWsBroadcaster) CmdChan() <-chan []byte { return m.cmdChan }
 func (m *mockWsBroadcaster) Broadcast(data []byte) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

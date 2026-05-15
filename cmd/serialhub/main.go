@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	version    = getVersion()
+	appVersion = getVersion()
 	serialPort string
 	baudRate   int
 	configPath string
@@ -35,8 +35,8 @@ func main() {
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&minimized, "minimized", false, "由脚本启动，窗口最小化")
 
-	rootCmd.Version = version
-	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", version))
+	rootCmd.Version = appVersion
+	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", appVersion))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

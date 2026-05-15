@@ -77,7 +77,11 @@ func Save(configPath string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("创建配置文件失败: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			logrus.Warnf("[SerialHub] 关闭配置文件失败: %v", cerr)
+		}
+	}()
 
 	if err := toml.NewEncoder(file).Encode(cfg); err != nil {
 		return fmt.Errorf("编码配置失败: %w", err)
