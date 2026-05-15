@@ -107,7 +107,7 @@
             display: flex;
             flex-direction: column;
             box-sizing: border-box;
-            padding-bottom: 20px;
+            padding: 8px;
         }
         .xterm {
             flex: 1;
@@ -120,18 +120,14 @@
             height: 100% !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
-            padding-bottom: 20px !important;
+            padding-bottom: 30px !important;
+            margin-bottom: 30px !important;
         }
         .xterm-rows {
-            padding-bottom: 20px !important;
-            margin-bottom: 20px !important;
+            padding-bottom: 30px !important;
         }
         .xterm-screen {
-            padding-bottom: 20px !important;
-            margin-bottom: 20px !important;
-        }
-        .xterm .xterm-rows > div {
-            padding-bottom: 2px !important;
+            padding-bottom: 30px !important;
         }
         #version-info {
             margin-left: auto;
@@ -217,16 +213,10 @@
             terminal.loadAddon(fitAddon);
             terminal.open(terminalContainer);
             
-            // 自定义 fit 方法，预留底部空间防止最后一行被截断
-            function safeFit() {
-                var dims = fitAddon.proposeDimensions();
-                if (dims) {
-                    // 减少一行以确保底部空间
-                    terminal.resize(dims.cols, Math.max(1, dims.rows - 1));
-                }
-            }
+            terminal.open(terminalContainer);
+            fitAddon.fit();
             
-            safeFit();
+            // 确保初始滚动到底部
             terminal.scrollToBottom();
 
             const statusIndicator = document.getElementById('status-indicator');
@@ -407,10 +397,8 @@
 
             window.addEventListener('resize', function() {
                 setTimeout(function() {
-                    safeFit();
-                    setTimeout(function() {
-                        terminal.scrollToBottom();
-                    }, 50);
+                    fitAddon.fit();
+                    terminal.scrollToBottom();
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
                     }
