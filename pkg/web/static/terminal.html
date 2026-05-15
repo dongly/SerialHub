@@ -216,7 +216,18 @@
             const fitAddon = new FitAddon.FitAddon();
             terminal.loadAddon(fitAddon);
             terminal.open(terminalContainer);
-            fitAddon.fit();
+            
+            // 自定义 fit 方法，预留底部空间防止最后一行被截断
+            function safeFit() {
+                var dims = fitAddon.proposeDimensions();
+                if (dims) {
+                    // 减少一行以确保底部空间
+                    terminal.resize(dims.cols, Math.max(1, dims.rows - 1));
+                }
+            }
+            
+            safeFit();
+            terminal.scrollToBottom();
 
             const statusIndicator = document.getElementById('status-indicator');
             const portSelect = document.getElementById('port-select');
@@ -396,7 +407,7 @@
 
             window.addEventListener('resize', function() {
                 setTimeout(function() {
-                    fitAddon.fit();
+                    safeFit();
                     setTimeout(function() {
                         terminal.scrollToBottom();
                     }, 50);
