@@ -33,4 +33,4 @@ set "ARGS=%ARGS% %*"
 start "SerialHub" /min bin\serialhub.exe %ARGS%
 
 echo SerialHub 已启动
-echo 使用 taskkill /f /im serialhub.exe 停止服务
+echo Use: taskkill /f /im serialhub.exe to stop
