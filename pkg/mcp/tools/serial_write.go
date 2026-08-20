@@ -8,9 +8,10 @@ import (
 )
 
 // WriteInput represents input for serial_write tool
+// AddNewline 为 nil 时表示未指定，默认自动追加换行符；显式传入 false 时不追加
 type WriteInput struct {
 	Data       string `json:"data" validate:"required"`
-	AddNewline bool   `json:"addNewline,omitempty"`
+	AddNewline *bool  `json:"addNewline,omitempty"`
 }
 
 // ExecuteSerialWrite writes data to the serial port
@@ -34,8 +35,13 @@ func ExecuteSerialWrite(sm *serial.SerialManager, input WriteInput) ToolResult {
 	var bytesWritten int
 	var err error
 
-	// Add newline if requested (default true)
-	if input.AddNewline || input.Data == "" {
+	// 默认自动追加换行符；仅当显式传入 addNewline:false 时不追加
+	addNewline := true
+	if input.AddNewline != nil {
+		addNewline = *input.AddNewline
+	}
+
+	if addNewline || input.Data == "" {
 		data = []byte(input.Data + "\n")
 		err = sm.WriteLine(input.Data)
 	} else {
@@ -51,7 +57,7 @@ func ExecuteSerialWrite(sm *serial.SerialManager, input WriteInput) ToolResult {
 	}
 
 	// WriteLine doesn't return bytes written, use len(data)
-	if input.AddNewline || input.Data == "" {
+	if addNewline || input.Data == "" {
 		bytesWritten = len(data)
 	}
 

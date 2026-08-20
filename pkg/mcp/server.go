@@ -12,6 +12,7 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/sirupsen/logrus"
 	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
@@ -55,7 +56,7 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, wsSrv ...*we
 	return s, nil
 }
 
-// RegisterTools registers all 6 serial port tools with the MCP server
+// RegisterTools registers all 7 serial port tools with the MCP server
 func (s *MCPServer) RegisterTools() error {
 	// Register serial_list tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
@@ -122,7 +123,7 @@ func (s *MCPServer) RegisterTools() error {
 				},
 				"addNewline": map[string]any{
 					"type":        "boolean",
-					"description": "If true, automatically appends a newline (\\n) to the data. Useful for devices expecting line-terminated commands. Default: true.",
+					"description": "If true, automatically appends a newline (\\n) to the data. Default: true (a newline is appended unless this is explicitly set to false).",
 				},
 			},
 			"required": []string{"data"},
@@ -138,7 +139,7 @@ func (s *MCPServer) RegisterTools() error {
 			"properties": map[string]any{
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Maximum time to wait for data in milliseconds. Use 0 to wait indefinitely until data arrives. Default: 0 (indefinite).",
+					"description": "Maximum time to wait for data in milliseconds. Use 0 to wait indefinitely until data arrives. Default: 1000.",
 				},
 				"maxSize": map[string]any{
 					"type":        "integer",
@@ -147,6 +148,16 @@ func (s *MCPServer) RegisterTools() error {
 			},
 		},
 	}, s.handleSerialRead)
+
+	// Register serial_clear tool
+	s.mcpServer.AddTool(&mcpsdk.Tool{
+		Name:        "serial_clear",
+		Description: "Clear the read buffer. Discards all buffered serial data not yet consumed by serial_read. Returns the number of bytes cleared.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}, s.handleSerialClear)
 
 	// Register serial_status tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
@@ -158,7 +169,7 @@ func (s *MCPServer) RegisterTools() error {
 		},
 	}, s.handleSerialStatus)
 
-	logrus.Infoln("[SerialHub] MCP server registered 6 tools")
+	logrus.Infoln("[SerialHub] MCP server registered 7 tools")
 	return nil
 }
 
@@ -290,9 +301,7 @@ func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRe
 func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.ConnectInput
 	if err := s.parseRequestParams(req, &input); err != nil {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
-		}, nil
+		return nil, s.invalidParamsError(err)
 	}
 	result := tools.ExecuteSerialConnect(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
@@ -306,9 +315,7 @@ func (s *MCPServer) handleSerialDisconnect(ctx context.Context, req *mcpsdk.Call
 func (s *MCPServer) handleSerialWrite(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.WriteInput
 	if err := s.parseRequestParams(req, &input); err != nil {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
-		}, nil
+		return nil, s.invalidParamsError(err)
 	}
 	result := tools.ExecuteSerialWrite(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
@@ -317,11 +324,14 @@ func (s *MCPServer) handleSerialWrite(ctx context.Context, req *mcpsdk.CallToolR
 func (s *MCPServer) handleSerialRead(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	var input tools.ReadInput
 	if err := s.parseRequestParams(req, &input); err != nil {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: fmt.Sprintf("参数解析错误: %v", err)}},
-		}, nil
+		return nil, s.invalidParamsError(err)
 	}
 	result := tools.ExecuteSerialRead(s.dataBuffer, input)
+	return s.toolResultToMCPResult(result)
+}
+
+func (s *MCPServer) handleSerialClear(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+	result := tools.ExecuteSerialClear(s.dataBuffer)
 	return s.toolResultToMCPResult(result)
 }
 
@@ -331,6 +341,13 @@ func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallTool
 }
 
 // Helper functions
+func (s *MCPServer) invalidParamsError(err error) error {
+	return &jsonrpc.Error{
+		Code:    jsonrpc.CodeInvalidParams,
+		Message: fmt.Sprintf("参数解析错误: %v", err),
+	}
+}
+
 func (s *MCPServer) parseRequestParams(req *mcpsdk.CallToolRequest, target interface{}) error {
 	if req.Params == nil || req.Params.Arguments == nil {
 		return nil
@@ -353,6 +370,8 @@ func (s *MCPServer) toolResultToMCPResult(result tools.ToolResult) (*mcpsdk.Call
 	}
 
 	return &mcpsdk.CallToolResult{
-		Content: []mcpsdk.Content{&content},
+		Content:           []mcpsdk.Content{&content},
+		StructuredContent: result.Data,
+		IsError:           !result.Success,
 	}, nil
 }

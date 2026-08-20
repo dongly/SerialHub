@@ -34,6 +34,8 @@ func ExecuteSerialList(sm *serial.SerialManager) ToolResult {
 	return ToolResult{
 		Success: true,
 		Message: fmt.Sprintf("找到 %d 个串口", len(ports)),
-		Data:    ports,
+		Data: map[string]any{
+			"ports": ports,
+		},
 	}
 }

@@ -18,6 +18,10 @@ func getTestPort() string {
 	return port
 }
 
+func boolPtr(v bool) *bool { return &v }
+
+func intPtr(v int) *int { return &v }
+
 func newTestManager(t *testing.T) *serial.SerialManager {
 	t.Helper()
 	cfg := serial.DefaultConfig()
@@ -45,6 +49,13 @@ func TestSerialList(t *testing.T) {
 	}
 	if result.Data == nil {
 		t.Error("预期返回串口列表，实际为 nil")
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatal("串口列表 Data 类型应为对象")
+	}
+	if _, ok := data["ports"].([]string); !ok {
+		t.Errorf("预期 data['ports'] 为字符串数组，实际类型 %T", data["ports"])
 	}
 }
 
@@ -225,7 +236,7 @@ func TestSerialWrite_WithNewline(t *testing.T) {
 	sm := newTestManager(t)
 	connectTestPort(t, sm)
 
-	result := ExecuteSerialWrite(sm, WriteInput{Data: "AT", AddNewline: false})
+	result := ExecuteSerialWrite(sm, WriteInput{Data: "AT", AddNewline: boolPtr(false)})
 	if !result.Success {
 		t.Fatalf("写入失败: %s", result.Message)
 	}
@@ -240,7 +251,7 @@ func TestSerialWrite_WithNewline(t *testing.T) {
 		t.Errorf("预期写入 2 字节，实际 %v", data["bytesWritten"])
 	}
 
-	result2 := ExecuteSerialWrite(sm, WriteInput{Data: "AT", AddNewline: true})
+	result2 := ExecuteSerialWrite(sm, WriteInput{Data: "AT", AddNewline: boolPtr(true)})
 	if !result2.Success {
 		t.Fatalf("写入失败: %s", result2.Message)
 	}
@@ -260,7 +271,7 @@ func TestSerialWrite_EmptyData(t *testing.T) {
 	sm := newTestManager(t)
 	connectTestPort(t, sm)
 
-	result := ExecuteSerialWrite(sm, WriteInput{Data: "", AddNewline: false})
+	result := ExecuteSerialWrite(sm, WriteInput{Data: "", AddNewline: boolPtr(false)})
 	if !result.Success {
 		t.Fatalf("写入失败: %s", result.Message)
 	}
@@ -280,6 +291,7 @@ func TestSerialWrite_DefaultNewline(t *testing.T) {
 	sm := newTestManager(t)
 	connectTestPort(t, sm)
 
+	// 不传 AddNewline 时默认自动追加换行符
 	result := ExecuteSerialWrite(sm, WriteInput{Data: "test"})
 	if !result.Success {
 		t.Fatalf("写入失败: %s", result.Message)
@@ -288,8 +300,11 @@ func TestSerialWrite_DefaultNewline(t *testing.T) {
 	if !ok {
 		t.Fatal("写入结果 Data 类型不正确")
 	}
-	if data["data"] != "test" {
-		t.Errorf("预期写入数据 'test'，实际 '%v'", data["data"])
+	if data["data"] != "test\n" {
+		t.Errorf("预期写入数据 'test\\n'，实际 '%v'", data["data"])
+	}
+	if data["bytesWritten"] != 5 {
+		t.Errorf("预期写入 5 字节，实际 %v", data["bytesWritten"])
 	}
 }
 
@@ -297,7 +312,7 @@ func TestSerialWrite_DefaultNewline(t *testing.T) {
 
 func TestSerialRead_EmptyBuffer(t *testing.T) {
 	buf := buffer.NewDataBuffer()
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 100})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100)})
 	if !result.Success {
 		t.Errorf("空缓冲区读取应该成功: %s", result.Message)
 	}
@@ -316,11 +331,33 @@ func TestSerialRead_EmptyBuffer(t *testing.T) {
 	}
 }
 
+func TestSerialRead_DefaultTimeout(t *testing.T) {
+	buf := buffer.NewDataBuffer()
+
+	// 不传 Timeout 时默认超时 1000ms，空缓冲区应超时返回而非无限等待
+	start := time.Now()
+	result := ExecuteSerialRead(buf, ReadInput{})
+	elapsed := time.Since(start)
+	if !result.Success {
+		t.Fatalf("默认超时读取应成功: %s", result.Message)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatal("读取结果 Data 类型不正确")
+	}
+	if data["timedOut"] != true {
+		t.Error("空缓冲区默认超时时 timedOut 应为 true")
+	}
+	if elapsed < 900*time.Millisecond {
+		t.Errorf("默认超时应等待约 1000ms，实际仅等待 %v", elapsed)
+	}
+}
+
 func TestSerialRead_Timeout(t *testing.T) {
 	buf := buffer.NewDataBuffer()
 
 	// 空缓冲区，短超时应返回超时
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 50})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(50)})
 	if !result.Success {
 		t.Fatalf("超时读取应成功: %s", result.Message)
 	}
@@ -342,7 +379,7 @@ func TestSerialRead_TimeoutWithData(t *testing.T) {
 	buf.Append([]byte("hello world"))
 
 	// 超时模式下缓冲区有数据，应在 ticker 检测到后立即返回
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 500})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(500)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -367,7 +404,7 @@ func TestSerialRead_MaxSize(t *testing.T) {
 	buf.Append([]byte("abcdefghijklmnopqrstuvwxyz"))
 
 	// maxSize=5 应只读取前 5 字节
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 100, MaxSize: 5})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 5})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -388,7 +425,7 @@ func TestSerialRead_MaxSizeExceedsDefault(t *testing.T) {
 	buf.Append([]byte("short"))
 
 	// maxSize > 4096 应被限制为 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 100, MaxSize: 8192})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 8192})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -406,7 +443,7 @@ func TestSerialRead_DefaultMaxSize(t *testing.T) {
 	buf.Append([]byte("data"))
 
 	// maxSize=0 应使用默认 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 100, MaxSize: 0})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 0})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -424,7 +461,7 @@ func TestSerialRead_NegativeMaxSize(t *testing.T) {
 	buf.Append([]byte("test"))
 
 	// 负数 maxSize 应使用默认 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 100, MaxSize: -1})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: -1})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -445,7 +482,7 @@ func TestSerialRead_ConcurrentWrite(t *testing.T) {
 		buf.Append([]byte("delayed"))
 	}()
 
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 500})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(500)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -470,7 +507,7 @@ func TestSerialRead_InfiniteWait(t *testing.T) {
 	}()
 
 	// Timeout=0 表示无限等待
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 0})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(0)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -495,7 +532,7 @@ func TestSerialRead_TimeoutWithDataAtLastMoment(t *testing.T) {
 		buf.Append([]byte("lastms"))
 	}()
 
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: 200})
+	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(200)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -508,6 +545,63 @@ func TestSerialRead_TimeoutWithDataAtLastMoment(t *testing.T) {
 	}
 	if data["data"] != "lastms" {
 		t.Errorf("预期数据 'lastms'，实际 '%v'", data["data"])
+	}
+}
+
+// ==================== SerialClear ====================
+
+func TestSerialClear_WithData(t *testing.T) {
+	buf := buffer.NewDataBuffer()
+	buf.Append([]byte("hello world"))
+
+	result := ExecuteSerialClear(buf)
+	if !result.Success {
+		t.Fatalf("清空应成功: %s", result.Message)
+	}
+	if buf.Length() != 0 {
+		t.Errorf("清空后缓冲区长度应为 0，实际 %d", buf.Length())
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatal("清空结果 Data 类型不正确")
+	}
+	if data["clearedBytes"] != 11 {
+		t.Errorf("预期清空 11 字节，实际 %v", data["clearedBytes"])
+	}
+	if data["bufferLength"] != 0 {
+		t.Errorf("预期清空后长度 0，实际 %v", data["bufferLength"])
+	}
+}
+
+func TestSerialClear_EmptyBuffer(t *testing.T) {
+	buf := buffer.NewDataBuffer()
+
+	result := ExecuteSerialClear(buf)
+	if !result.Success {
+		t.Fatalf("空缓冲区清空应成功: %s", result.Message)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatal("清空结果 Data 类型不正确")
+	}
+	if data["clearedBytes"] != 0 {
+		t.Errorf("空缓冲区预期清空 0 字节，实际 %v", data["clearedBytes"])
+	}
+
+	// 清空后仍可继续使用
+	buf.Append([]byte("new"))
+	if buf.Length() != 3 {
+		t.Errorf("清空后追加数据长度应为 3，实际 %d", buf.Length())
+	}
+}
+
+func TestSerialClear_NilBuffer(t *testing.T) {
+	result := ExecuteSerialClear(nil)
+	if result.Success {
+		t.Error("nil 缓冲区预期失败")
+	}
+	if result.Message != "数据缓冲区未初始化" {
+		t.Errorf("预期消息 '数据缓冲区未初始化'，实际 '%s'", result.Message)
 	}
 }
 
@@ -686,15 +780,15 @@ func TestWriteInput_Defaults(t *testing.T) {
 	if input.Data != "hello" {
 		t.Errorf("Data = %s, want hello", input.Data)
 	}
-	if input.AddNewline {
-		t.Error("默认 AddNewline 应为 false")
+	if input.AddNewline != nil {
+		t.Error("默认 AddNewline 应为 nil（未指定，行为上等同自动追加换行符）")
 	}
 }
 
 func TestReadInput_Defaults(t *testing.T) {
 	input := ReadInput{}
-	if input.Timeout != 0 {
-		t.Errorf("默认 Timeout 应为 0，实际 %d", input.Timeout)
+	if input.Timeout != nil {
+		t.Error("默认 Timeout 应为 nil（未指定，行为上等同 1000ms 超时）")
 	}
 	if input.MaxSize != 0 {
 		t.Errorf("默认 MaxSize 应为 0，实际 %d", input.MaxSize)
@@ -719,14 +813,14 @@ func TestSerialWriteRead_Hardware(t *testing.T) {
 	}
 	_ = port
 
-	writeResult := ExecuteSerialWrite(sm, WriteInput{Data: "version", AddNewline: true})
+	writeResult := ExecuteSerialWrite(sm, WriteInput{Data: "version", AddNewline: boolPtr(true)})
 	if !writeResult.Success {
 		t.Fatalf("写入失败: %s", writeResult.Message)
 	}
 
 	time.Sleep(2 * time.Second)
 
-	readResult := ExecuteSerialRead(buf, ReadInput{Timeout: 3000})
+	readResult := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(3000)})
 	if readResult.Success {
 		data, _ := readResult.Data.(map[string]interface{})
 		if data != nil {

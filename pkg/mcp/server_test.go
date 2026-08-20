@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/yourname/serialhub/internal/buffer"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
 	"github.com/yourname/serialhub/pkg/serial"
@@ -350,6 +352,21 @@ func TestToolResultToMCPResult(t *testing.T) {
 		if !strings.Contains(textContent.Text, getTestPort()) {
 			t.Errorf("成功结果文本应包含 Data，实际: %s", textContent.Text)
 		}
+		// isError 应为 false（omitempty 序列化时省略）
+		if mcpResult.IsError {
+			t.Error("成功结果 IsError 应为 false")
+		}
+		// structuredContent 应包含 Data
+		if mcpResult.StructuredContent == nil {
+			t.Error("成功结果 StructuredContent 不应为 nil")
+		}
+		if sc, ok := mcpResult.StructuredContent.(map[string]interface{}); ok {
+			if sc["port"] != getTestPort() {
+				t.Errorf("StructuredContent 应包含端口，实际: %v", sc)
+			}
+		} else {
+			t.Errorf("StructuredContent 类型应为对象，实际 %T", mcpResult.StructuredContent)
+		}
 	})
 
 	t.Run("失败结果", func(t *testing.T) {
@@ -375,6 +392,10 @@ func TestToolResultToMCPResult(t *testing.T) {
 		if textContent.Text != "串口未连接" {
 			t.Errorf("失败结果文本应只包含消息 '串口未连接'，实际: %s", textContent.Text)
 		}
+		// 失败时 IsError 应为 true，向客户端标记执行失败
+		if !mcpResult.IsError {
+			t.Error("失败结果 IsError 应为 true")
+		}
 	})
 
 	t.Run("成功结果无Data", func(t *testing.T) {
@@ -396,6 +417,23 @@ func TestToolResultToMCPResult(t *testing.T) {
 
 		if !strings.Contains(textContent.Text, "执行完毕") {
 			t.Errorf("成功结果文本应包含消息，实际: %s", textContent.Text)
+		}
+	})
+
+	t.Run("invalidParamsError返回-32602", func(t *testing.T) {
+		err := server.invalidParamsError(fmt.Errorf("无法解析参数"))
+		if err == nil {
+			t.Fatal("invalidParamsError 不应返回 nil")
+		}
+		jrErr, ok := err.(*jsonrpc.Error)
+		if !ok {
+			t.Fatalf("错误类型应为 *jsonrpc.Error，实际 %T", err)
+		}
+		if jrErr.Code != jsonrpc.CodeInvalidParams {
+			t.Errorf("错误码应为 -32602，实际 %d", jrErr.Code)
+		}
+		if !strings.Contains(jrErr.Message, "参数解析错误") {
+			t.Errorf("错误消息应包含 '参数解析错误'，实际: %s", jrErr.Message)
 		}
 	})
 }
