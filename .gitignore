@@ -54,3 +54,6 @@ Thumbs.db
 *.tmp
 .temp/
 nul
+
+# Agent workspace
+.omo/
