@@ -51,6 +51,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 | `serial_disconnect` | 断开当前串口连接 | 无 |
 | `serial_write` | 向串口写入数据 | `data` |
 | `serial_read` | 从串口读取数据（阻塞式） | 无 |
+| `serial_clear` | 清空 read 缓冲区（丢弃未消费数据） | 无 |
 
 ### 参数详解
 
@@ -71,7 +72,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 ```json
 {
   "data": "Hello World",  // 必填：要写入的数据
-  "addNewline": true      // 可选：是否自动添加 \n，默认 false
+  "addNewline": true      // 可选：是否自动追加 \n，默认 true（未指定时也追加）
 }
 ```
 
@@ -79,7 +80,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 
 ```json
 {
-  "timeout": 3000,   // 可选：超时时间(ms)，0=无限等待，默认 0
+  "timeout": 3000,   // 可选：超时时间(ms)，0=无限等待，默认 1000
   "maxSize": 4096    // 可选：最大读取字节数，默认 4096
 }
 ```
@@ -290,9 +291,13 @@ flowchart TB
 
 | 错误码 | 场景 | 解决方案 |
 |--------|------|----------|
-| -32600 | 串口未连接时操作 | 先调用 `serial_connect` |
-| -32601 | 工具名错误 | 检查工具名拼写 |
 | -32700 | JSON 解析错误 | 检查请求格式 |
+| -32600 | 请求不是有效的 JSON-RPC 对象 | 检查请求结构 |
+| -32601 | 工具名不存在 | 检查工具名拼写 |
+| -32602 | 参数解析失败或参数无效 | 检查 arguments 格式 |
+| `isError: true` | 工具执行失败（如串口未连接、写入失败） | 查看 `result.content` 中的错误描述，调用 `serial_connect` 后重试 |
+
+> 说明：工具执行类错误（如"串口未连接"）通过 `result` 中的 `isError: true` 返回，而非 JSON-RPC 协议级错误，便于 LLM 感知失败并自我纠正。
 
 ### 错误响应示例
 
@@ -301,8 +306,26 @@ flowchart TB
   "jsonrpc": "2.0",
   "id": 1,
   "error": {
-    "code": -32600,
-    "message": "串口未连接"
+    "code": -32602,
+    "message": "参数解析错误: json: cannot unmarshal ..."
+  }
+}
+```
+
+### 工具失败响应示例（isError）
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "串口未连接"
+      }
+    ],
+    "isError": true
   }
 }
 ```

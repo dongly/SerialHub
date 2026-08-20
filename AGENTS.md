@@ -121,8 +121,9 @@ tests/e2e/             Python E2E 测试（Playwright，需真实串口）
 | `serial_list` | `serial_list.go` | 列出可用串口（无参数） |
 | `serial_connect` | `serial_connect.go` | 连接串口（`port` 必填，`baudRate?`） |
 | `serial_disconnect` | `serial_disconnect.go` | 断开连接 |
-| `serial_write` | `serial_write.go` | 发送数据（`data` 必填，`addNewline?` 默认 true） |
-| `serial_read` | `serial_read.go` | 从缓冲区读取（`timeout?` 默认 1000ms，`maxSize?` 默认 4096，timeout=0 无限等待） |
+| `serial_write` | `serial_write.go` | 发送数据（`data` 必填，`addNewline?` 默认 true，自动追加换行符） |
+| `serial_read` | `serial_read.go` | 从缓冲区读取（`timeout?` 默认 1000ms，0=无限等待，`maxSize?` 默认 4096） |
+| `serial_clear` | `serial_clear.go` | 清空 read 缓冲区（丢弃未读取数据） |
 | `serial_status` | `serial_status.go` | 查询连接状态 |
 
 ## 前端

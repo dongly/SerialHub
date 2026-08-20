@@ -215,8 +215,9 @@ curl -X POST http://localhost:5000/mcp \
 | `serial_list` | 列出系统中所有可用的串口 | - |
 | `serial_connect` | 连接到指定串口 | `port`（必填），`baudRate?`（默认 115200） |
 | `serial_disconnect` | 断开当前串口连接 | - |
-| `serial_write` | 向串口发送数据 | `data`（必填），`addNewline?`（默认 true，自动追加换行符） |
+| `serial_write` | 向串口发送数据 | `data`（必填），`addNewline?`（默认 true，自动追加换行符，置 false 时禁用） |
 | `serial_read` | 阻塞式读取串口数据，等待数据到达后返回 | `timeout?`（默认 1000ms，0=无限等待），`maxSize?`（默认 4096 字节） |
+| `serial_clear` | 清空 read 缓冲区，丢弃尚未读取的数据 | - |
 | `serial_status` | 获取串口连接状态 | - |
 
 ### AI 工具使用指南
