@@ -17,7 +17,6 @@ serialhub-x.x.x-xxx/
 ├── README.md              # 项目说明
 ├── MCP.md                 # MCP 使用指南
 ├── QUICKSTART.md          # 快速开始指南
-├── opencode.json          # OpenCode 配置样板
 └── VERSION                # 版本信息
 ```
 
