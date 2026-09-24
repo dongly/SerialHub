@@ -63,8 +63,9 @@ SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
 
 - **双路转发**：串口数据同时转发到 Web 终端和 AI 接口
 - **双向通信**：Web 终端或 AI 发送的命令均可传输到 MCU
-- **Web 终端**：基于 WebSocket 的浏览器终端，支持 xterm.js
-- **MCP 协议**：通过 HTTP (StreamableHTTP) 提供 AI 工具集成
+- **Web 终端**：基于 WebSocket 的浏览器终端，支持 xterm.js；启动后自动在浏览器打开（WSL 下也能弹出 Windows 浏览器）
+- **MCP 协议**：通过标准 HTTP JSON-RPC（MCP Streamable HTTP 传输、非流式 JSON 响应）提供 AI 工具集成；也支持 `--stdio` 本地拉起（OpenCode local 模式，自动代理到已运行实例）
+- **联邦模式**：Windows 与 WSL 可同时运行，后启动的自动接入，`serial_list` 聚合双侧串口；主实例失联时从实例自动晋升
 - **可配置**：所有端口、波特率、超时参数均可通过 TOML 或命令行配置
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
@@ -86,7 +87,8 @@ serialhub                                    # 默认配置启动
 serialhub -p COM8                            # 指定串口
 serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
 serialhub -m 8080                            # 使用 8080 端口
-serialhub --host 0.0.0.0                     # 监听所有网络接口
+serialhub --host 0.0.0.0                     # 监听所有网络接口（联邦模式 Windows 主侧需要）
+serialhub --stdio                            # stdio 模式（MCP 客户端本地拉起）
 serialhub -c config.toml                     # 使用配置文件
 serialhub -D                                 # 调试模式
 ```
@@ -104,7 +106,8 @@ serialhub -D                                 # 调试模式
 | `--host <host>` | - | 监听地址 | 127.0.0.1 |
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |
-| `--no-tray` | - | 禁用系统托盘（仅 Windows） | false |
+| `--stdio` | - | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） | false |
+| `--minimized` | - | 由脚本启动，跳过自动打开浏览器（仅 Windows） | false |
 
 ### 系统托盘（Windows）
 

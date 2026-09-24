@@ -46,17 +46,17 @@ serialhub -p COM7 -D         # 直接启动
 ## 架构要点
 
 **启动流程** (`cmd/serialhub/serve.go`)：
-1. `service.EnsureSingleInstance()` — 单实例锁（`%TEMP%\serialhub.pid`）
-2. `loadConfig()` — CLI 参数 > 配置文件 > 默认值
-3. 创建 `SerialManager` → `DataBuffer` → 根据 Windows/非Windows 走托盘或命令行模式
-4. `startServices()` — 创建 `DataBridge` + `MCPServer`，共享 `SerialManager` 和 `DataBuffer`
+1. `loadConfig()` — CLI 参数 > 配置文件 > 默认值
+2. 角色分流：`--stdio` 走 stdio 模式（有主则透明代理，无主自成主）；否则 `federation.DiscoverMaster()` 探测本机/Windows 宿主 `/health`（严格认 `role=master`），有主→从实例，无主→主实例
+3. 主实例：创建 `SerialManager` → `DataBuffer` → Windows 托盘或前台模式，`startServices()` 建 `DataBridge` + `MCPServer` + 联邦入口 `/federation`
+4. 从实例：上报本侧端口给主实例，本侧反代 `/mcp` + `/health`（`role=worker`）；主实例失联重连失败后自动晋升为主
 
 **DataBridge** (`pkg/bridge/`)：核心事件总线，启动两个 goroutine：
 - 串口 → Telnet/WebSocket + MCP（串口数据同时广播到所有客户端）
 - Telnet/WebSocket → 串口（客户端输入转发到串口）
 - 通过 `SetCommandHandler` 支持外部命令拦截
 
-**MCP 服务** (`pkg/mcp/`)：StreamableHTTP 模式，端口与 WebSocket 共用（默认 5000）
+**MCP 服务** (`pkg/mcp/`)：Streamable HTTP 传输（非流式 JSON 响应模式），端口与 WebSocket 共用（默认 5000）
 - 工具定义在 `pkg/mcp/tools/` 下，每个工具一个文件
 - 所有工具返回 `ToolResult{Success, Message, Data}`（定义在 `pkg/mcp/tools/serial_list.go`）
 - MCP 服务与 WebSocket 共享同一个 `DataBuffer`，`serial_read` 从缓冲区读取
@@ -64,7 +64,7 @@ serialhub -p COM7 -D         # 直接启动
 **DataBuffer** (`internal/buffer/`)：线程安全环形缓冲区，默认 64KB，溢出时丢弃旧数据。
 MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
-**单实例锁** (`internal/service/`)：基于文件锁 `serialhub.pid`，状态文件 `serialhub_status.json` 在 `%TEMP%`。
+**联邦** (`internal/federation/`)：Windows 与 WSL 双侧各跑一个实例的协作协议。主实例聚合双侧串口（`serial_list`），从实例上报端口、受调度读写本侧串口并上行数据；主实例失联后从实例自动晋升。
 
 ## CLI 参数
 
@@ -76,7 +76,8 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 | `--host` | — | 127.0.0.1 | 监听地址 |
 | `--config` | `-c` | — | TOML 配置文件路径 |
 | `--debug` | `-D` | false | 调试模式 |
-| `--minimized` | — | false | 由 `start.ps1` 传入，启动时隐藏控制台 |
+| `--stdio` | — | false | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） |
+| `--minimized` | — | false | 脚本静默启动，跳过自动打开浏览器（跨平台；Windows 下同时隐藏控制台） |
 
 配置文件格式见 `config.example.toml`。
 
@@ -93,7 +94,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 `<type>(<scope>): <subject>`
 
 Type: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-Scope: `serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`
+Scope: `serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`, `federation`
 
 ## 项目结构
 
@@ -101,14 +102,14 @@ Scope: `serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`
 cmd/serialhub/         CLI 入口（cobra）、serve 启动、配置加载、日志初始化
 pkg/serial/            串口管理（go.bug.st/serial）、事件系统、读写循环
 pkg/bridge/            DataBridge 事件总线（核心，双向数据转发）
-pkg/mcp/               MCP StreamableHTTP 服务、工具注册
+pkg/mcp/               MCP Streamable HTTP 服务（非流式 JSON 响应）、工具注册、stdio 代理
 pkg/mcp/tools/         MCP 工具实现（每工具一文件：serial_list/connect/write/read/disconnect/status）
 pkg/web/               WebSocket 服务、xterm.js 终端（前端在 static/，embed 编译）
 pkg/tray/              Windows 系统托盘（菜单、图标状态、配置同步、自动重连）
 pkg/config/            TOML 配置（viper）、CLI 参数合并
 pkg/version/           版本信息（构建时 ldflags 注入）
 internal/buffer/       DataBuffer 线程安全缓冲区（MCP 与 WebSocket 共享）
-internal/service/      单实例锁、状态文件管理
+internal/federation/   联邦协议（主从发现、注册、串口代理、数据上行、晋升）
 internal/testutil/     Mock 串口（MockSerialPort）、Mock 网络连接（MockConn）、测试辅助
 tests/integration/     Python 集成测试（pytest，需运行中的服务）
 tests/e2e/             Python E2E 测试（Playwright，需真实串口）

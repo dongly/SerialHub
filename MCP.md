@@ -6,10 +6,12 @@ SerialHub 实现 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/
 
 | 属性 | 值 |
 |------|-----|
-| 传输模式 | StreamableHTTP (Stateless + JSONResponse) |
+| 传输模式 | Streamable HTTP（Stateless · 非流式 JSON 响应） |
 | 端点 | `http://<host>:<port>/mcp` |
 | 协议 | JSON-RPC 2.0 |
 | 默认端口 | 5000 |
+
+支持 **联邦模式**：Windows 与 WSL 两侧可各运行一个 SerialHub，后启动的自动以从实例身份接入，主实例通过 `serial_list` 聚合双侧串口（详见 [联邦模式](#联邦模式windows-wsl-双侧串口)）。
 
 ---
 
@@ -19,10 +21,10 @@ SerialHub 实现 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/
 
 ```bash
 # 默认配置启动
-./bin/serialhub --no-tray
+./bin/serialhub
 
-# 指定 MCP 端口
-./bin/serialhub --no-tray --mcp-port 55555
+# 指定 MCP 端口与监听地址
+./bin/serialhub --mcp-port 55555 --host 0.0.0.0
 ```
 
 ### 2. 验证服务
@@ -45,13 +47,28 @@ curl -X POST http://127.0.0.1:5000/mcp \
 
 | 工具名 | 功能 | 必需参数 |
 |--------|------|----------|
-| `serial_list` | 列出系统中所有可用串口 | 无 |
+| `serial_list` | 列出所有可用串口（联邦模式聚合双侧） | 无 |
 | `serial_status` | 获取当前串口连接状态 | 无 |
 | `serial_connect` | 连接到指定串口 | `port` |
 | `serial_disconnect` | 断开当前串口连接 | 无 |
 | `serial_write` | 向串口写入数据 | `data` |
 | `serial_read` | 从串口读取数据（阻塞式） | 无 |
 | `serial_clear` | 清空 read 缓冲区（丢弃未消费数据） | 无 |
+
+`serial_list` 返回结构（`ports` 数组，每项含 `name`/`origin`/`side`/`port`）：
+
+```json
+{
+  "message": "找到 2 个串口",
+  "ports": [
+    {"name": "/dev/ttyUSB1", "origin": "local", "side": "wsl", "port": "/dev/ttyUSB1"},
+    {"name": "windows:COM3", "origin": "federated", "side": "windows", "port": "COM3"}
+  ]
+}
+```
+
+- `origin`: `local` = 主实例本侧直连端口（`name` 为裸名）；`federated` = 从实例上报端口（`name` 为 `side:port` 全名）
+- 连接联邦端口时直接使用 `name` 全名（如 `windows:COM3`），断开/写入自动路由
 
 ### 参数详解
 
@@ -174,6 +191,8 @@ OpenCode 支持两种配置级别，**项目级 > 用户级**。
 | 用户级 | `~/.opencode/opencode.json` | 个人开发，全局共用 |
 | 项目级 | `opencode.json`（项目根目录） | 团队协作，独立配置 |
 
+**方式一：remote（HTTP，推荐）**
+
 ```json
 {
   "mcp": {
@@ -186,7 +205,63 @@ OpenCode 支持两种配置级别，**项目级 > 用户级**。
 }
 ```
 
-**远程 SerialHub 示例**：`"url": "http://192.168.1.100:5000/mcp"`
+- **铁律：永远写 `127.0.0.1:5000`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5000/mcp` 都可用，无需关心主实例在哪侧。
+- 访问局域网其他机器上的 SerialHub 时才改地址，如 `"url": "http://192.168.1.100:5000/mcp"`。
+
+**方式二：local（stdio，免手动启动）**
+
+```json
+{
+  "mcp": {
+    "serialhub": {
+      "type": "local",
+      "command": "serialhub",
+      "args": ["--stdio"],
+      "enabled": true
+    }
+  }
+}
+```
+
+- OpenCode 启动时自动拉起子进程，通过 stdio 通信，退出时子进程随之退出。
+- 子进程若发现已有主实例在运行，自动退化为**透明代理**（stdio ↔ 主实例 `/mcp` 转发）；若没有主实例，则自己成为主实例（HTTP 服务照常，但不弹浏览器）。
+- `command` 需指向 serialhub 可执行文件的路径（不在 `PATH` 时写绝对路径）。
+
+---
+
+## 联邦模式（Windows + WSL 双侧串口）
+
+SerialHub 支持 **Windows 与 WSL 两侧同时运行**，聚合一台机器上双侧的串口设备：
+
+### 角色与发现
+
+| 角色 | 触发条件 | 提供能力 |
+|------|---------|---------|
+| **主实例** | 先启动（本侧无主） | 完整服务：`/mcp` + `/terminal` + `/ws` + `/health` + 联邦入口 `/federation`，持有本侧串口 |
+| **从实例** | 启动时探测到主实例（`127.0.0.1:5000/health`，WSL 侧加探网关 IP） | 前台进程：上报本侧串口、受主实例调度读写本侧串口；本侧反代 `/mcp` + `/health` |
+
+```bash
+# Windows 侧先启动（WSL 从实例要跨侧发现，主实例必须监听所有接口）
+serialhub.exe --host 0.0.0.0
+
+# WSL 侧启动 → 自动检测到 Windows 主实例 → 从实例模式
+./bin/serialhub
+```
+
+### 关键行为
+
+- **端口聚合**：主实例 `serial_list` 返回双侧端口；联邦端口以 `side:port` 全名标识（如 `windows:COM3`），`serial_connect` 等工具自动路由。
+- **数据上行**：从实例串口收到的数据实时上行至主实例，进入 xterm web 与 MCP 读缓冲，与本地端口无差别。
+- **从实例退出**：`Ctrl+C` 退出即脱离联邦，主实例端口列表即时移除该侧端口。
+- **自动晋升**：主实例退出后，从实例重连失败（3 次 × 1s）即自动晋升为主实例，`127.0.0.1:5000` 服务无缝恢复；期间对侧再启动则反向加入。
+- **同侧多开**：同侧第二个实例以从实例运行，反代端口被主占用时仅贡献串口（日志有提示）。
+
+### 部署前提与限制
+
+- **WSL 从实例访问 Windows 主实例**：Windows 侧主实例需 `--host 0.0.0.0`（默认 `127.0.0.1` 时 WSL 探测不到，Windows 防火墙需放行 5000 端口）。
+- **WSL 侧串口**：USB 串口设备需先 `usbipd attach` 到 WSL（枚举仅保留 `ttyUSB*`/`ttyACM*`，自动过滤 WSL 虚拟假端口）。usbipd attach 后 Windows 侧将暂时失去该设备。
+- **双主竞态**：两侧在 1 秒内同时首启可能互探不到而形成双主（各自独立服务）。先后启动即可避免。
+- **无鉴权**：`--host 0.0.0.0` 暴露到局域网时无任何鉴权，仅适用于可信网络；主实例建议保持 `127.0.0.1`（单侧使用时）。
 
 ---
 
