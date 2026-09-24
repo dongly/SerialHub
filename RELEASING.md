@@ -38,14 +38,14 @@ git push github v0.6.0
 推送标签后，[Actions](https://github.com/dongly/SerialHub/actions) 自动执行：
 
 1. **质量门**：`go vet ./...` + `go test ./...`，全绿才继续
-2. **矩阵构建**：linux/amd64+arm64、windows/amd64+arm64、darwin/amd64+arm64
+2. **矩阵构建**：linux/amd64、windows/amd64
    （`CGO_ENABLED=0`，版本号从标签注入）
 3. **发布**：自动创建 GitHub Release 并附上压缩包与 SHA256 校验和
 
 ### 4. 验证
 
 - Actions 页面工作流全绿
-- Release 页面挂 6 个产物（zip/tar.gz）+ SHA256
+- Release 页面挂 2 个产物（zip/tar.gz）+ SHA256
 - 下载一个包，运行 `serialhub --version` 确认版本号
 
 ## 发布包内容

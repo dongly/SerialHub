@@ -6,7 +6,6 @@
 
 - **Windows**: `serialhub-x.x.x-windows-amd64.zip`
 - **Linux**: `serialhub-x.x.x-linux-amd64.tar.gz`
-- **macOS**: `serialhub-x.x.x-darwin-amd64.tar.gz`
 
 解压后得到以下文件：
 ```
