@@ -79,6 +79,10 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 | `--stdio` | — | false | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） |
 | `--minimized` | — | false | 脚本静默启动，跳过自动打开浏览器（跨平台；Windows 下同时隐藏控制台） |
 
+### `serialhub setup`
+
+为 MCP 客户端自动配置接入（交互向导，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不覆盖既有条目（实现于 `pkg/mcpsetup/`）。
+
 配置文件格式见 `config.example.toml`。
 
 ## 代码风格

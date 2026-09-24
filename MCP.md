@@ -189,6 +189,11 @@ SerialHub 是标准 MCP 服务器，任何支持 **Streamable HTTP** 或 **stdio
 - **HTTP 端点**：`http://127.0.0.1:5000/mcp`
 - **stdio 命令**：`serialhub --stdio`（客户端本地拉起；有主实例时自动透明代理）
 
+**一键配置**：运行 `serialhub setup` 交互式向导（或非交互
+`serialhub setup --client cursor -y`），自动为 OpenCode / Claude Code / Cursor /
+Windsurf / VS Code / Codex 合并写入接入配置（不覆盖已有条目；Codex 与
+Claude Code 用户级经官方 CLI 写入）。以下为各客户端的手动配置方法。
+
 **铁律：永远写 `127.0.0.1:5000`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5000/mcp` 都可用，无需关心主实例在哪侧。访问局域网其他机器上的 SerialHub 时才改地址，如 `http://192.168.1.100:5000/mcp`。
 
 #### OpenCode

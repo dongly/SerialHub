@@ -105,6 +105,9 @@ SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf /
 [MCP.md 的「MCP 客户端配置」](./MCP.md)。也支持 `serialhub --stdio`
 本地拉起方式（客户端自动启动、退出时随之结束）。
 
+最简单的方式：运行 `serialhub setup` 向导，自动为上述任一客户端写入配置
+（非交互：`serialhub setup --client cursor -y`）。
+
 ## 5. 常用命令
 
 | 命令 | 说明 |
