@@ -60,3 +60,4 @@ nul
 .codegraph/
 .dsh-edit-review.json
 .dsh-edit-review-archive.json
+.sisyphus/
