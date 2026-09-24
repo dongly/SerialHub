@@ -86,19 +86,24 @@ http://localhost:5000/terminal
 
 ## 4. AI 工具配置
 
-在 OpenCode 中配置 MCP 服务器，创建 `opencode.json`：
+SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf / VS Code
+等客户端均可接入。以 OpenCode 为例（`opencode.json`）：
 
 ```json
 {
   "mcp": {
     "serialhub": {
       "type": "remote",
-      "url": "http://localhost:5000/mcp",
+      "url": "http://127.0.0.1:5000/mcp",
       "enabled": true
     }
   }
 }
 ```
+
+其他客户端（Claude Code / Cursor / Windsurf / VS Code）的配置方法见
+[MCP.md 的「MCP 客户端配置」](./MCP.md)。也支持 `serialhub --stdio`
+本地拉起方式（客户端自动启动、退出时随之结束）。
 
 ## 5. 常用命令
 

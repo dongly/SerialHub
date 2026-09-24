@@ -182,16 +182,18 @@ print(result["result"]["content"][0]["text"])
 mcp_call(5000, "serial_disconnect")                             # 5. 断开连接
 ```
 
-### OpenCode MCP 配置
+### MCP 客户端配置（通用）
 
-OpenCode 支持两种配置级别，**项目级 > 用户级**。
+SerialHub 是标准 MCP 服务器，任何支持 **Streamable HTTP** 或 **stdio** 的客户端都能接入：
 
-| 级别 | 配置文件路径 | 适用场景 |
-|------|-------------|---------|
-| 用户级 | `~/.opencode/opencode.json` | 个人开发，全局共用 |
-| 项目级 | `opencode.json`（项目根目录） | 团队协作，独立配置 |
+- **HTTP 端点**：`http://127.0.0.1:5000/mcp`
+- **stdio 命令**：`serialhub --stdio`（客户端本地拉起；有主实例时自动透明代理）
 
-**方式一：remote（HTTP，推荐）**
+**铁律：永远写 `127.0.0.1:5000`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5000/mcp` 都可用，无需关心主实例在哪侧。访问局域网其他机器上的 SerialHub 时才改地址，如 `http://192.168.1.100:5000/mcp`。
+
+#### OpenCode
+
+配置文件：用户级 `~/.opencode/opencode.json`，项目级 `opencode.json`（项目根目录，优先级更高）。
 
 ```json
 {
@@ -205,10 +207,7 @@ OpenCode 支持两种配置级别，**项目级 > 用户级**。
 }
 ```
 
-- **铁律：永远写 `127.0.0.1:5000`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5000/mcp` 都可用，无需关心主实例在哪侧。
-- 访问局域网其他机器上的 SerialHub 时才改地址，如 `"url": "http://192.168.1.100:5000/mcp"`。
-
-**方式二：local（stdio，免手动启动）**
+stdio 方式（免手动启动，OpenCode 拉起子进程并随其退出）：
 
 ```json
 {
@@ -223,9 +222,66 @@ OpenCode 支持两种配置级别，**项目级 > 用户级**。
 }
 ```
 
-- OpenCode 启动时自动拉起子进程，通过 stdio 通信，退出时子进程随之退出。
-- 子进程若发现已有主实例在运行，自动退化为**透明代理**（stdio ↔ 主实例 `/mcp` 转发）；若没有主实例，则自己成为主实例（HTTP 服务照常，但不弹浏览器）。
-- `command` 需指向 serialhub 可执行文件的路径（不在 `PATH` 时写绝对路径）。
+#### Claude Code
+
+```bash
+# HTTP
+claude mcp add --transport http serialhub http://127.0.0.1:5000/mcp
+
+# stdio
+claude mcp add serialhub -- serialhub --stdio
+```
+
+或项目根目录 `.mcp.json`（团队共享）：
+
+```json
+{
+  "mcpServers": {
+    "serialhub": { "type": "http", "url": "http://127.0.0.1:5000/mcp" }
+  }
+}
+```
+
+#### Cursor
+
+`~/.cursor/mcp.json`（全局）或项目 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "serialhub": { "url": "http://127.0.0.1:5000/mcp" }
+  }
+}
+```
+
+#### Windsurf
+
+`~/.codeium/windsurf/mcp_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "serialhub": { "serverUrl": "http://127.0.0.1:5000/mcp" }
+  }
+}
+```
+
+#### VS Code（Copilot）
+
+`.vscode/mcp.json`（可提交入库）：
+
+```json
+{
+  "servers": {
+    "serialhub": { "type": "http", "url": "http://127.0.0.1:5000/mcp" }
+  }
+}
+```
+
+stdio 方式把 `type` 换成 `"stdio"`，用 `"command": "serialhub", "args": ["--stdio"]`。
+
+> 注：SerialHub 的 HTTP 传输为**非流式 JSON 响应**（Stateless 模式），不依赖 SSE；
+> 支持 Streamable HTTP 的客户端均可正常使用。stdio 模式则与传输实现无关，任何客户端通用。
 
 ---
 
