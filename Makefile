@@ -2,8 +2,12 @@
 
 .PHONY: build test vet clean install help release release-windows release-linux
 
-# Binary names
+# Binary names (Windows 用 .exe，Linux/macOS/WSL 无后缀)
+ifeq ($(OS),Windows_NT)
 SERIALHUB_BIN=bin/serialhub.exe
+else
+SERIALHUB_BIN=bin/serialhub
+endif
 
 # Go parameters
 GOCMD=go

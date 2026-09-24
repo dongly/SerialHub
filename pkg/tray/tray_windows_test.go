@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package tray 系统托盘测试
 package tray
 

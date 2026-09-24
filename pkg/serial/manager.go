@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -178,7 +181,34 @@ func (sm *SerialManager) ListPorts() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("获取串口列表失败: %w", err)
 	}
+	// WSL 环境下 hypervisor 会注入打不开的假串口（ttyS0~ttyS4 等），
+	// 枚举时只保留真实 USB/ACM 串口设备，避免假端口混入连接目标与联邦上报。
+	if isWSL() {
+		filtered := make([]string, 0, len(ports))
+		for _, p := range ports {
+			base := p
+			if i := strings.LastIndexByte(p, '/'); i >= 0 {
+				base = p[i+1:]
+			}
+			if strings.HasPrefix(base, "ttyUSB") || strings.HasPrefix(base, "ttyACM") {
+				filtered = append(filtered, p)
+			}
+		}
+		ports = filtered
+	}
 	return ports, nil
+}
+
+// isWSL 判断当前 Linux 是否运行在 WSL 下（/proc/version 含 microsoft 标记）。
+func isWSL() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if v := os.Getenv("WSL_DISTRO_NAME"); v != "" {
+		return true
+	}
+	b, err := os.ReadFile("/proc/version")
+	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
 // IsConnected checks if the serial port is connected
