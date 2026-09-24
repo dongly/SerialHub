@@ -76,7 +76,6 @@ http://localhost:5000/terminal
 |------|------|
 | `serialhub -p COM9` | 指定串口启动 |
 | `serialhub -p COM9 -b 9600` | 指定波特率 |
-| `serialhub --no-tray` | 禁用系统托盘 |
 | `serialhub -D` | 调试模式 |
 | `serialhub -c config.toml` | 使用配置文件 |
 
@@ -136,11 +135,6 @@ httpPort = 5000
 Windows 版本默认启用系统托盘：
 - **双击图标**: 显示/隐藏控制台
 - **右键菜单**: 串口信息、端口信息、退出
-
-禁用托盘模式：
-```powershell
-serialhub --no-tray
-```
 
 ## 9. 故障排除
 

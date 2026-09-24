@@ -1,16 +1,20 @@
 # SerialHub
 
+[English](./README.en.md) | 简体中文
+
 串口（MCU）与网络连接（Web终端/AI）之间的双向桥接器。
 
 **📚 文档**: [MCP 使用指南](./MCP.md) | [项目架构](./AGENTS.md) | [集成测试](./tests/integration/README.md)
 
 ## 项目简介
 
-SerialHub 通过以下方式实现 AI 辅助调试 MCU 程序：
+SerialHub 把 MCU 串口同时桥接给人和 AI：
 
-- 将 MCU 串口输出同时转发到 Web 终端（供人工监视）和 AI 接口（供程序化分析）
-- 支持人工操作员（通过浏览器）和 AI 工具的双向通信
-- 支持 MCU Shell 操作，用于运行时控制和调试
+- **人**：浏览器里的 xterm.js Web 终端，实时查看与输入
+- **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
+- 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
+- **联邦模式**：Windows 主实例 + WSL 从实例，双侧串口以 `side:port` 形式聚合（如 `windows:COM3`、`wsl:/dev/ttyUSB0`），主实例失联后从实例自动晋升
+- 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS
 
 ## 系统架构
 
@@ -107,7 +111,7 @@ serialhub -D                                 # 调试模式
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |
 | `--stdio` | - | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） | false |
-| `--minimized` | - | 由脚本启动，跳过自动打开浏览器（仅 Windows） | false |
+| `--minimized` | - | 由脚本启动，跳过自动打开浏览器（跨平台；Windows 下同时隐藏控制台） | false |
 
 ### 系统托盘（Windows）
 
@@ -130,11 +134,6 @@ serialhub -D                                 # 调试模式
 **交互方式：**
 - 双击托盘图标：切换控制台窗口显示/隐藏
 - 右键托盘图标：打开菜单
-
-```bash
-# 禁用托盘（保持控制台窗口）
-serialhub --no-tray
-```
 
 ### 快速开始
 
@@ -362,6 +361,8 @@ go vet ./...
 go mod tidy
 ```
 
-## 许可证
+## 许可证 / License
 
-MIT
+本项目采用 [Apache License 2.0](./LICENSE)（Copyright 2026 dongly）发布。
+
+This project is licensed under the [Apache License 2.0](./LICENSE).
