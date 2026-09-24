@@ -1,0 +1,39 @@
+# git-cliff 配置：从常规提交生成双语分组 Release Notes
+# 用法（CI，release job）：git-cliff --latest --strip header
+# 分组策略（grilling 定案 Q6:b）：
+#   feat → ✨ 新功能 / Features
+#   fix  → 🐛 修复 / Fixes
+#   docs → 📝 文档 / Docs
+#   refactor → ♻️ 重构 / Refactoring
+#   test/ci/chore/build 及其余 → 🔧 内部 / Internal
+
+[changelog]
+header = ""
+body = """
+{% if version %}## {{ version }}{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group }}
+{% for commit in commits %}\
+- {{ commit.message | upper_first }}{% if commit.scope %} ({{ commit.scope }}){% endif %} [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/dongly/SerialHub/commit/{{ commit.id }})
+{% endfor %}\
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+
+commit_parsers = [
+  { message = "^feat", group = "✨ 新功能 / Features" },
+  { message = "^fix", group = "🐛 修复 / Fixes" },
+  { message = "^docs", group = "📝 文档 / Docs" },
+  { message = "^refactor", group = "♻️ 重构 / Refactoring" },
+  { message = "^test|^ci|^chore|^build", group = "🔧 内部 / Internal" },
+  { message = ".*", group = "🔧 内部 / Internal" },
+]

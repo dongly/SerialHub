@@ -88,6 +88,19 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes (git-cliff)
+        uses: git-cliff-org/github-action@v4
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -95,8 +108,8 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.cliff.outputs.content }}
           files: |
             dist/serialhub-*.zip
             dist/serialhub-*.tar.gz
             dist/serialhub-*.sha256
-          generate_release_notes: true
