@@ -2,12 +2,12 @@
 SerialHub WebSocket 集成测试
 
 使用 pytest 运行：
-pytest tests/integration/test_telnet.py -v
+pytest tests/integration/test_websocket.py -v
 
 启用服务器交互测试：
 $env:SERIALHUB_INTEGRATION_TEST = "1"
 $env:SERIALHUB_TEST_PORT = "COM4"
-pytest tests/integration/test_telnet.py -v
+pytest tests/integration/test_websocket.py -v
 
 WebSocket 端点: ws://127.0.0.1:{mcp_port}/ws
 """

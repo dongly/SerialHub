@@ -414,7 +414,7 @@ flowchart TB
 | `pkg/mcp/server.go` | MCP HTTP 服务实现 |
 | `pkg/mcp/tools/*.go` | MCP 工具实现 |
 | `pkg/bridge/bridge.go` | 数据桥接核心 |
-| `tests/integration/test_serialhub.py` | Python 集成测试 |
+| `tests/integration/` | Python 集成测试 |
 
 ---
 
