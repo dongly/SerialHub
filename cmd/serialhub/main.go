@@ -5,10 +5,12 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/yourname/serialhub/pkg/version"
 )
 
 var (
-	appVersion = getVersion()
+	appVersion = version.FullVersion()
 	serialPort string
 	baudRate   int
 	configPath string
