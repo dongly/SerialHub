@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -15,8 +16,10 @@ type ReadInput struct {
 	MaxSize int  `json:"maxSize,omitempty"` // 最大读取字节数
 }
 
-// ExecuteSerialRead reads data from the buffer with timeout
-func ExecuteSerialRead(buf *buffer.DataBuffer, input ReadInput) ToolResult {
+// ExecuteSerialRead reads data from the buffer with timeout.
+// ctx 用于取消：客户端断开或取消调用时（如 timeout=0 无限等待期间），
+// 读取立即中止，避免 goroutine 泄漏。
+func ExecuteSerialRead(ctx context.Context, buf *buffer.DataBuffer, input ReadInput) ToolResult {
 	// Set defaults
 	maxSize := input.MaxSize
 	if maxSize <= 0 || maxSize > 4096 {
@@ -31,9 +34,16 @@ func ExecuteSerialRead(buf *buffer.DataBuffer, input ReadInput) ToolResult {
 
 	// Handle timeout
 	if timeoutMs == 0 {
-		// Infinite wait: poll until data available
+		// Infinite wait: poll until data available or context cancelled
 		for buf.Length() == 0 {
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return ToolResult{
+					Success: false,
+					Message: "读取已取消",
+				}
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 		data := buf.Read(maxSize)
 		if data == nil {
@@ -62,6 +72,12 @@ func ExecuteSerialRead(buf *buffer.DataBuffer, input ReadInput) ToolResult {
 
 	for {
 		select {
+		case <-ctx.Done():
+			// 客户端取消/断开
+			return ToolResult{
+				Success: false,
+				Message: "读取已取消",
+			}
 		case <-timer.C:
 			// Timeout
 			data := buf.Read(maxSize)

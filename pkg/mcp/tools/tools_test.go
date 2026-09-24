@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -312,7 +313,7 @@ func TestSerialWrite_DefaultNewline(t *testing.T) {
 
 func TestSerialRead_EmptyBuffer(t *testing.T) {
 	buf := buffer.NewDataBuffer()
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(100)})
 	if !result.Success {
 		t.Errorf("空缓冲区读取应该成功: %s", result.Message)
 	}
@@ -336,7 +337,7 @@ func TestSerialRead_DefaultTimeout(t *testing.T) {
 
 	// 不传 Timeout 时默认超时 1000ms，空缓冲区应超时返回而非无限等待
 	start := time.Now()
-	result := ExecuteSerialRead(buf, ReadInput{})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{})
 	elapsed := time.Since(start)
 	if !result.Success {
 		t.Fatalf("默认超时读取应成功: %s", result.Message)
@@ -357,7 +358,7 @@ func TestSerialRead_Timeout(t *testing.T) {
 	buf := buffer.NewDataBuffer()
 
 	// 空缓冲区，短超时应返回超时
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(50)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(50)})
 	if !result.Success {
 		t.Fatalf("超时读取应成功: %s", result.Message)
 	}
@@ -379,7 +380,7 @@ func TestSerialRead_TimeoutWithData(t *testing.T) {
 	buf.Append([]byte("hello world"))
 
 	// 超时模式下缓冲区有数据，应在 ticker 检测到后立即返回
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(500)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(500)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -404,7 +405,7 @@ func TestSerialRead_MaxSize(t *testing.T) {
 	buf.Append([]byte("abcdefghijklmnopqrstuvwxyz"))
 
 	// maxSize=5 应只读取前 5 字节
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 5})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(100), MaxSize: 5})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -425,7 +426,7 @@ func TestSerialRead_MaxSizeExceedsDefault(t *testing.T) {
 	buf.Append([]byte("short"))
 
 	// maxSize > 4096 应被限制为 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 8192})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(100), MaxSize: 8192})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -443,7 +444,7 @@ func TestSerialRead_DefaultMaxSize(t *testing.T) {
 	buf.Append([]byte("data"))
 
 	// maxSize=0 应使用默认 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: 0})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(100), MaxSize: 0})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -461,7 +462,7 @@ func TestSerialRead_NegativeMaxSize(t *testing.T) {
 	buf.Append([]byte("test"))
 
 	// 负数 maxSize 应使用默认 4096
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(100), MaxSize: -1})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(100), MaxSize: -1})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -482,7 +483,7 @@ func TestSerialRead_ConcurrentWrite(t *testing.T) {
 		buf.Append([]byte("delayed"))
 	}()
 
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(500)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(500)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -507,7 +508,7 @@ func TestSerialRead_InfiniteWait(t *testing.T) {
 	}()
 
 	// Timeout=0 表示无限等待
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(0)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(0)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -523,6 +524,31 @@ func TestSerialRead_InfiniteWait(t *testing.T) {
 	}
 }
 
+// 无限等待期间 ctx 取消应立即返回失败，不得永久阻塞（goroutine 泄漏防护）
+func TestSerialRead_InfiniteWait_Cancelled(t *testing.T) {
+	buf := buffer.NewDataBuffer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(80 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	result := ExecuteSerialRead(ctx, buf, ReadInput{Timeout: intPtr(0)})
+	elapsed := time.Since(start)
+
+	if result.Success {
+		t.Fatal("取消后读取应失败")
+	}
+	if result.Message != "读取已取消" {
+		t.Errorf("预期消息 '读取已取消'，实际: %s", result.Message)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("取消后应立即返回，实际耗时: %v", elapsed)
+	}
+}
+
 func TestSerialRead_TimeoutWithDataAtLastMoment(t *testing.T) {
 	buf := buffer.NewDataBuffer()
 
@@ -532,7 +558,7 @@ func TestSerialRead_TimeoutWithDataAtLastMoment(t *testing.T) {
 		buf.Append([]byte("lastms"))
 	}()
 
-	result := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(200)})
+	result := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(200)})
 	if !result.Success {
 		t.Fatalf("读取应成功: %s", result.Message)
 	}
@@ -820,7 +846,7 @@ func TestSerialWriteRead_Hardware(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	readResult := ExecuteSerialRead(buf, ReadInput{Timeout: intPtr(3000)})
+	readResult := ExecuteSerialRead(context.Background(), buf, ReadInput{Timeout: intPtr(3000)})
 	if readResult.Success {
 		data, _ := readResult.Data.(map[string]interface{})
 		if data != nil {

@@ -142,7 +142,7 @@ func (db *DataBridge) handleCommand(cmd []byte) {
 
 // forwardSerialToBoth 将串口数据同时转发到 WebSocket 和 MCP
 func (db *DataBridge) forwardSerialToBoth(data []byte) {
-	cleanedData := convertLFToCRLF(data)
+	cleanedData := ConvertLFToCRLF(data)
 
 	wsCount := db.ws.Broadcast(cleanedData)
 	if wsCount > 0 {
@@ -153,7 +153,7 @@ func (db *DataBridge) forwardSerialToBoth(data []byte) {
 	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(cleanedData))
 }
 
-func convertLFToCRLF(data []byte) []byte {
+func ConvertLFToCRLF(data []byte) []byte {
 	if len(data) == 0 {
 		return data
 	}

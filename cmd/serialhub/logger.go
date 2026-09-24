@@ -47,3 +47,13 @@ func closeLogger() {
 		logFile.Close()
 	}
 }
+
+// setLogFileOnly 将日志输出限制为仅写文件（stdio 模式下 stdout 承载 MCP 协议流，
+// 绝不能混入日志）。
+func setLogFileOnly() {
+	if logFile != nil {
+		logrus.SetOutput(logFile)
+	} else {
+		logrus.SetOutput(io.Discard)
+	}
+}

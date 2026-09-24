@@ -6,20 +6,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
-	"time"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/sirupsen/logrus"
 	"github.com/yourname/serialhub/internal/buffer"
+	"github.com/yourname/serialhub/internal/federation"
 	"github.com/yourname/serialhub/pkg/mcp/tools"
 	"github.com/yourname/serialhub/pkg/serial"
 	"github.com/yourname/serialhub/pkg/version"
 	"github.com/yourname/serialhub/pkg/web"
 )
+
+// FedRouter 是主实例的联邦路由能力，由 internal/federation.Manager 实现。
+// 从实例上报的端口在 MCP 工具层以此接口路由到远侧执行。
+type FedRouter interface {
+	LocalSide() string
+	WorkerCount() int
+	FederatedPorts() []federation.PortInfo
+	ActiveFederatedPort() string
+	IsFederated(portName string) bool
+	Open(portName string, baudRate int) federation.SerialResult
+	Write(portName string, data []byte) federation.SerialResult
+	Close(portName string) federation.SerialResult
+}
 
 // MCPServer manages the MCP server and tool registration
 type MCPServer struct {
@@ -27,6 +42,15 @@ type MCPServer struct {
 	dataBuffer    *buffer.DataBuffer
 	mcpServer     *mcpsdk.Server
 	wsServer      *web.WebSocketServer
+	federation    FedRouter
+	federationWS  http.Handler
+}
+
+// SetFederation 注入联邦路由器（主实例），并将联邦 WebSocket 端点
+// （从实例外连的 /federation）交由 StartHTTPServer 挂载。
+func (s *MCPServer) SetFederation(fr FedRouter, wsHandler http.Handler) {
+	s.federation = fr
+	s.federationWS = wsHandler
 }
 
 // NewMCPServer creates a new MCP server instance
@@ -173,8 +197,9 @@ func (s *MCPServer) RegisterTools() error {
 	return nil
 }
 
-// StartHTTPServer starts the HTTP transport for MCP communication
-func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
+// StartHTTPServer starts the HTTP transport for MCP communication.
+// autoOpenBrowser 控制启动后是否自动打开 xterm web（/terminal）。
+func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Server, error) {
 	streamableHandler := mcpsdk.NewStreamableHTTPHandler(func(r *http.Request) *mcpsdk.Server {
 		return s.mcpServer
 	}, &mcpsdk.StreamableHTTPOptions{
@@ -184,10 +209,15 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streamableHandler)
+	// 联邦端点：从实例经 WebSocket 外连注册（仅主实例注入后存在）
+	if s.federationWS != nil {
+		mux.Handle("/federation", s.federationWS)
+	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		// role 字段供实例发现区分主从（从实例反代 /health 返回 role=worker）
+		w.Write([]byte(`{"status":"ok","role":"master"}`))
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -227,47 +257,78 @@ func (s *MCPServer) StartHTTPServer(addr string) (*http.Server, error) {
 		Handler: corsMux,
 	}
 
+	// 先绑定端口再对外提供服务：listen 成功即端口可用，
+	// 消除原先 500ms sleep 等待服务器就绪的竞态 hack
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP 服务器监听失败: %w", err)
+	}
+
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logrus.Errorf("[SerialHub] HTTP 服务器错误: %v", err)
 		}
 	}()
 
-	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", addr)
+	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", ln.Addr())
 
-	// 自动打开浏览器
-	go func() {
-		// 等待服务器启动
-		time.Sleep(500 * time.Millisecond)
-		url := "http://" + addr + "/terminal"
+	// 自动打开浏览器（--minimized/--stdio/从实例模式下由调用方关闭）
+	if autoOpenBrowser {
+		displayAddr := addr
+		if strings.HasPrefix(addr, "0.0.0.0:") {
+			displayAddr = "127.0.0.1:" + strings.TrimPrefix(addr, "0.0.0.0:")
+		}
+		url := "http://" + displayAddr + "/terminal"
 		logrus.Infof("[SerialHub] 正在打开浏览器: %s", url)
-		openBrowser(url)
-	}()
+		go openBrowser(url)
+	}
 
 	return server, nil
 }
 
-// openBrowser 打开系统默认浏览器
+// openBrowser 打开系统默认浏览器。
+// Linux/WSL 下按可用性依次降级：xdg-open（桌面 Linux）→
+// wslview（WSL + wslu）→ cmd.exe（WSL 互操作，最通用的兜底）。
 func openBrowser(url string) {
-	var cmd string
-	var args []string
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
-	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	default:
-		// Linux
-		cmd = "xdg-open"
-		args = []string{url}
+	if runtime.GOOS == "windows" {
+		if err := exec.Command("cmd", "/c", "start", url).Start(); err != nil {
+			logrus.Warnf("[SerialHub] 打开浏览器失败: %v", err)
+		}
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		if err := exec.Command("open", url).Start(); err != nil {
+			logrus.Warnf("[SerialHub] 打开浏览器失败: %v", err)
+		}
+		return
 	}
 
-	if err := exec.Command(cmd, args...).Start(); err != nil {
-		logrus.Warnf("[SerialHub] 打开浏览器失败: %v", err)
+	// Linux/WSL：探测式降级链
+	candidates := []struct {
+		cmd  string
+		args []string
+	}{
+		{"xdg-open", []string{url}},
+		{"wslview", []string{url}},
+		// start 的首参数 "" 是窗口标题占位，避免 URL 被当作标题
+		{"cmd.exe", []string{"/c", "start", "", url}},
 	}
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c.cmd); err != nil {
+			continue
+		}
+		if err := exec.Command(c.cmd, c.args...).Start(); err != nil {
+			continue
+		}
+		return
+	}
+	logrus.Warn("[SerialHub] 打开浏览器失败: 未找到可用的浏览器启动方式 (xdg-open/wslview/cmd.exe)")
+}
+
+// RunStdioTransport 在 stdio 传输上服务同一 SDK Server
+// （stdio 主实例模式：与 HTTP /mcp 共用工具注册，随连接断开返回）。
+func (s *MCPServer) RunStdioTransport(ctx context.Context) error {
+	return s.mcpServer.Run(ctx, &mcpsdk.StdioTransport{})
 }
 
 // Stop stops the MCP server
@@ -276,12 +337,16 @@ func (s *MCPServer) Stop() error {
 	return nil
 }
 
-// withCORS adds CORS support to the HTTP handler
+// withCORS adds CORS support to the HTTP handler.
+// 注意：Origin/CSRF 校验由 go-sdk StreamableHTTPHandler 内置提供
+// （DNS rebinding 保护 + CrossOriginProtection），此处 CORS 头仅影响
+// 浏览器预检；Allow-Headers 需覆盖规范定义的 MCP 请求头，否则
+// 浏览器端 MCP 客户端预检会失败。
 func (s *MCPServer) withCORS(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Authorization, Last-Event-ID")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -293,9 +358,37 @@ func (s *MCPServer) withCORS(handler http.Handler) http.Handler {
 }
 
 // Tool handlers - using low-level ToolHandler API
+
+// handleSerialList 聚合本侧与联邦（从实例上报）端口。
+// 本地端口对外名为裸名（如 COM3、/dev/ttyUSB1）；
+// 联邦端口对外名为 "side:port" 全名（如 "wsl:/dev/ttyUSB1"），connect 直接使用。
 func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-	result := tools.ExecuteSerialList(s.serialManager)
-	return s.toolResultToMCPResult(result)
+	local := tools.ExecuteSerialList(s.serialManager)
+	if !local.Success {
+		return s.toolResultToMCPResult(local)
+	}
+
+	side := federation.LocalSide()
+	ports := make([]federation.PortInfo, 0, 8)
+	m, ok := local.Data.(map[string]any)
+	if !ok {
+		logrus.Warnf("[SerialHub] 本地端口数据格式异常（期望 map，实际 %T），仅返回联邦端口", local.Data)
+	} else if localPorts, ok := m["ports"].([]string); !ok {
+		logrus.Warnf("[SerialHub] 本地端口列表类型异常（期望 []string），仅返回联邦端口")
+	} else {
+		for _, p := range localPorts {
+			ports = append(ports, federation.PortInfo{Name: p, Origin: "local", Side: side, Port: p})
+		}
+	}
+	if s.federation != nil {
+		ports = append(ports, s.federation.FederatedPorts()...)
+	}
+
+	return s.toolResultToMCPResult(tools.ToolResult{
+		Success: true,
+		Message: fmt.Sprintf("找到 %d 个串口", len(ports)),
+		Data:    map[string]any{"ports": ports},
+	})
 }
 
 func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
@@ -303,11 +396,33 @@ func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToo
 	if err := s.parseRequestParams(req, &input); err != nil {
 		return nil, s.invalidParamsError(err)
 	}
+
+	// 联邦端口：路由到从实例执行
+	if s.federation != nil && s.federation.IsFederated(input.Port) {
+		if s.serialManager.IsConnected() {
+			return s.toolResultToMCPResult(tools.ToolResult{Success: false, Message: "本地串口已连接，请先断开后再连接联邦端口"})
+		}
+		return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Open(input.Port, input.BaudRate)))
+	}
+
+	// 本地端口：联邦口活动时拒绝（全局单活动口模型，数据统一入 DataBuffer）
+	if s.federation != nil && s.federation.ActiveFederatedPort() != "" {
+		return s.toolResultToMCPResult(tools.ToolResult{
+			Success: false,
+			Message: fmt.Sprintf("联邦端口 %s 已连接，请先断开", s.federation.ActiveFederatedPort()),
+		})
+	}
+
 	result := tools.ExecuteSerialConnect(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
 }
 
 func (s *MCPServer) handleSerialDisconnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+	if s.federation != nil {
+		if ap := s.federation.ActiveFederatedPort(); ap != "" {
+			return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Close(ap)))
+		}
+	}
 	result := tools.ExecuteSerialDisconnect(s.serialManager)
 	return s.toolResultToMCPResult(result)
 }
@@ -317,6 +432,19 @@ func (s *MCPServer) handleSerialWrite(ctx context.Context, req *mcpsdk.CallToolR
 	if err := s.parseRequestParams(req, &input); err != nil {
 		return nil, s.invalidParamsError(err)
 	}
+
+	// 联邦口活动：数据路由到从实例写入（addNewline 在主侧展开，从侧只收裸字节）
+	if s.federation != nil {
+		if ap := s.federation.ActiveFederatedPort(); ap != "" {
+			data := input.Data
+			addNewline := input.AddNewline == nil || *input.AddNewline
+			if addNewline {
+				data += "\n"
+			}
+			return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Write(ap, []byte(data))))
+		}
+	}
+
 	result := tools.ExecuteSerialWrite(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
 }
@@ -326,7 +454,7 @@ func (s *MCPServer) handleSerialRead(ctx context.Context, req *mcpsdk.CallToolRe
 	if err := s.parseRequestParams(req, &input); err != nil {
 		return nil, s.invalidParamsError(err)
 	}
-	result := tools.ExecuteSerialRead(s.dataBuffer, input)
+	result := tools.ExecuteSerialRead(ctx, s.dataBuffer, input)
 	return s.toolResultToMCPResult(result)
 }
 
@@ -336,8 +464,26 @@ func (s *MCPServer) handleSerialClear(ctx context.Context, req *mcpsdk.CallToolR
 }
 
 func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+	if s.federation != nil {
+		if ap := s.federation.ActiveFederatedPort(); ap != "" {
+			return s.toolResultToMCPResult(tools.ToolResult{
+				Success: true,
+				Message: fmt.Sprintf("已连接联邦端口 %s", ap),
+				Data:    map[string]any{"connected": true, "port": ap, "origin": "federated"},
+			})
+		}
+	}
 	result := tools.ExecuteSerialStatus(s.serialManager)
 	return s.toolResultToMCPResult(result)
+}
+
+// fedSerialToToolResult 将联邦通道的 SerialResult 转为 tools.ToolResult。
+func fedSerialToToolResult(res federation.SerialResult) tools.ToolResult {
+	data := res.Data
+	if data == nil && res.Success {
+		data = map[string]any{}
+	}
+	return tools.ToolResult{Success: res.Success, Message: res.Message, Data: data}
 }
 
 // Helper functions
@@ -360,14 +506,39 @@ func (s *MCPServer) parseRequestParams(req *mcpsdk.CallToolRequest, target inter
 	return json.Unmarshal(data, target)
 }
 
+// toolResultToMCPResult 将内部 ToolResult 转为 MCP CallToolResult。
+// 依据 MCP 规范（2025-06-18 / server/tools#structured-content）：
+// 返回 structuredContent 的工具 SHOULD 同时在 TextContent 中给出
+// 序列化后的 JSON（供不支持 structuredContent 的旧客户端回退解析）。
 func (s *MCPServer) toolResultToMCPResult(result tools.ToolResult) (*mcpsdk.CallToolResult, error) {
-	content := mcpsdk.TextContent{
-		Text: fmt.Sprintf("%s\n%v", result.Message, result.Data),
+	var text string
+	if result.Success {
+		// 成功：message 与数据合并为单个 JSON 对象序列化
+		var payload map[string]any
+		if m, ok := result.Data.(map[string]any); ok {
+			payload = make(map[string]any, len(m)+1)
+			payload["message"] = result.Message
+			for k, v := range m {
+				payload[k] = v
+			}
+		} else if result.Data == nil {
+			payload = map[string]any{"message": result.Message}
+		} else {
+			payload = map[string]any{"message": result.Message, "data": result.Data}
+		}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			// 序列化失败兜底退回纯文本
+			text = result.Message
+		} else {
+			text = string(b)
+		}
+	} else {
+		// 失败：规范示例即纯文本错误消息（isError=true）
+		text = result.Message
 	}
 
-	if !result.Success {
-		content.Text = result.Message
-	}
+	content := mcpsdk.TextContent{Text: text}
 
 	return &mcpsdk.CallToolResult{
 		Content:           []mcpsdk.Content{&content},

@@ -541,7 +541,7 @@ func TestForwardTelnetToSerial_WriteError(t *testing.T) {
 	}
 }
 
-// --- convertLFToCRLF 单元测试 ---
+// --- ConvertLFToCRLF 单元测试 ---
 
 func TestConvertLFToCRLF(t *testing.T) {
 	tests := []struct {
@@ -566,9 +566,9 @@ func TestConvertLFToCRLF(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := convertLFToCRLF([]byte(tt.input))
+			got := ConvertLFToCRLF([]byte(tt.input))
 			if string(got) != tt.want {
-				t.Errorf("convertLFToCRLF(%q) = %q, 期望 %q", tt.input, got, tt.want)
+				t.Errorf("ConvertLFToCRLF(%q) = %q, 期望 %q", tt.input, got, tt.want)
 			}
 		})
 	}

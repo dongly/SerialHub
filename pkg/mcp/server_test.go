@@ -204,8 +204,8 @@ func checkCORSHeaders(t *testing.T, rec *httptest.ResponseRecorder) {
 		t.Errorf("Access-Control-Allow-Methods 预期 'GET, POST, OPTIONS'，实际: %s", methods)
 	}
 	headers := rec.Header().Get("Access-Control-Allow-Headers")
-	if headers != "Content-Type" {
-		t.Errorf("Access-Control-Allow-Headers 预期 'Content-Type'，实际: %s", headers)
+	if headers != "Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Authorization, Last-Event-ID" {
+		t.Errorf("Access-Control-Allow-Headers 预期含 MCP 请求头，实际: %s", headers)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestStartHTTPServer_HealthEndpoint(t *testing.T) {
 	}
 
 	addr := findFreePort(t)
-	httpServer, err := server.StartHTTPServer(addr)
+	httpServer, err := server.StartHTTPServer(addr, false)
 	if err != nil {
 		t.Fatalf("启动 HTTP 服务器失败: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestStartHTTPServer_HealthEndpoint(t *testing.T) {
 		t.Fatalf("读取响应体失败: %v", err)
 	}
 
-	expected := `{"status":"ok"}`
+	expected := `{"status":"ok","role":"master"}`
 	if strings.TrimSpace(string(body)) != expected {
 		t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
 	}
@@ -345,12 +345,17 @@ func TestToolResultToMCPResult(t *testing.T) {
 			t.Fatal("Content[0] 类型应为 *TextContent")
 		}
 
-		// 成功时文本应包含 Message 和 Data
-		if !strings.Contains(textContent.Text, "操作成功") {
-			t.Errorf("成功结果文本应包含消息，实际: %s", textContent.Text)
+		// 成功时文本应为合法 JSON（规范 SHOULD：structuredContent 的
+		// 回退文本块为序列化 JSON），且包含 message 与数据字段
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(textContent.Text), &parsed); err != nil {
+			t.Fatalf("成功结果文本应为合法 JSON，实际: %s（错误: %v）", textContent.Text, err)
 		}
-		if !strings.Contains(textContent.Text, getTestPort()) {
-			t.Errorf("成功结果文本应包含 Data，实际: %s", textContent.Text)
+		if parsed["message"] != "操作成功" {
+			t.Errorf("JSON 文本 message 字段应为 '操作成功'，实际: %v", parsed["message"])
+		}
+		if parsed["port"] != getTestPort() {
+			t.Errorf("JSON 文本应包含端口字段，实际: %s", textContent.Text)
 		}
 		// isError 应为 false（omitempty 序列化时省略）
 		if mcpResult.IsError {
@@ -453,7 +458,7 @@ func TestStreamableHTTPHandler(t *testing.T) {
 	}
 
 	addr := findFreePort(t)
-	httpServer, err := server.StartHTTPServer(addr)
+	httpServer, err := server.StartHTTPServer(addr, false)
 	if err != nil {
 		t.Fatalf("启动 HTTP 服务器失败: %v", err)
 	}
@@ -530,7 +535,7 @@ func TestStreamableHTTPHandler(t *testing.T) {
 			t.Fatalf("读取响应体失败: %v", err)
 		}
 
-		expected := `{"status":"ok"}`
+		expected := `{"status":"ok","role":"master"}`
 		if strings.TrimSpace(string(body)) != expected {
 			t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
 		}
@@ -552,7 +557,7 @@ func TestToolHandlers(t *testing.T) {
 	}
 
 	addr := findFreePort(t)
-	httpServer, err := server.StartHTTPServer(addr)
+	httpServer, err := server.StartHTTPServer(addr, false)
 	if err != nil {
 		t.Fatalf("启动 HTTP 服务器失败: %v", err)
 	}
