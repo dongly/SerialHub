@@ -113,6 +113,8 @@ internal/federation/   联邦协议（主从发现、注册、串口代理、数
 internal/testutil/     Mock 串口（MockSerialPort）、Mock 网络连接（MockConn）、测试辅助
 tests/integration/     Python 集成测试（pytest，需运行中的服务）
 tests/e2e/             Python E2E 测试（Playwright，需真实串口）
+docs/                  领域术语表（CONTEXT.md）、MCP 规范审计报告
+tools/                 开发辅助脚本（genicons.py 图标生成）
 ```
 
 ## MCP 工具
