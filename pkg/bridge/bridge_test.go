@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/buffer"
 )
 
 // --- Mock 实现 ---
@@ -46,7 +46,7 @@ type mockWsBroadcaster struct {
 }
 
 func (m *mockWsBroadcaster) DataChan() <-chan []byte { return m.dataChan }
-func (m *mockWsBroadcaster) CmdChan() <-chan []byte { return m.cmdChan }
+func (m *mockWsBroadcaster) CmdChan() <-chan []byte  { return m.cmdChan }
 func (m *mockWsBroadcaster) Broadcast(data []byte) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

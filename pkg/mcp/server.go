@@ -12,15 +12,15 @@ import (
 	"runtime"
 	"strings"
 
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/federation"
+	"github.com/dongly/serialhub/pkg/mcp/tools"
+	"github.com/dongly/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/version"
+	"github.com/dongly/serialhub/pkg/web"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
-	"github.com/yourname/serialhub/internal/buffer"
-	"github.com/yourname/serialhub/internal/federation"
-	"github.com/yourname/serialhub/pkg/mcp/tools"
-	"github.com/yourname/serialhub/pkg/serial"
-	"github.com/yourname/serialhub/pkg/version"
-	"github.com/yourname/serialhub/pkg/web"
 )
 
 // FedRouter 是主实例的联邦路由能力，由 internal/federation.Manager 实现。

@@ -4,7 +4,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 // ExecuteSerialStatus gets the current serial port connection status

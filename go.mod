@@ -1,4 +1,4 @@
-module github.com/yourname/serialhub
+module github.com/dongly/serialhub
 
 go 1.26.1
 

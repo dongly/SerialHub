@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/dongly/serialhub/internal/buffer"
 	"github.com/sirupsen/logrus"
-	"github.com/yourname/serialhub/internal/buffer"
 )
 
 // SerialReader 接口定义了串口数据读取和写入行为
@@ -26,13 +26,13 @@ type WebSocketBroadcaster interface {
 
 // DataBridge 管理串口、WebSocket 和 MCP 之间的数据转发
 type DataBridge struct {
-	serial      SerialReader
-	ws          WebSocketBroadcaster
-	mcpBuffer   *buffer.DataBuffer
-	cmdHandler  CommandHandler
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	serial     SerialReader
+	ws         WebSocketBroadcaster
+	mcpBuffer  *buffer.DataBuffer
+	cmdHandler CommandHandler
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 type CommandHandler func(cmd []byte) []byte

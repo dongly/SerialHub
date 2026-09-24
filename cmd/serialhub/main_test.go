@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yourname/serialhub/internal/testutil"
-	"github.com/yourname/serialhub/pkg/config"
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/internal/testutil"
+	"github.com/dongly/serialhub/pkg/config"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 func TestConfigToSerialConfig(t *testing.T) {

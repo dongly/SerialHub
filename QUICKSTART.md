@@ -2,7 +2,7 @@
 
 ## 1. 下载与安装
 
-从 [GitHub Releases](https://github.com/yourname/serialhub/releases) 下载对应平台的版本：
+从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的版本：
 
 - **Windows**: `serialhub-x.x.x-windows-amd64.zip`
 - **Linux**: `serialhub-x.x.x-linux-amd64.tar.gz`

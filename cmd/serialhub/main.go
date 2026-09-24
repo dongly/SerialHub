@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/yourname/serialhub/pkg/version"
+	"github.com/dongly/serialhub/pkg/version"
 )
 
 var (

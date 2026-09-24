@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/serialhub/internal/testutil"
+	"github.com/dongly/serialhub/internal/testutil"
 )
 
 func getTestPort() string {

@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/pkg/mcp/tools"
+	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
-	"github.com/yourname/serialhub/internal/buffer"
-	"github.com/yourname/serialhub/pkg/mcp/tools"
-	"github.com/yourname/serialhub/pkg/serial"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func getTestPort() string {

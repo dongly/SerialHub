@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dongly/serialhub/pkg/config"
 	"github.com/sirupsen/logrus"
-	"github.com/yourname/serialhub/pkg/config"
 )
 
 var logFile *os.File

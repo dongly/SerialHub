@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/serialhub/internal/buffer"
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 func getTestPort() string {

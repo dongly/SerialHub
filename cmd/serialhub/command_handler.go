@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 func createCommandHandler(sm *serial.SerialManager) func(cmd []byte) []byte {

@@ -4,7 +4,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 // WriteInput represents input for serial_write tool

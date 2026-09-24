@@ -4,7 +4,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/yourname/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/buffer"
 )
 
 // ExecuteSerialClear 清空 read 缓冲区，丢弃尚未被 serial_read 读取的数据

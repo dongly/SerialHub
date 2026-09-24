@@ -13,8 +13,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/yourname/serialhub/pkg/config"
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/config"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 type TrayState string

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yourname/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/buffer"
 )
 
 // ReadInput represents input for serial_read tool

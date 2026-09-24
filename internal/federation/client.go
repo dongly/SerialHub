@@ -11,8 +11,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
-	"github.com/yourname/serialhub/pkg/mcp/tools"
-	"github.com/yourname/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/mcp/tools"
+	"github.com/dongly/serialhub/pkg/serial"
 )
 
 // reconnectAttempts 断线重连次数；全部失败后触发晋升评估。

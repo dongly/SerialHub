@@ -85,7 +85,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
 - **错误消息用中文**（用户可见的）：“连接失败：端口不存在”
 - 错误包装：`fmt.Errorf("描述：%w", err)`
-- 导入顺序：标准库 → 第三方 → 本地（`github.com/yourname/serialhub`）
+- 导入顺序：标准库 → 第三方 → 本地（`github.com/dongly/serialhub`）
 - 测试描述中文：`func TestXxxx(t *testing.T)`
 - 日志前缀统一 `[SerialHub]`
 

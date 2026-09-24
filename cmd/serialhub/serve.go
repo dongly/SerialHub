@@ -13,16 +13,16 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/federation"
+	"github.com/dongly/serialhub/pkg/bridge"
+	"github.com/dongly/serialhub/pkg/config"
+	"github.com/dongly/serialhub/pkg/mcp"
+	"github.com/dongly/serialhub/pkg/serial"
+	"github.com/dongly/serialhub/pkg/tray"
+	"github.com/dongly/serialhub/pkg/web"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/yourname/serialhub/internal/buffer"
-	"github.com/yourname/serialhub/internal/federation"
-	"github.com/yourname/serialhub/pkg/bridge"
-	"github.com/yourname/serialhub/pkg/config"
-	"github.com/yourname/serialhub/pkg/mcp"
-	"github.com/yourname/serialhub/pkg/serial"
-	"github.com/yourname/serialhub/pkg/tray"
-	"github.com/yourname/serialhub/pkg/web"
 )
 
 // runServe 入口分流：--stdio → stdio 模式；联邦发现命中 → 从实例；否则主实例。

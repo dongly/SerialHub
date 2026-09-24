@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dongly/serialhub/internal/testutil"
+	"github.com/dongly/serialhub/pkg/config"
+	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/getlantern/systray"
-	"github.com/yourname/serialhub/internal/testutil"
-	"github.com/yourname/serialhub/pkg/config"
-	"github.com/yourname/serialhub/pkg/serial"
 )
 
 func getTestPort() string {

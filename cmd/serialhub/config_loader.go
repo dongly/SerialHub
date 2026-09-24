@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dongly/serialhub/pkg/config"
+	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/sirupsen/logrus"
-	"github.com/yourname/serialhub/pkg/config"
-	"github.com/yourname/serialhub/pkg/serial"
 )
 
 func loadConfig() *config.Config {
