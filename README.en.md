@@ -73,6 +73,16 @@ SerialHub bridges a single MCU UART to both humans and AI agents:
 - **Observable**: all data flows can be logged and traced
 - **Error recovery**: network/serial faults are handled gracefully
 
+## Installation
+
+Download the archive for your platform from [GitHub Releases](https://github.com/dongly/serialhub/releases)
+and unzip — no installer needed (Windows archives include `start.ps1`/`start.bat` launch scripts).
+
+For details (PATH setup, install verification, USB serial ports under WSL) see
+[QUICKSTART.md](./QUICKSTART.md). WSL users are recommended
+[wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) to attach USB serial
+devices into WSL with one click.
+
 ## Build
 
 ```bash

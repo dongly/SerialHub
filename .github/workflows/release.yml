@@ -67,7 +67,7 @@ jobs:
           cp README.md README.en.md MCP.md QUICKSTART.md LICENSE "${STAGE}/"
           echo "${VERSION}" > "${STAGE}/VERSION"
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cp start.ps1 "${STAGE}/"
+            cp start.ps1 start.bat "${STAGE}/"
             7z a "${STAGE}.zip" "${STAGE}"
             sha256sum "${STAGE}.zip" > "${STAGE}.zip.sha256"
           else

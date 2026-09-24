@@ -74,6 +74,15 @@ SerialHub 把 MCU 串口同时桥接给人和 AI：
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
 
+## 安装
+
+从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的压缩包，
+解压即用（Windows 包内含 `start.ps1`/`start.bat` 启动脚本）。
+
+详细步骤（PATH 配置、安装验证、WSL USB 串口挂载）见 [QUICKSTART.md](./QUICKSTART.md)。
+WSL 用户推荐用 [wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) 一键把
+USB 串口 attach 进 WSL。
+
 ## 构建
 
 ```bash

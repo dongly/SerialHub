@@ -7,18 +7,51 @@
 - **Windows**: `serialhub-x.x.x-windows-amd64.zip`
 - **Linux**: `serialhub-x.x.x-linux-amd64.tar.gz`
 
-解压后得到以下文件：
+### 解压
+
+包内为平铺结构：
+
 ```
-serialhub-x.x.x-xxx/
-├── bin/
-│   └── serialhub.exe      # 主程序
-├── config.toml            # 配置文件
-├── start.ps1              # Windows 启动脚本
-├── README.md              # 项目说明
-├── MCP.md                 # MCP 使用指南
-├── QUICKSTART.md          # 快速开始指南
-└── VERSION                # 版本信息
+serialhub-x.x.x-windows-amd64/
+├── serialhub.exe    # 主程序（Linux 为 serialhub）
+├── config.toml      # 配置文件模板
+├── start.ps1        # Windows 启动脚本（PowerShell，自动杀旧进程+最小化）
+├── start.bat        # Windows 启动脚本（cmd 极简版）
+├── README.md / README.en.md
+├── MCP.md           # MCP 使用指南
+├── QUICKSTART.md
+├── VERSION          # 版本信息
+└── LICENSE          # Apache-2.0
 ```
+
+### 加入 PATH（可选，命令行直接敲 `serialhub` 用）
+
+**Windows**（PowerShell，管理员）：
+
+```powershell
+# 假设解压到 D:\Tools\serialhub
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\Tools\serialhub", "Machine")
+```
+
+**Linux**：
+
+```bash
+# 假设解压到 ~/tools/serialhub
+sudo ln -s ~/tools/serialhub/serialhub /usr/local/bin/serialhub
+```
+
+### 验证安装
+
+```bash
+serialhub --version    # 输出 SerialHub v0.5.0 形式即成功
+```
+
+### WSL 用户：把 USB 串口接入 WSL
+
+WSL 默认看不到 Windows 宿主的 USB 串口，需要 usbipd 挂载。推荐图形工具
+[wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) 一键 attach，
+或使用命令行 `usbipd`（`usbipd list` → `usbipd bind` → `usbipd attach --wsl`）。
+挂载成功后 WSL 内出现 `/dev/ttyUSB*`，即可被 SerialHub 联邦模式从侧使用。
 
 ## 2. 启动 SerialHub
 
@@ -28,21 +61,20 @@ serialhub-x.x.x-xxx/
 # 方式 1: 使用启动脚本
 .\start.ps1
 
-# 方式 2: 直接运行
-.\bin\serialhub.exe
+# 方式 2: 双击 start.bat（极简启动）
 
-# 方式 3: 指定串口启动
-.\bin\serialhub.exe -p COM9
+# 方式 3: 直接运行
+.\serialhub.exe -p COM9
 ```
 
-### Linux/macOS
+### Linux
 
 ```bash
 # 直接运行
-./bin/serialhub
+./serialhub
 
 # 指定串口启动
-./bin/serialhub -p /dev/ttyUSB0
+./serialhub -p /dev/ttyUSB0
 ```
 
 ## 3. 访问 Web 终端
