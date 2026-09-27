@@ -198,30 +198,33 @@ Claude Code 用户级经官方 CLI 写入）。以下为各客户端的手动配
 
 #### OpenCode
 
-配置文件：用户级 `~/.opencode/opencode.json`，项目级 `opencode.json`（项目根目录，优先级更高）。
+配置文件：用户级 `~/.config/opencode/opencode.json`，项目级 `opencode.json`（项目根目录，优先级更高）。
+OpenCode V2 要求 MCP 服务器嵌套在 `mcp.servers` 下：
 
 ```json
 {
   "mcp": {
-    "serialhub": {
-      "type": "remote",
-      "url": "http://127.0.0.1:5050/mcp",
-      "enabled": true
+    "servers": {
+      "serialhub": {
+        "type": "remote",
+        "url": "http://127.0.0.1:5050/mcp",
+        "oauth": false
+      }
     }
   }
 }
 ```
 
-stdio 方式（免手动启动，OpenCode 拉起子进程并随其退出）：
+stdio 方式（免手动启动，OpenCode 拉起子进程并随其退出；`command` 为「可执行文件+参数」数组）：
 
 ```json
 {
   "mcp": {
-    "serialhub": {
-      "type": "local",
-      "command": "serialhub",
-      "args": ["--stdio"],
-      "enabled": true
+    "servers": {
+      "serialhub": {
+        "type": "local",
+        "command": ["serialhub", "--stdio"]
+      }
     }
   }
 }

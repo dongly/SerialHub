@@ -92,10 +92,12 @@ SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf /
 ```json
 {
   "mcp": {
-    "serialhub": {
-      "type": "remote",
-      "url": "http://127.0.0.1:5050/mcp",
-      "enabled": true
+    "servers": {
+      "serialhub": {
+        "type": "remote",
+        "url": "http://127.0.0.1:5050/mcp",
+        "oauth": false
+      }
     }
   }
 }

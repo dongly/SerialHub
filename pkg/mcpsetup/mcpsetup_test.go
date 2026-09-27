@@ -102,9 +102,9 @@ func TestTarget(t *testing.T) {
 		want     string
 	}{
 		{"opencode项目HTTP", Options{Client: "opencode", Scope: ScopeProject, Mode: ModeHTTP, URL: "http://127.0.0.1:5050/mcp"},
-			"opencode.json", "mcp", "type", "remote"},
+			"opencode.json", "mcp.servers", "type", "remote"},
 		{"opencode用户stdio", Options{Client: "opencode", Scope: ScopeUser, Mode: ModeStdio},
-			cfg(".config", "opencode", "opencode.json"), "mcp", "type", "local"},
+			cfg(".config", "opencode", "opencode.json"), "mcp.servers", "type", "local"},
 		{"claude项目HTTP", Options{Client: "claude", Scope: ScopeProject, Mode: ModeHTTP, URL: "u"},
 			".mcp.json", "mcpServers", "type", "http"},
 		{"cursor项目", Options{Client: "cursor", Scope: ScopeProject, Mode: ModeHTTP, URL: "u"},
@@ -140,5 +140,62 @@ func TestScope校验(t *testing.T) {
 	}
 	if _, err := Install(Options{Client: "nope"}); err == nil {
 		t.Fatal("未知客户端应报错")
+	}
+}
+
+// OpenCode V2 结构：条目须嵌套在 mcp.servers 下；stdio 的 command 为数组；
+// v0.5.0 写入的扁平 mcp.serialhub 残留应被迁移清理
+func TestOpenCodeV2结构(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir) // 项目级 Install 写入当前目录 opencode.json，需隔离
+	path := filepath.Join(dir, "opencode.json")
+	// 模拟含 V1 扁平残留的既有配置
+	orig := `{"mcp":{"serialhub":{"type":"remote","url":"http://old/mcp","enabled":true},"other":{"url":"x"}},"model":"m"}`
+	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{
+		Client: "opencode", Scope: ScopeProject, Mode: ModeHTTP, URL: "http://127.0.0.1:5050/mcp",
+		ConfirmOverwrite: func(string) bool { return true },
+	}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	raw, _ := os.ReadFile(path)
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	mcp := cfg["mcp"].(map[string]any)
+	if _, exists := mcp["serialhub"]; exists {
+		t.Fatal("V1 扁平残留 mcp.serialhub 未被清理")
+	}
+	servers := mcp["servers"].(map[string]any)
+	entry := servers["serialhub"].(map[string]any)
+	if entry["type"] != "remote" || entry["url"] != "http://127.0.0.1:5050/mcp" {
+		t.Fatalf("mcp.servers.serialhub 条目错误：%v", entry)
+	}
+	if _, has := entry["enabled"]; has {
+		t.Fatal("V2 无 enabled 字段")
+	}
+	if mcp["other"] == nil {
+		t.Fatal("mcp.other 邻居条目应保留")
+	}
+	if cfg["model"] != "m" {
+		t.Fatal("其他顶层键应保留")
+	}
+}
+
+// opencode stdio 模式的 command 应为「可执行文件+--stdio」数组（V2 无 args 字段）
+func TestOpenCodeStdioCommand数组(t *testing.T) {
+	_, _, entry, err := target(Options{Client: "opencode", Scope: ScopeUser, Mode: ModeStdio})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, ok := entry["command"].([]string)
+	if !ok || len(cmd) != 2 || cmd[1] != "--stdio" {
+		t.Fatalf("command 应为 [可执行文件, --stdio] 数组，得到 %v", entry["command"])
+	}
+	if _, has := entry["args"]; has {
+		t.Fatal("V2 无独立 args 字段")
 	}
 }

@@ -146,10 +146,12 @@ serialhub -p COM9 --host 0.0.0.0 -D
 ```json
 {
   "mcp": {
-    "serialhub": {
-      "type": "remote",
-      "url": "http://localhost:5050/mcp",
-      "enabled": true
+    "servers": {
+      "serialhub": {
+        "type": "remote",
+        "url": "http://localhost:5050/mcp",
+        "oauth": false
+      }
     }
   }
 }

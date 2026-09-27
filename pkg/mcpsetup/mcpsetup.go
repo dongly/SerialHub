@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/dongly/serialhub/pkg/config"
 )
@@ -137,6 +138,9 @@ func Install(opts Options) (string, error) {
 	if err := mergeJSON(path, key, "serialhub", entry, opts.ConfirmOverwrite); err != nil {
 		return "", err
 	}
+	if opts.Client == "opencode" {
+		removeLegacyOpenCodeFlat(path)
+	}
 	abs, _ := filepath.Abs(path)
 	return abs, nil
 }
@@ -150,12 +154,15 @@ func target(opts Options) (path, topKey string, entry map[string]any, err error)
 	m := opts.Mode
 	switch opts.Client {
 	case "opencode":
+		// OpenCode V2 要求 MCP 服务器嵌套在 mcp.servers 下（V1 的扁平 mcp.<name> 已废弃）；
+		// local 的 command 是「可执行文件+参数」数组（无独立 args 字段），
+		// 停用状态用 disabled（无 enabled 字段），SerialHub 端点无鉴权故关闭 OAuth。
 		if m == ModeStdio {
-			entry = map[string]any{"type": "local", "command": opts.stdioCommand(), "args": []string{"--stdio"}, "enabled": true}
+			entry = map[string]any{"type": "local", "command": append([]string{opts.stdioCommand()}, "--stdio")}
 		} else {
-			entry = map[string]any{"type": "remote", "url": opts.URL, "enabled": true}
+			entry = map[string]any{"type": "remote", "url": opts.URL, "oauth": false}
 		}
-		topKey = "mcp"
+		topKey = "mcp.servers"
 		if opts.Scope == ScopeProject {
 			path = "opencode.json"
 		} else if runtime.GOOS == "windows" {
@@ -204,7 +211,8 @@ func target(opts Options) (path, topKey string, entry map[string]any, err error)
 }
 
 // mergeJSON 读取 path（不存在则视为空对象），把 entry 写入 topKey.name，
-// 保留其他所有键。条目已存在时经 confirm 决定是否覆盖。
+// 保留其他所有键。topKey 支持点分嵌套路径（如 "mcp.servers"，逐层创建）。
+// 条目已存在时经 confirm 决定是否覆盖。
 func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(string) bool) error {
 	root := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
@@ -212,17 +220,22 @@ func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(str
 			return fmt.Errorf("解析 %s 失败（不是有效 JSON）：%w", path, err)
 		}
 	}
-	section, _ := root[topKey].(map[string]any)
-	if section == nil {
-		section = map[string]any{}
+	cur := root
+	for _, part := range strings.Split(topKey, ".") {
+		next, _ := cur[part].(map[string]any)
+		if next == nil {
+			next = map[string]any{}
+			cur[part] = next
+		}
+		cur = next
 	}
+	section := cur
 	if _, exists := section[name]; exists {
 		if confirm == nil || !confirm(path) {
 			return ErrEntryExists
 		}
 	}
 	section[name] = entry
-	root[topKey] = section
 
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -235,6 +248,35 @@ func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(str
 		}
 	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// removeLegacyOpenCodeFlat 迁移清理：v0.5.0 及以前写入过 V1 扁平结构
+// mcp.serialhub（OpenCode V2 不加载该位置），检测到即删除，尽力而为不报错。
+func removeLegacyOpenCodeFlat(path string) {
+	root := map[string]any{}
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return
+	}
+	mcp, ok := root["mcp"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, exists := mcp["serialhub"]; !exists {
+		return
+	}
+	delete(mcp, "serialhub")
+	if len(mcp) == 0 {
+		delete(root, "mcp")
+	}
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, append(out, '\n'), 0o644)
 }
 
 // installCodexCLI 通过 codex 官方 CLI 写入（仅用户级，~/.codex/config.toml）。
