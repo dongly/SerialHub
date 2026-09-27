@@ -71,8 +71,8 @@ func runMaster(cfg *config.Config) error {
 	if enableTray {
 		return runWithTray(cfg, sm, buf)
 	}
-	// --minimized 跨平台生效：脚本静默启动不自动打开浏览器
-	return runWithoutTray(cfg, sm, buf, !minimized)
+	// --no-browser 跳过自动打开浏览器；--minimized 仅控制窗口最小化，不再抑制浏览器
+	return runWithoutTray(cfg, sm, buf, !noBrowser)
 }
 
 func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer) error {
@@ -122,8 +122,8 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			return
 		}
 
-		// --minimized（脚本静默启动）不自动打开浏览器
-		startServices(sm, wsSrv, buf, !minimized)
+		// --no-browser（脚本静默启动）不自动打开浏览器
+		startServices(sm, wsSrv, buf, !noBrowser)
 
 		addr := fmt.Sprintf("%s:%d", host, mcpPort)
 		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)

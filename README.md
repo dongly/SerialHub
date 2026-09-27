@@ -103,7 +103,8 @@ serialhub -D                                 # 调试模式
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |
 | `--stdio` | - | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） | false |
-| `--minimized` | - | 由脚本启动，跳过自动打开浏览器（跨平台；Windows 下同时隐藏控制台） | false |
+| `--minimized` | - | 由脚本启动，窗口最小化（Windows 下同时隐藏控制台）；浏览器仍默认自动打开 | false |
+| `--no-browser` | - | 跳过自动打开浏览器（日志仍会提示 Web 终端地址） | false |
 
 ### 系统托盘（Windows）
 

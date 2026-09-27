@@ -272,15 +272,17 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", ln.Addr())
 
-	// 自动打开浏览器（--minimized/--stdio/从实例模式下由调用方关闭）
+	// 终端地址始终提示；--no-browser/--stdio/从实例模式下仅跳过自动打开动作
+	displayAddr := addr
+	if strings.HasPrefix(addr, "0.0.0.0:") {
+		displayAddr = "127.0.0.1:" + strings.TrimPrefix(addr, "0.0.0.0:")
+	}
+	url := "http://" + displayAddr + "/terminal"
 	if autoOpenBrowser {
-		displayAddr := addr
-		if strings.HasPrefix(addr, "0.0.0.0:") {
-			displayAddr = "127.0.0.1:" + strings.TrimPrefix(addr, "0.0.0.0:")
-		}
-		url := "http://" + displayAddr + "/terminal"
 		logrus.Infof("[SerialHub] 正在打开浏览器: %s", url)
 		go openBrowser(url)
+	} else {
+		logrus.Infof("[SerialHub] Web 终端地址: %s", url)
 	}
 
 	return server, nil

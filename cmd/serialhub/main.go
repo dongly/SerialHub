@@ -19,6 +19,7 @@ var (
 	mcpPort    int
 	host       string
 	minimized  bool
+	noBrowser  bool
 	stdioMode  bool
 )
 
@@ -38,6 +39,7 @@ func main() {
 	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", config.DefaultHTTPPort, "MCP HTTP 服务端口")
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&minimized, "minimized", false, "由脚本启动，窗口最小化")
+	rootCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "跳过自动打开浏览器")
 	rootCmd.Flags().BoolVar(&stdioMode, "stdio", false, "以 stdio 模式运行（MCP 客户端本地拉起）")
 
 	rootCmd.Version = appVersion
