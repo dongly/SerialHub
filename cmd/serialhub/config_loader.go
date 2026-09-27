@@ -51,6 +51,12 @@ func loadConfig() *config.Config {
 		}
 	}
 
+	// 回填全局变量：serve 流程（联邦发现、HTTP 监听、反代）统一使用
+	// 最终生效的端口与地址——否则配置文件指定的端口不会传导，
+	// 发现与监听仍停留在 flag 默认值（如 5050）。
+	host = cfg.Host
+	mcpPort = cfg.MCP.HTTPPort
+
 	return cfg
 }
 
