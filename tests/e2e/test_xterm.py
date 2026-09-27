@@ -30,7 +30,7 @@ def test_xterm():
             
             # 打开终端
             print("Opening terminal...")
-            page.goto("http://127.0.0.1:5000/terminal")
+            page.goto("http://127.0.0.1:5050/terminal")
             time.sleep(3)
             
             # 截图初始状态

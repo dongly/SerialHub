@@ -25,7 +25,7 @@ flowchart TB
     subgraph SerialHub["SerialHub（单二进制）"]
         Serial <-->|"事件总线"| Bridge["数据桥接<br/>DataBridge"]
         Bridge <-->|"读写"| Buffer["DataBuffer<br/>共享缓冲"]
-        Bridge <-->|"WebSocket (端口 5000)"| Web["Web 终端<br/>xterm.js"]
+        Bridge <-->|"WebSocket (端口 5050)"| Web["Web 终端<br/>xterm.js"]
         Bridge <-->|"JSON-RPC (HTTP)"| MCP["MCP 服务<br/>7 个工具"]
     end
 
@@ -98,7 +98,7 @@ serialhub -D                                 # 调试模式
 | `--data-bits <bits>` | `-d` | 数据位（5/6/7/8） | 8 |
 | `--parity <type>` | - | 校验位（none/even/odd） | none |
 | `--stop-bits <bits>` | `-s` | 停止位（1/2） | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5000 |
+| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5050 |
 | `--host <host>` | - | 监听地址 | 127.0.0.1 |
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |
@@ -139,7 +139,7 @@ serialhub -p COM9 --host 0.0.0.0 -D
 
 2. 人工通过 Web 终端连接监视：
 
-打开浏览器访问 `http://localhost:5000/terminal`
+打开浏览器访问 `http://localhost:5050/terminal`
 
 3. AI 工具通过 HTTP MCP 连接：
 
@@ -148,7 +148,7 @@ serialhub -p COM9 --host 0.0.0.0 -D
   "mcp": {
     "serialhub": {
       "type": "remote",
-      "url": "http://localhost:5000/mcp",
+      "url": "http://localhost:5050/mcp",
       "enabled": true
     }
   }
@@ -161,7 +161,7 @@ serialhub -p COM9 --host 0.0.0.0 -D
 
 SerialHub 内置基于 WebSocket 的终端界面，使用 xterm.js 提供完整的终端体验。
 
-**访问地址**：`http://localhost:5000/terminal`
+**访问地址**：`http://localhost:5050/terminal`
 
 **功能特性**：
 - 实时显示串口输出
@@ -175,28 +175,28 @@ SerialHub 内置基于 WebSocket 的终端界面，使用 xterm.js 提供完整�
 
 ```bash
 # 健康检查
-curl http://localhost:5000/health
+curl http://localhost:5050/health
 
 # 列出可用串口
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
 
 # 连接串口
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_connect","arguments":{"port":"COM9"}},"id":2}'
 
 # 发送命令（自动追加换行符）
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_write","arguments":{"data":"help"}},"id":3}'
 
 # 读取串口返回数据（阻塞等待，timeout=0 表示无限等待）
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_read","arguments":{"timeout":5000}},"id":4}'
@@ -320,7 +320,7 @@ parity = "none"     # none / even / odd
 stopBits = 1
 
 [mcp]
-httpPort = 5000
+httpPort = 5050
 ```
 
 | 配置项 | 默认值 | 说明 |
@@ -330,7 +330,7 @@ httpPort = 5000
 | `serial.dataBits` | `8` | 数据位（5/6/7/8） |
 | `serial.parity` | `"none"` | 校验位（none/even/odd） |
 | `serial.stopBits` | `1` | 停止位（1/2） |
-| `mcp.httpPort` | `5000` | MCP HTTP 服务端口（同时提供 Web 终端） |
+| `mcp.httpPort` | `5050` | MCP HTTP 服务端口（同时提供 Web 终端） |
 | `logDir` | `""` | 日志目录，为空则保存到可执行文件目录下的 `logs/` |
 | `debug` | `false` | 调试模式开关 |
 

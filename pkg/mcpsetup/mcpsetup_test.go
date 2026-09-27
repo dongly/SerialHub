@@ -24,7 +24,7 @@ func TestMergeJSON_保留既有条目(t *testing.T) {
 
 	called := false
 	err := mergeJSON(path, "mcpServers", "serialhub",
-		map[string]any{"url": "http://127.0.0.1:5000/mcp"},
+		map[string]any{"url": "http://127.0.0.1:5050/mcp"},
 		func(p string) bool { called = true; return true })
 	if err != nil {
 		t.Fatalf("mergeJSON: %v", err)
@@ -45,7 +45,7 @@ func TestMergeJSON_保留既有条目(t *testing.T) {
 	if got["别的配置"] != true {
 		t.Fatal("其他顶层键被删除")
 	}
-	if servers["serialhub"].(map[string]any)["url"] != "http://127.0.0.1:5000/mcp" {
+	if servers["serialhub"].(map[string]any)["url"] != "http://127.0.0.1:5050/mcp" {
 		t.Fatal("serialhub 条目未更新")
 	}
 }
@@ -95,7 +95,7 @@ func TestTarget(t *testing.T) {
 		checkKey string
 		want     string
 	}{
-		{"opencode项目HTTP", Options{Client: "opencode", Scope: ScopeProject, Mode: ModeHTTP, URL: "http://127.0.0.1:5000/mcp"},
+		{"opencode项目HTTP", Options{Client: "opencode", Scope: ScopeProject, Mode: ModeHTTP, URL: "http://127.0.0.1:5050/mcp"},
 			"opencode.json", "mcp", "type", "remote"},
 		{"opencode用户stdio", Options{Client: "opencode", Scope: ScopeUser, Mode: ModeStdio},
 			cfg(".config", "opencode", "opencode.json"), "mcp", "type", "local"},

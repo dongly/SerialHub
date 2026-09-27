@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/dongly/serialhub/pkg/config"
 )
 
 // Mode 接入模式：HTTP（Streamable HTTP 端点）或 stdio（客户端本地拉起）。
@@ -38,7 +40,7 @@ var ErrEntryExists = errors.New("目标配置中已存在 serialhub 条目")
 type Options struct {
 	Client  string // 客户端 ID
 	Mode    Mode
-	URL     string // HTTP 模式的端点，如 http://127.0.0.1:5000/mcp
+	URL     string // HTTP 模式的端点，如 http://127.0.0.1:5050/mcp
 	Scope   Scope  // 项目级 / 用户级
 	Command string // stdio 模式的可执行文件名，默认 serialhub
 	// ConfirmOverwrite 在条目已存在时被调用，返回 true 表示覆盖更新。
@@ -104,7 +106,7 @@ func Install(opts Options) (string, error) {
 		opts.Mode = ModeHTTP
 	}
 	if opts.Mode == ModeHTTP && opts.URL == "" {
-		opts.URL = "http://127.0.0.1:5000/mcp"
+		opts.URL = fmt.Sprintf("http://127.0.0.1:%d/mcp", config.DefaultHTTPPort)
 	}
 
 	// Codex：始终走官方 CLI，仅用户级。

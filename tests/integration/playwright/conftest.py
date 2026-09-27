@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, Browser, Page
 
-SERIALHUB_BASE_URL = "http://127.0.0.1:5000"
+SERIALHUB_BASE_URL = "http://127.0.0.1:5050"
 
 
 @pytest.fixture(scope="session", autouse=True)

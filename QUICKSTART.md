@@ -81,7 +81,7 @@ WSL 默认看不到 Windows 宿主的 USB 串口，需要 usbipd 挂载。推荐
 
 打开浏览器访问：
 ```
-http://localhost:5000/terminal
+http://localhost:5050/terminal
 ```
 
 ## 4. AI 工具配置
@@ -94,7 +94,7 @@ SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf /
   "mcp": {
     "serialhub": {
       "type": "remote",
-      "url": "http://127.0.0.1:5000/mcp",
+      "url": "http://127.0.0.1:5050/mcp",
       "enabled": true
     }
   }
@@ -165,7 +165,7 @@ parity = "none"
 stopBits = 1
 
 [mcp]
-httpPort = 5000
+httpPort = 5050
 ```
 
 ## 8. 系统托盘 (Windows)
@@ -180,7 +180,7 @@ Windows 版本默认启用系统托盘：
 |------|----------|
 | 串口无法连接 | 检查串口号是否正确，使用 `serial_list` 查看可用串口 |
 | 端口被占用 | 关闭其他串口工具或重启 SerialHub |
-| Web 终端无法访问 | 检查防火墙设置，确认端口 5000 未被占用 |
+| Web 终端无法访问 | 检查防火墙设置，确认端口 5050 未被占用 |
 | AI 工具无法连接 | 检查 MCP URL 是否正确，确认 SerialHub 已启动 |
 
 ## 10. 获取帮助

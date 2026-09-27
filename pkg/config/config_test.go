@@ -22,8 +22,8 @@ func TestGetDefault(t *testing.T) {
 		t.Errorf("default stop bits should be 1, got %v", cfg.Serial.StopBits)
 	}
 
-	if cfg.MCP.HTTPPort != 5000 {
-		t.Errorf("default mcp http port should be 5000, got %d", cfg.MCP.HTTPPort)
+	if cfg.MCP.HTTPPort != 5050 {
+		t.Errorf("default mcp http port should be 5050, got %d", cfg.MCP.HTTPPort)
 	}
 
 	if cfg.Debug != false {

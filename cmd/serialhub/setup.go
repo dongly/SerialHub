@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcpsetup"
 )
 
@@ -28,12 +29,12 @@ func newSetupCmd() *cobra.Command {
 		Long: "交互式向导：选择 MCP 客户端（OpenCode / Claude Code / Cursor / Windsurf / " +
 			"VS Code / Codex）→ 接入模式（HTTP 或 stdio）→ 写入层级（项目级/用户级），\n" +
 			"然后合并写入该客户端的配置文件（不覆盖其他条目）。\n" +
-			"非交互用法：serialhub setup --client cursor --url http://127.0.0.1:5000/mcp -y",
+			"非交互用法：serialhub setup --client cursor --url http://127.0.0.1:5050/mcp -y",
 		RunE: runSetup,
 		Args: cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(&setupClient, "client", "", "客户端 ID: opencode/claude/cursor/windsurf/vscode/codex")
-	cmd.Flags().StringVar(&setupURL, "url", "http://127.0.0.1:5000/mcp", "HTTP 端点（联邦模式下 127.0.0.1:5000 两侧皆可用）")
+	cmd.Flags().StringVar(&setupURL, "url", fmt.Sprintf("http://127.0.0.1:%d/mcp", config.DefaultHTTPPort), "HTTP 端点（联邦模式下 127.0.0.1 两侧皆可用）")
 	cmd.Flags().StringVar(&setupMode, "mode", "http", "接入模式: http | stdio")
 	cmd.Flags().StringVar(&setupScope, "scope", "project", "写入层级: project | user（codex 仅 user）")
 	cmd.Flags().BoolVarP(&setupAssumeYes, "yes", "y", false, "非交互：确认全部默认选择")

@@ -7,7 +7,7 @@ param(
     [int]$b = 115200,     # 波特率
     [string]$c = "",      # 配置文件路径
     [switch]$D,           # 调试模式
-    [int]$m = 5000,       # MCP 端口
+    [int]$m = 5050,       # MCP 端口
     [string]$listen = "127.0.0.1",  # 监听地址
 )
 
@@ -35,7 +35,7 @@ if ($p) { $args += "-p"; $args += $p }
 if ($b -ne 115200) { $args += "-b"; $args += $b }
 if ($c) { $args += "-c"; $args += $c }
 if ($D) { $args += "-D" }
-if ($m -ne 5000) { $args += "-m"; $args += $m }
+if ($m -ne 5050) { $args += "-m"; $args += $m }
 if ($listen -ne "127.0.0.1") { $args += "--host"; $args += $listen }
 
 # 使用 Start-Process 启动，-WindowStyle Minimized 最小化窗口

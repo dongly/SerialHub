@@ -18,7 +18,7 @@ def main():
         server_ready = False
         for _ in range(20):
             try:
-                if requests.get("http://127.0.0.1:5000/health", timeout=2).status_code == 200:
+                if requests.get("http://127.0.0.1:5050/health", timeout=2).status_code == 200:
                     print("Server ready")
                     server_ready = True
                     break
@@ -36,7 +36,7 @@ def main():
             page = browser.new_page(viewport={"width": 1200, "height": 800})
             
             print("Opening terminal...")
-            page.goto("http://127.0.0.1:5000/terminal")
+            page.goto("http://127.0.0.1:5050/terminal")
             time.sleep(2)
             
             # Take screenshot

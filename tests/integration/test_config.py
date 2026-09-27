@@ -131,7 +131,7 @@ parity = "none"
 stopBits = 1
 
 [mcp]
-httpPort = 5000
+httpPort = 5050
 """)
 
             proc = subprocess.Popen(

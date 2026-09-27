@@ -20,6 +20,10 @@ type MCPConfig struct {
 	HTTPPort int
 }
 
+// DefaultHTTPPort 是 HTTP 服务的默认端口（MCP + WebSocket + Web 终端共用），
+// 全仓库端口相关默认值均以 此常量 为唯一来源。
+const DefaultHTTPPort = 5050
+
 type Config struct {
 	Serial SerialConfig
 	MCP    MCPConfig
@@ -38,7 +42,7 @@ func GetDefault() *Config {
 			StopBits: 1,
 		},
 		MCP: MCPConfig{
-			HTTPPort: 5000,
+			HTTPPort: DefaultHTTPPort,
 		},
 		Host:  "127.0.0.1",
 		Debug: false,

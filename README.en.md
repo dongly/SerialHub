@@ -25,7 +25,7 @@ flowchart TB
     subgraph SerialHub["SerialHub (single binary)"]
         Serial <-->|"event bus"| Bridge["DataBridge"]
         Bridge <-->|"read / write"| Buffer["DataBuffer<br/>shared buffer"]
-        Bridge <-->|"WebSocket (port 5000)"| Web["Web Terminal<br/>xterm.js"]
+        Bridge <-->|"WebSocket (port 5050)"| Web["Web Terminal<br/>xterm.js"]
         Bridge <-->|"JSON-RPC (HTTP)"| MCP["MCP Server<br/>7 tools"]
     end
 
@@ -99,7 +99,7 @@ Full options:
 | `--data-bits <bits>` | `-d` | Data bits (5/6/7/8) | 8 |
 | `--parity <type>` | - | Parity (none/even/odd) | none |
 | `--stop-bits <bits>` | `-s` | Stop bits (1/2) | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP port | 5000 |
+| `--mcp-port <port>` | `-m` | MCP HTTP port | 5050 |
 | `--host <host>` | - | Listen address | 127.0.0.1 |
 | `--config <path>` | `-c` | Config file path | - |
 | `--debug` | `-D` | Debug mode | false |
@@ -140,7 +140,7 @@ serialhub -p COM9 --host 0.0.0.0 -D
 
 2. Human monitors via the web terminal:
 
-Open `http://localhost:5000/terminal` in a browser.
+Open `http://localhost:5050/terminal` in a browser.
 
 3. AI tool connects via HTTP MCP:
 
@@ -149,7 +149,7 @@ Open `http://localhost:5000/terminal` in a browser.
   "mcp": {
     "serialhub": {
       "type": "remote",
-      "url": "http://localhost:5000/mcp",
+      "url": "http://localhost:5050/mcp",
       "enabled": true
     }
   }
@@ -162,7 +162,7 @@ Open `http://localhost:5000/terminal` in a browser.
 
 SerialHub embeds a WebSocket terminal built on xterm.js.
 
-**URL**: `http://localhost:5000/terminal`
+**URL**: `http://localhost:5050/terminal`
 
 **Features:**
 - Live serial output
@@ -176,28 +176,28 @@ Once the server is running, call MCP tools via JSON-RPC:
 
 ```bash
 # Health check
-curl http://localhost:5000/health
+curl http://localhost:5050/health
 
 # List serial ports
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
 
 # Connect a serial port
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_connect","arguments":{"port":"COM9"}},"id":2}'
 
 # Send a command (newline appended automatically)
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_write","arguments":{"data":"help"}},"id":3}'
 
 # Read response (blocking; timeout=0 waits forever)
-curl -X POST http://localhost:5000/mcp \
+curl -X POST http://localhost:5050/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_read","arguments":{"timeout":5000}},"id":4}'
@@ -316,7 +316,7 @@ parity = "none"     # none / even / odd
 stopBits = 1
 
 [mcp]
-httpPort = 5000
+httpPort = 5050
 ```
 
 | Key | Default | Description |
@@ -326,7 +326,7 @@ httpPort = 5000
 | `serial.dataBits` | `8` | Data bits (5/6/7/8) |
 | `serial.parity` | `"none"` | Parity (none/even/odd) |
 | `serial.stopBits` | `1` | Stop bits (1/2) |
-| `mcp.httpPort` | `5000` | MCP HTTP port (also serves the web terminal) |
+| `mcp.httpPort` | `5050` | MCP HTTP port (also serves the web terminal) |
 | `logDir` | `""` | Log directory; empty = `logs/` next to the executable |
 | `debug` | `false` | Debug mode |
 

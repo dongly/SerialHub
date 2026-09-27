@@ -11,8 +11,8 @@ import requests
 from playwright.sync_api import sync_playwright, expect
 
 # 测试配置
-BASE_URL = "http://127.0.0.1:5000"
-WS_URL = "ws://127.0.0.1:5000/ws"
+BASE_URL = "http://127.0.0.1:5050"
+WS_URL = "ws://127.0.0.1:5050/ws"
 SERIAL_PORT = "COM9"  # 根据实际环境修改
 
 

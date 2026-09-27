@@ -9,7 +9,7 @@ SerialHub 实现 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/
 | 传输模式 | Streamable HTTP（Stateless · 非流式 JSON 响应） |
 | 端点 | `http://<host>:<port>/mcp` |
 | 协议 | JSON-RPC 2.0 |
-| 默认端口 | 5000 |
+| 默认端口 | 5050 |
 
 支持 **联邦模式**：Windows 与 WSL 两侧可各运行一个 SerialHub，后启动的自动以从实例身份接入，主实例通过 `serial_list` 聚合双侧串口（详见 [联邦模式](#联邦模式windows-wsl-双侧串口)）。
 
@@ -31,10 +31,10 @@ SerialHub 实现 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/
 
 ```bash
 # 健康检查
-curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5050/health
 
 # 列出可用串口
-curl -X POST http://127.0.0.1:5000/mcp \
+curl -X POST http://127.0.0.1:5050/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
 ```
@@ -110,7 +110,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 
 #### 连接串口
 ```bash
-curl -X POST http://127.0.0.1:5000/mcp \
+curl -X POST http://127.0.0.1:5050/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 
 #### 写入数据
 ```bash
-curl -X POST http://127.0.0.1:5000/mcp \
+curl -X POST http://127.0.0.1:5050/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -140,7 +140,7 @@ curl -X POST http://127.0.0.1:5000/mcp \
 
 #### 读取响应
 ```bash
-curl -X POST http://127.0.0.1:5000/mcp \
+curl -X POST http://127.0.0.1:5050/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -174,19 +174,19 @@ def mcp_call(port, tool_name, arguments=None):
     return resp.json()
 
 # 标准工作流程
-mcp_call(5000, "serial_list")                                    # 1. 查找串口
-mcp_call(5000, "serial_connect", {"port": "COM4"})              # 2. 连接
-mcp_call(5000, "serial_write", {"data": "version"})             # 3. 发送命令
-result = mcp_call(5000, "serial_read", {"timeout": 3000})       # 4. 读取响应
+mcp_call(5050, "serial_list")                                    # 1. 查找串口
+mcp_call(5050, "serial_connect", {"port": "COM4"})              # 2. 连接
+mcp_call(5050, "serial_write", {"data": "version"})             # 3. 发送命令
+result = mcp_call(5050, "serial_read", {"timeout": 3000})       # 4. 读取响应
 print(result["result"]["content"][0]["text"])
-mcp_call(5000, "serial_disconnect")                             # 5. 断开连接
+mcp_call(5050, "serial_disconnect")                             # 5. 断开连接
 ```
 
 ### MCP 客户端配置（通用）
 
 SerialHub 是标准 MCP 服务器，任何支持 **Streamable HTTP** 或 **stdio** 的客户端都能接入：
 
-- **HTTP 端点**：`http://127.0.0.1:5000/mcp`
+- **HTTP 端点**：`http://127.0.0.1:5050/mcp`
 - **stdio 命令**：`serialhub --stdio`（客户端本地拉起；有主实例时自动透明代理）
 
 **一键配置**：运行 `serialhub setup` 交互式向导（或非交互
@@ -194,7 +194,7 @@ SerialHub 是标准 MCP 服务器，任何支持 **Streamable HTTP** 或 **stdio
 Windsurf / VS Code / Codex 合并写入接入配置（不覆盖已有条目；Codex 与
 Claude Code 用户级经官方 CLI 写入）。以下为各客户端的手动配置方法。
 
-**铁律：永远写 `127.0.0.1:5000`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5000/mcp` 都可用，无需关心主实例在哪侧。访问局域网其他机器上的 SerialHub 时才改地址，如 `http://192.168.1.100:5000/mcp`。
+**铁律：永远写 `127.0.0.1:5050`**。联邦模式下从实例会在本侧反代 `/mcp` 到主实例，两侧的 `127.0.0.1:5050/mcp` 都可用，无需关心主实例在哪侧。访问局域网其他机器上的 SerialHub 时才改地址，如 `http://192.168.1.100:5050/mcp`。
 
 #### OpenCode
 
@@ -205,7 +205,7 @@ Claude Code 用户级经官方 CLI 写入）。以下为各客户端的手动配
   "mcp": {
     "serialhub": {
       "type": "remote",
-      "url": "http://127.0.0.1:5000/mcp",
+      "url": "http://127.0.0.1:5050/mcp",
       "enabled": true
     }
   }
@@ -231,7 +231,7 @@ stdio 方式（免手动启动，OpenCode 拉起子进程并随其退出）：
 
 ```bash
 # HTTP
-claude mcp add --transport http serialhub http://127.0.0.1:5000/mcp
+claude mcp add --transport http serialhub http://127.0.0.1:5050/mcp
 
 # stdio
 claude mcp add serialhub -- serialhub --stdio
@@ -242,7 +242,7 @@ claude mcp add serialhub -- serialhub --stdio
 ```json
 {
   "mcpServers": {
-    "serialhub": { "type": "http", "url": "http://127.0.0.1:5000/mcp" }
+    "serialhub": { "type": "http", "url": "http://127.0.0.1:5050/mcp" }
   }
 }
 ```
@@ -254,7 +254,7 @@ claude mcp add serialhub -- serialhub --stdio
 ```json
 {
   "mcpServers": {
-    "serialhub": { "url": "http://127.0.0.1:5000/mcp" }
+    "serialhub": { "url": "http://127.0.0.1:5050/mcp" }
   }
 }
 ```
@@ -266,7 +266,7 @@ claude mcp add serialhub -- serialhub --stdio
 ```json
 {
   "mcpServers": {
-    "serialhub": { "serverUrl": "http://127.0.0.1:5000/mcp" }
+    "serialhub": { "serverUrl": "http://127.0.0.1:5050/mcp" }
   }
 }
 ```
@@ -278,7 +278,7 @@ claude mcp add serialhub -- serialhub --stdio
 ```json
 {
   "servers": {
-    "serialhub": { "type": "http", "url": "http://127.0.0.1:5000/mcp" }
+    "serialhub": { "type": "http", "url": "http://127.0.0.1:5050/mcp" }
   }
 }
 ```
@@ -299,7 +299,7 @@ SerialHub 支持 **Windows 与 WSL 两侧同时运行**，聚合一台机器上�
 | 角色 | 触发条件 | 提供能力 |
 |------|---------|---------|
 | **主实例** | 先启动（本侧无主） | 完整服务：`/mcp` + `/terminal` + `/ws` + `/health` + 联邦入口 `/federation`，持有本侧串口 |
-| **从实例** | 启动时探测到主实例（`127.0.0.1:5000/health`，WSL 侧加探网关 IP） | 前台进程：上报本侧串口、受主实例调度读写本侧串口；本侧反代 `/mcp` + `/health` |
+| **从实例** | 启动时探测到主实例（`127.0.0.1:5050/health`，WSL 侧加探网关 IP） | 前台进程：上报本侧串口、受主实例调度读写本侧串口；本侧反代 `/mcp` + `/health` |
 
 ```bash
 # Windows 侧先启动（WSL 从实例要跨侧发现，主实例必须监听所有接口）
@@ -314,12 +314,12 @@ serialhub.exe --host 0.0.0.0
 - **端口聚合**：主实例 `serial_list` 返回双侧端口；联邦端口以 `side:port` 全名标识（如 `windows:COM3`），`serial_connect` 等工具自动路由。
 - **数据上行**：从实例串口收到的数据实时上行至主实例，进入 xterm web 与 MCP 读缓冲，与本地端口无差别。
 - **从实例退出**：`Ctrl+C` 退出即脱离联邦，主实例端口列表即时移除该侧端口。
-- **自动晋升**：主实例退出后，从实例重连失败（3 次 × 1s）即自动晋升为主实例，`127.0.0.1:5000` 服务无缝恢复；期间对侧再启动则反向加入。
+- **自动晋升**：主实例退出后，从实例重连失败（3 次 × 1s）即自动晋升为主实例，`127.0.0.1:5050` 服务无缝恢复；期间对侧再启动则反向加入。
 - **同侧多开**：同侧第二个实例以从实例运行，反代端口被主占用时仅贡献串口（日志有提示）。
 
 ### 部署前提与限制
 
-- **WSL 从实例访问 Windows 主实例**：Windows 侧主实例需 `--host 0.0.0.0`（默认 `127.0.0.1` 时 WSL 探测不到，Windows 防火墙需放行 5000 端口）。
+- **WSL 从实例访问 Windows 主实例**：Windows 侧主实例需 `--host 0.0.0.0`（默认 `127.0.0.1` 时 WSL 探测不到，Windows 防火墙需放行 5050 端口）。
 - **WSL 侧串口**：USB 串口设备需先 `usbipd attach` 到 WSL（枚举仅保留 `ttyUSB*`/`ttyACM*`，自动过滤 WSL 虚拟假端口）。usbipd attach 后 Windows 侧将暂时失去该设备。
 - **双主竞态**：两侧在 1 秒内同时首启可能互探不到而形成双主（各自独立服务）。先后启动即可避免。
 - **无鉴权**：`--host 0.0.0.0` 暴露到局域网时无任何鉴权，仅适用于可信网络；主实例建议保持 `127.0.0.1`（单侧使用时）。
@@ -379,9 +379,9 @@ sequenceDiagram
 
 ```python
 # 连接后循环读取
-mcp_call(5000, "serial_connect", {"port": "COM4"})
+mcp_call(5050, "serial_connect", {"port": "COM4"})
 while True:
-    result = mcp_call(5000, "serial_read", {"timeout": 1000})
+    result = mcp_call(5050, "serial_read", {"timeout": 1000})
     if not result["result"]["content"][0]["text"].endswith("timedOut: true"):
         print("收到数据:", result)
 ```
@@ -395,7 +395,7 @@ flowchart TB
         Web["Web 终端<br/>浏览器"]
     end
 
-    subgraph SerialHub["SerialHub<br/>端口 5000"]
+    subgraph SerialHub["SerialHub<br/>端口 5050"]
         MCP["MCP 服务"]
         WS["WebSocket 服务"]
         Bridge["DataBridge"]

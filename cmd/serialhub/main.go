@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/version"
 )
 
@@ -34,7 +35,7 @@ func main() {
 	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, "波特率")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, "启用调试模式")
-	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", 5000, "MCP HTTP 服务端口")
+	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", config.DefaultHTTPPort, "MCP HTTP 服务端口")
 	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
 	rootCmd.Flags().BoolVar(&minimized, "minimized", false, "由脚本启动，窗口最小化")
 	rootCmd.Flags().BoolVar(&stdioMode, "stdio", false, "以 stdio 模式运行（MCP 客户端本地拉起）")

@@ -100,7 +100,7 @@ func probeMaster(client *http.Client, base string) bool {
 
 // DiscoverMaster 探测主实例：候选 127.0.0.1:port；WSL 环境补探 Windows 宿主:port。
 // 严格只认 /health 返回 role=master 的实例；命中失败的候选继续探测后续地址。
-// 返回主实例基址（如 "http://172.20.0.1:5000"）或空串（未发现）。
+// 返回主实例基址（如 "http://172.20.0.1:5050"）或空串（未发现）。
 func DiscoverMaster(port int) string {
 	var candidates []string
 	candidates = append(candidates, fmt.Sprintf("http://127.0.0.1:%d", port))

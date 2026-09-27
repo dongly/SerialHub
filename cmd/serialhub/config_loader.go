@@ -41,7 +41,7 @@ func loadConfig() *config.Config {
 	if host != "" && host != "127.0.0.1" {
 		cfg.Host = host
 	}
-	if mcpPort != 5000 && mcpPort != 0 {
+	if mcpPort != config.DefaultHTTPPort && mcpPort != 0 {
 		cfg.MCP.HTTPPort = mcpPort
 	}
 

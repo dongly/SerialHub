@@ -44,7 +44,7 @@ func TestNewTrayManager(t *testing.T) {
 	defer serialMgr.Close()
 	config := config.GetDefault()
 
-	tray := NewTrayManager(serialMgr, config, "127.0.0.1", 5000, "0.1.0", false)
+	tray := NewTrayManager(serialMgr, config, "127.0.0.1", 5050, "0.1.0", false)
 	if tray == nil {
 		t.Fatal("NewTrayManager 返回 nil")
 	}
@@ -52,8 +52,8 @@ func TestNewTrayManager(t *testing.T) {
 	if tray.version != "0.1.0" {
 		t.Errorf("version = %s, want 0.1.0", tray.version)
 	}
-	if tray.mcpPort != 5000 {
-		t.Errorf("mcpPort = %d, want 5000", tray.mcpPort)
+	if tray.mcpPort != 5050 {
+		t.Errorf("mcpPort = %d, want 5050", tray.mcpPort)
 	}
 	if tray.state != TrayIdle {
 		t.Errorf("初始状态 = %s, want idle", tray.state)
@@ -69,7 +69,7 @@ func TestUpdateState(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	tm.state = TrayConnected
 	testutil.AssertEqual(t, TrayConnected, tm.state)
@@ -88,7 +88,7 @@ func TestGetIcon(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 测试不同状态的图标加载
 	testCases := []struct {
@@ -182,7 +182,7 @@ func TestUpdateSerialStatus(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 只测试状态字段，不调用需要 systray 运行的方法
 	// UpdateSerialStatus 内部会调用 IsConnected()
@@ -214,7 +214,7 @@ func TestTrayManagerConfig(t *testing.T) {
 		mcpPort int
 		version string
 	}{
-		{5000, "0.1.0"},
+		{5050, "0.1.0"},
 		{5678, "1.0.0"},
 		{0, "dev"},
 	}
@@ -257,7 +257,7 @@ func BenchmarkGetIcon(b *testing.B) {
 	serialMgr, _ := serial.NewSerialManager(cfg)
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -321,13 +321,13 @@ func TestShowConsoleMenu(t *testing.T) {
 	conf := config.GetDefault()
 
 	// showConsoleMenu=false 时 mShowLog 应为 nil
-	trayFalse := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayFalse := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 	testutil.AssertNil(t, trayFalse.mShowLog)
 	testutil.AssertEqual(t, false, trayFalse.showConsoleMenu)
 
 	// showConsoleMenu=true 时 mShowLog 仍为 nil（mShowLog 在 createMenu 中创建，需要 systray）
 	// 但 showConsoleMenu 字段应为 true
-	trayTrue := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", true)
+	trayTrue := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", true)
 	testutil.AssertNil(t, trayTrue.mShowLog)
 	testutil.AssertEqual(t, true, trayTrue.showConsoleMenu)
 }
@@ -342,7 +342,7 @@ func TestGetConfigSummary(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 默认配置: 115200, 8, none, 1 → "当前: 未选择 115200 8N1"
 	testutil.AssertEqual(t, "当前: 未选择 115200 8N1", trayMgr.getConfigSummary())
@@ -372,9 +372,9 @@ func TestGetNetworkStatus(t *testing.T) {
 	defer serialMgr.Close()
 	conf := config.GetDefault()
 
-	// wsPort=2323, mcpPort=5000
-	tray1 := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
-	testutil.AssertEqual(t, "HTTP: 5000", tray1.getNetworkStatus())
+	// wsPort=2323, mcpPort=5050
+	tray1 := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
+	testutil.AssertEqual(t, "HTTP: 5050", tray1.getNetworkStatus())
 
 	tray2 := NewTrayManager(serialMgr, conf, "127.0.0.1", 0, "0.1.0", false)
 	testutil.AssertEqual(t, "HTTP: 0", tray2.getNetworkStatus())
@@ -391,7 +391,7 @@ func TestGetSerialMenuTitle(t *testing.T) {
 	defer serialMgr.Close()
 	conf := config.GetDefault()
 	conf.Serial.Port = getTestPort()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 未连接时返回 "连接 <port>"
 	expected := "连接 " + getTestPort()
@@ -408,7 +408,7 @@ func TestSetOnReady(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	testutil.AssertNil(t, trayMgr.readyCallback)
 
@@ -433,7 +433,7 @@ func TestSetOnExit(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	testutil.AssertNil(t, trayMgr.exitCallback)
 
@@ -458,7 +458,7 @@ func TestQuitChan(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	ch := trayMgr.QuitChan()
 	testutil.AssertNotNil(t, ch)
@@ -477,7 +477,7 @@ func TestUpdateSerialStatus_StateDedup(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 设置当前状态为 TrayIdle（串口未连接时 UpdateSerialStatus 计算的 newState 也是 TrayIdle）
 	trayMgr.state = TrayIdle
@@ -561,7 +561,7 @@ func newTestTrayManager(t *testing.T) *TrayManager {
 	conf.Serial.DataBits = cfg.DataBits
 	conf.Serial.Parity = cfg.Parity
 	conf.Serial.StopBits = float64(cfg.StopBits)
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", true)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", true)
 
 	// 手动初始化 MenuItem 字段，使 setXxx 方法可安全调用
 	// systray.MenuItem 在非 systray.Run 环境下调用 SetTitle 等方法会输出 error log 但不 panic
@@ -874,7 +874,7 @@ func TestOnExit(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	exitCalled := false
 	tm.SetOnExit(func() {
@@ -901,7 +901,7 @@ func TestOnExit_NoCallback(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 不设置 exitCallback，直接调用 onExit
 	tm.onExit()
@@ -941,7 +941,7 @@ func TestGetConfigSummary_StopBits2(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	conf.Serial.StopBits = 2
 	testutil.AssertEqual(t, "当前: 未选择 115200 8N2", tm.getConfigSummary())
@@ -957,7 +957,7 @@ func TestGetConfigSummary_FullCoverage(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	tests := []struct {
 		parity   string
@@ -988,7 +988,7 @@ func TestNewTrayManager_InternalMapInit(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	testutil.AssertNotNil(t, tm.mPortItems)
 	testutil.AssertNotNil(t, tm.mBaudRateItems)
@@ -1097,7 +1097,7 @@ func TestGetConfigSummary_UnknownParity(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	conf.Serial.Parity = "unknown"
 	testutil.AssertEqual(t, "当前: 未选择 115200 8unknown1", tm.getConfigSummary())
@@ -1113,7 +1113,7 @@ func TestGetIcon_AllStates(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	for _, state := range []TrayState{TrayIdle, TrayConnected, TrayError} {
 		tm.state = state
@@ -1168,10 +1168,10 @@ func TestNewTrayManager_FieldVerification(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "1.0.0", true)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "1.0.0", true)
 
 	testutil.AssertEqual(t, "1.0.0", tm.version)
-	testutil.AssertEqual(t, 5000, tm.mcpPort)
+	testutil.AssertEqual(t, 5050, tm.mcpPort)
 	testutil.AssertEqual(t, TrayIdle, tm.state)
 	testutil.AssertEqual(t, false, tm.consoleVisible)
 	testutil.AssertEqual(t, true, tm.showConsoleMenu)
@@ -1379,7 +1379,7 @@ func TestOpenTerminal(t *testing.T) {
 	}
 	defer serialMgr.Close()
 	conf := config.GetDefault()
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	tm.openTerminal()
 }
@@ -1477,7 +1477,7 @@ func TestGetConfigSummary_WithPort(t *testing.T) {
 	defer serialMgr.Close()
 	conf := config.GetDefault()
 	conf.Serial.Port = "COM4"
-	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5000, "0.1.0", false)
+	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	testutil.AssertEqual(t, "当前: COM4 115200 8N1", tm.getConfigSummary())
 }

@@ -34,7 +34,7 @@ $env:SERIALHUB_HARDWARE_TEST="1"; $env:SERIALHUB_TEST_PORT="COM9"; go test ./...
 serialhub -p COM7 -D         # 直接启动
 ```
 
-日志：`bin\logs\serialhub.log` | Web 终端：`http://127.0.0.1:5000/terminal` | 健康检查：`http://127.0.0.1:5000/health`
+日志：`bin\logs\serialhub.log` | Web 终端：`http://127.0.0.1:5050/terminal` | 健康检查：`http://127.0.0.1:5050/health`
 
 ## 测试
 
@@ -56,7 +56,7 @@ serialhub -p COM7 -D         # 直接启动
 - Telnet/WebSocket → 串口（客户端输入转发到串口）
 - 通过 `SetCommandHandler` 支持外部命令拦截
 
-**MCP 服务** (`pkg/mcp/`)：Streamable HTTP 传输（非流式 JSON 响应模式），端口与 WebSocket 共用（默认 5000）
+**MCP 服务** (`pkg/mcp/`)：Streamable HTTP 传输（非流式 JSON 响应模式），端口与 WebSocket 共用（默认 5050）
 - 工具定义在 `pkg/mcp/tools/` 下，每个工具一个文件
 - 所有工具返回 `ToolResult{Success, Message, Data}`（定义在 `pkg/mcp/tools/serial_list.go`）
 - MCP 服务与 WebSocket 共享同一个 `DataBuffer`，`serial_read` 从缓冲区读取
@@ -72,7 +72,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 |------|------|--------|------|
 | `--serial-port` | `-p` | `""` | 串口名（COM9 或 /dev/ttyUSB0），空则不自动连接 |
 | `--baud-rate` | `-b` | 115200 | 波特率 |
-| `--mcp-port` | `-m` | 5000 | HTTP 服务端口（MCP + WebSocket + Web 终端共用） |
+| `--mcp-port` | `-m` | 5050 | HTTP 服务端口（MCP + WebSocket + Web 终端共用） |
 | `--host` | — | 127.0.0.1 | 监听地址 |
 | `--config` | `-c` | — | TOML 配置文件路径 |
 | `--debug` | `-D` | false | 调试模式 |
