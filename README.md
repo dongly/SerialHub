@@ -29,8 +29,8 @@ flowchart TB
         Bridge <-->|"JSON-RPC (HTTP)"| MCP["MCP 服务<br/>7 个工具"]
     end
 
-    Browser["浏览器<br/>人工操作"] <-->|"WebSocket"| Web
-    AI["AI 工具<br/>OpenCode / iFlow CLI 等"] <-->|"MCP 协议"| MCP
+    Web <-->|"WebSocket"| Browser["浏览器<br/>人工操作"]
+    MCP <-->|"MCP 协议"| AI["AI 工具<br/>OpenCode / iFlow CLI 等"]
 ```
 
 ## 技术栈

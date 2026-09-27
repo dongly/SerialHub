@@ -16,37 +16,21 @@ SerialHub bridges a single MCU UART to both humans and AI agents:
 - **Federation mode** links a Windows master with a WSL worker; serial ports from both sides are aggregated as `side:port` (e.g. `windows:COM3`, `wsl:/dev/ttyUSB0`), and the worker auto-promotes to master if the master goes down
 - Single Go binary with the web frontend embedded; runs on Windows (system tray) / Linux / macOS
 
-## Architecture
+## Architecture 
 
-```
-┌─────────────┐
-│     MCU     │
-└──────┬──────┘
-       │ UART (COM9, 115200, 8N1)
-       ▼
-┌─────────────────────────────────────────┐
-│              SerialHub                  │
-│                                         │
-│  ┌─────────────┐    ┌───────────────┐  │
-│  │   Serial    │◄──►│   DataBridge  │  │
-│  │   Manager   │    │  (event bus)  │  │
-│  └─────────────┘    └───────┬───────┘  │
-│                             │          │
-│              ┌──────────────┼────────┐ │
-│              ▼              ▼        ▼ │
-│       ┌───────────┐  ┌──────────┐ ... │
-│       │   Web     │  │   MCP    │     │
-│       │ Terminal  │  │  Server  │     │
-│       │ (port 5000)│ │  (HTTP)  │     │
-│       └───────────┘  └──────────┘     │
-└─────────────────────────────────────────┘
-       │                    │
-       ▼                    ▼
-┌─────────────┐     ┌─────────────┐
-│   Browser   │     │  AI tools   │
-│   (human)   │     │ (OpenCode,  │
-│             │     │  iFlow CLI) │
-└─────────────┘     └─────────────┘
+```mermaid
+flowchart TB
+    MCU["MCU"] <-->|"UART (COM9, 115200, 8N1)"| Serial["Serial<br/>Manager"]
+
+    subgraph SerialHub["SerialHub (single binary)"]
+        Serial <-->|"event bus"| Bridge["DataBridge"]
+        Bridge <-->|"read / write"| Buffer["DataBuffer<br/>shared buffer"]
+        Bridge <-->|"WebSocket (port 5000)"| Web["Web Terminal<br/>xterm.js"]
+        Bridge <-->|"JSON-RPC (HTTP)"| MCP["MCP Server<br/>7 tools"]
+    end
+
+    Web <-->|"WebSocket"| Browser["Browser<br/>human"]
+    MCP <-->|"MCP protocol"| AI["AI tools<br/>OpenCode / iFlow CLI"]
 ```
 
 ## Tech Stack
