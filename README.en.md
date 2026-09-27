@@ -16,7 +16,7 @@ SerialHub bridges a single MCU UART to both humans and AI agents:
 - **Federation mode** links a Windows master with a WSL worker; serial ports from both sides are aggregated as `side:port` (e.g. `windows:COM3`, `wsl:/dev/ttyUSB0`), and the worker auto-promotes to master if the master goes down
 - Single Go binary with the web frontend embedded; runs on Windows (system tray) / Linux / macOS
 
-## Architecture 
+## Architecture
 
 ```mermaid
 flowchart TB

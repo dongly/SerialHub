@@ -84,6 +84,12 @@ func TestMergeJSON_新建文件(t *testing.T) {
 }
 
 // 各客户端的写入目标与条目结构
+func TestDefaultURL(t *testing.T) {
+	if got := DefaultURL(); got != "http://127.0.0.1:5050/mcp" {
+		t.Errorf("DefaultURL = %s, want http://127.0.0.1:5050/mcp", got)
+	}
+}
+
 func TestTarget(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	cfg := func(rel ...string) string { return filepath.Join(append([]string{home}, rel...)...) }

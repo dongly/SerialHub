@@ -96,6 +96,12 @@ func (o *Options) stdioCommand() string {
 	return "serialhub"
 }
 
+// DefaultURL 返回 HTTP 模式的默认端点（端口取 config.DefaultHTTPPort；
+// 联邦模式下 127.0.0.1 两侧皆可用）。
+func DefaultURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/mcp", config.DefaultHTTPPort)
+}
+
 // Install 把 serialhub 写入客户端配置，返回写入的文件路径或 CLI 命令描述。
 func Install(opts Options) (string, error) {
 	c, err := Find(opts.Client)
@@ -106,7 +112,7 @@ func Install(opts Options) (string, error) {
 		opts.Mode = ModeHTTP
 	}
 	if opts.Mode == ModeHTTP && opts.URL == "" {
-		opts.URL = fmt.Sprintf("http://127.0.0.1:%d/mcp", config.DefaultHTTPPort)
+		opts.URL = DefaultURL()
 	}
 
 	// Codex：始终走官方 CLI，仅用户级。
