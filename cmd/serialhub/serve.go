@@ -2,20 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/dongly/serialhub/internal/buffer"
-	"github.com/dongly/serialhub/internal/federation"
+	"github.com/dongly/serialhub/internal/instance"
 	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/dongly/serialhub/pkg/bridge"
 	"github.com/dongly/serialhub/pkg/config"
@@ -27,7 +24,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runServe 入口分流：--stdio → stdio 模式；联邦发现命中 → 从实例；否则主实例。
+// errMasterMetadataUnavailable：检测到活主，但 lock 元数据尚未可读
+// （主实例刚持锁、写元数据完成之前的短暂窗口）。
+var errMasterMetadataUnavailable = errors.New("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务")
+
+// runServe 入口分流：--stdio → stdio 模式（lock 发现有主则代理）；
+// 否则主实例。
 func runServe(cmd *cobra.Command, args []string) error {
 	cfg := loadConfig()
 
@@ -46,11 +48,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		logrus.Info("[SerialHub] 数据内容日志已开启（--log-data / SERIALHUB_LOG_DATA=1），500ms 时间窗聚合输出")
 	}
 
-	masterURL := federation.DiscoverMaster(mcpPort)
-	if masterURL != "" {
-		logrus.Infof("[SerialHub] 检测到主实例 %s，以从实例模式运行", masterURL)
-		return runWorker(cfg, masterURL)
-	}
 	return runMaster(cfg)
 }
 
@@ -65,8 +62,17 @@ func newSerialManagerFromConfig(cfg *config.Config) *serial.SerialManager {
 	return sm
 }
 
-// runMaster 主实例：完整服务面（HTTP/MCP/xterm web/本侧串口/联邦入口）。
+// runMaster 主实例：完整服务面（HTTP/MCP/xterm web/本侧串口）。
 func runMaster(cfg *config.Config) error {
+	// 单实例 lock：已有活主（含 tray/前台/另一终端误启动）时报错退出
+	if info, err := instance.Acquire(host, mcpPort); err != nil {
+		if errors.Is(err, instance.ErrActive) {
+			return fmt.Errorf("本机已有运行中的主实例 %s（pid %d，启动于 %s）；同一配置作用域只允许一个主实例", info.URL(), info.PID, info.StartedAt)
+		}
+		return fmt.Errorf("获取单实例锁失败：%w", err)
+	}
+	defer instance.Release()
+
 	sm := newSerialManagerFromConfig(cfg)
 	buf := buffer.NewDataBuffer()
 
@@ -104,6 +110,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	var wsSrv *web.WebSocketServer
 	var cancelFunc context.CancelFunc
 	var svcs *runningServices
+	var startupErr error
 
 	sm.SetEventHandler(createEventHandler(sm, trayMgr, wsSrv))
 
@@ -125,11 +132,18 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		})
 		if err != nil {
 			logrus.Errorf("[SerialHub] 创建 WebSocket 服务失败: %v", err)
+			startupErr = err
+			trayMgr.Quit() // 服务启动失败：退出托盘（而非保留占锁的空壳实例）
 			return
 		}
 
 		// --no-browser（脚本静默启动）不自动打开浏览器
 		svcs = startServices(sm, wsSrv, buf, !noBrowser)
+		if svcs == nil {
+			startupErr = fmt.Errorf("主服务启动失败")
+			trayMgr.Quit() // MCP/HTTP 启动失败：退出托盘
+			return
+		}
 
 		addr := fmt.Sprintf("%s:%d", host, mcpPort)
 		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
@@ -148,7 +162,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	// 「正在关闭」通知由 gracefulShutdown 的停机 goroutine 输出（控制线程不同步写日志）
 	gracefulShutdown(sm, svcs)
 	closeLogger()
-	return nil
+	return startupErr
 }
 
 // runningServices 聚合主实例运行期服务句柄，供停机时按序关闭。
@@ -203,7 +217,7 @@ func gracefulShutdown(sm *serial.SerialManager, svcs *runningServices) {
 	}
 }
 
-// logAsync 异步输出一条日志：调用线程绝不等待日志 I/O。退出/换主等
+// logAsync 异步输出一条日志：调用线程绝不等待日志 I/O。退出等
 // 控制路径上，日志输出链可能正被卡死的 I/O 占用（stdout 背压/文件锁），
 // 同步调用会永久阻塞控制流。消息可能乱序或丢失，仅用于收尾通知。
 func logAsync(level logrus.Level, msg string) {
@@ -241,7 +255,7 @@ func flushBoundedLog(level logrus.Level, msg string) {
 	}
 }
 
-// runWithoutTray 无托盘前台主实例（Linux/WSL 或晋升场景）。
+// runWithoutTray 无托盘前台主实例（Linux/WSL）。
 // autoOpenBrowser 控制启动后是否自动打开 xterm web。
 func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, autoOpenBrowser bool) error {
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
@@ -280,75 +294,10 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	return nil
 }
 
-// runWorker 从实例：前台进程，贡献本侧串口给主实例，本侧反代 /mcp + /health。
-// Ctrl+C 退出即脱离联邦；主实例失联且重连失败时自动晋升为主实例。
-func runWorker(cfg *config.Config, masterURL string) error {
-	sm := newSerialManagerFromConfig(cfg)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-	go func() {
-		<-sigChan
-		cancel()
-	}()
-
-	promoteCh := make(chan struct{}, 1)
-	onPromote := func() {
-		select {
-		case promoteCh <- struct{}{}:
-		default:
-		}
-	}
-
-	// 联邦客户端：上报本侧端口 + 响应主侧串口操作 + 数据上行
-	go func() {
-		if err := federation.RunWorker(ctx, masterURL, federation.LocalSide(), sm, onPromote); err != nil {
-			logrus.Errorf("[SerialHub] 联邦客户端异常退出: %v", err)
-			cancel()
-		}
-	}()
-
-	// 本侧反代：/mcp → 主实例，/health 本地应答（同侧端口被占则跳过）
-	stopProxy := startWorkerProxy(masterURL)
-	defer stopProxy() // 进程退出兜底（幂等）
-
-	logrus.Info("[SerialHub] 从实例已启动（Ctrl+C 退出；主实例失联时自动晋升）")
-
-	select {
-	case <-ctx.Done():
-		stopProxy()
-		closeSerialBounded(sm, 3*time.Second) // 进程即将退出，句柄由 OS 回收
-		// 「从实例退出」通知与数据日志收尾一并走有界 goroutine（控制线程不同步写日志）
-		flushBoundedLog(logrus.InfoLevel, "[SerialHub] 从实例退出")
-		return nil
-	case <-promoteCh:
-		// 晋升前复查：主实例可能只是网络抖动，或已有新主接管
-		logrus.Info("[SerialHub] 与主实例失联，正在确认是否晋升...")
-		if newMaster := federation.DiscoverMaster(mcpPort); newMaster != "" {
-			logrus.Infof("[SerialHub] 发现新主实例 %s，重新以从实例模式接入", newMaster)
-			stopProxy() // 停旧反代（指向旧主），释放本侧端口
-			cancel()
-			// 旧 sm 不再复用（递归会新建），有界关闭防 USB 掉线时 Close 阻塞卡住退出
-			if !closeSerialBounded(sm, 3*time.Second) {
-				logAsync(logrus.WarnLevel, "[SerialHub] 旧串口管理器未在时限内关闭，其资源将滞留本进程；反复换主累积时建议重启进程")
-			}
-			return runWorker(cfg, newMaster)
-		}
-		logrus.Info("[SerialHub] 确认无主实例，晋升为主实例")
-		stopProxy() // 释放本侧端口给晋升后的主服务，避免 EADDRINUSE
-		cancel()    // 停止旧联邦客户端
-		return runPromotedMaster(cfg, sm)
-	}
-}
-
 // closeSerialBounded 有界关闭串口管理器：USB 掉线导致串口 Close/Read
 // 阻塞时限时放弃等待。返回 manager 关闭流程是否在时限内返回——
 // 不代表底层驱动 Close 已完成（其异步执行，句柄释放不在此等待）；
-// 调用方据此决定后续（进程退出场景句柄由 OS 回收，换主等继续运行
+// 调用方据此决定后续（进程退出场景句柄由 OS 回收，继续运行
 // 场景需提示资源滞留）。
 // 超时告警异步输出：日志链可能正被卡死的 I/O 占用，控制线程不得等待。
 func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
@@ -368,71 +317,34 @@ func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
 	}
 }
 
-// runPromotedMaster 晋升：复用从实例的串口管理器，启动完整主服务（不弹浏览器）。
-func runPromotedMaster(cfg *config.Config, sm *serial.SerialManager) error {
-	buf := buffer.NewDataBuffer()
-	return runWithoutTray(cfg, sm, buf, false)
-}
-
-// startWorkerProxy 在从实例本侧监听 host:mcpPort：/mcp 反代到主实例，
-// /health 本地应答（role=worker，供实例发现区分主从），其余路径提示走主侧。
-// 返回幂等的停止函数（等待反代完全退出后返回），供换主/晋升前释放端口；
-// 监听失败（同侧主实例已占端口）仅告警并返回 no-op（降级为仅贡献串口）。
-func startWorkerProxy(masterURL string) (stop func()) {
-	noop := func() {}
-	target, err := url.Parse(masterURL)
-	if err != nil {
-		logrus.Warnf("[SerialHub] 反代目标地址无效: %v", err)
-		return noop
-	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok","service":"serialhub","role":"worker"}`))
-	})
-	mux.Handle("/mcp", proxy)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "从实例仅提供 /mcp 与 /health，xterm web 请访问主实例", http.StatusNotFound)
-	})
-
-	addr := fmt.Sprintf("%s:%d", host, mcpPort)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		logrus.Warnf("[SerialHub] 从实例反代监听 %s 失败（同侧端口被占用？），跳过反代，仅贡献串口: %v", addr, err)
-		return noop
-	}
-
-	srv := &http.Server{Handler: mux}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			logrus.Warnf("[SerialHub] 从实例反代退出: %v", err)
-		}
-	}()
-	logrus.Infof("[SerialHub] 从实例反代已启动: http://%s（/mcp → 主实例）", ln.Addr())
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			srv.Close() // 关闭 listener 与活跃连接，Serve 返回 ErrServerClosed
-			<-done      // 等待 Serve goroutine 完全退出，端口确定释放
-		})
-	}
-}
-
 // runStdio stdio 模式：发现主实例则作透明代理（RunStdioProxy）；
 // 否则本进程成为主实例（完整服务面，但不弹浏览器、无托盘），
 // 随 stdio 连接断开而整体退出（MCP local 惯例：客户端管理进程生命周期）。
 func runStdio(cfg *config.Config) error {
-	masterURL := federation.DiscoverMaster(mcpPort)
-	if masterURL != "" {
-		return mcp.RunStdioProxy(context.Background(), masterURL)
+	if info := instance.Read(); info != nil {
+		if info.Port > 0 {
+			return proxyToMaster(*info)
+		}
+		// 有活主但元数据尚未写完：有界等待其可读
+		if live := instance.WaitForInfo(10 * time.Second); live != nil {
+			return proxyToMaster(*live)
+		}
+		return errMasterMetadataUnavailable
 	}
 
 	logrus.Info("[SerialHub] stdio 模式：未发现主实例，本进程成为主实例")
+	// 单实例 lock：与前台主实例互斥。若此刻另一进程抢先成为主
+	// （Read 与 Acquire 之间的竞态），回退到代理模式（等待其对 HTTP 就绪）。
+	if _, err := instance.Acquire(host, mcpPort); err != nil {
+		if errors.Is(err, instance.ErrActive) {
+			if live := instance.WaitForInfo(10 * time.Second); live != nil {
+				return proxyToMaster(*live)
+			}
+			return errMasterMetadataUnavailable
+		}
+		return fmt.Errorf("获取单实例锁失败：%w", err)
+	}
+	defer instance.Release()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -471,6 +383,16 @@ func runStdio(cfg *config.Config) error {
 	// 退出路径控制线程不同步写日志：通知由 gracefulShutdown/有界收尾输出
 	gracefulShutdown(sm, svcs)
 	return nil
+}
+
+// proxyToMaster 等待主实例 HTTP 就绪后以 stdio 透明代理运行。
+// 主实例先持锁写元数据、后启动 HTTP；此处的等待不改变锁所有权。
+func proxyToMaster(info instance.LockInfo) error {
+	if !instance.WaitReady(info, 15*time.Second) {
+		return fmt.Errorf("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", info.URL())
+	}
+	logrus.Infof("[SerialHub] stdio 模式：主实例 %s 就绪，以透明代理运行", info.URL())
+	return mcp.RunStdioProxy(context.Background(), info.URL())
 }
 
 func createSaveConfigFunc(cfg *config.Config) func(*serial.Config) {
@@ -526,7 +448,7 @@ func createSerialEventHandler(wsSrv *web.WebSocketServer) func(serial.Event) {
 	}
 }
 
-// startServices 启动主实例服务面：数据桥、MCP HTTP（含联邦端点 /federation）。
+// startServices 启动主实例服务面：数据桥 + MCP HTTP。
 // 返回服务句柄集合（stdio 模式需叠跑 stdio 传输）；启动失败返回 nil。
 func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool) *runningServices {
 	svcs := &runningServices{}
@@ -550,19 +472,6 @@ func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *bu
 		return nil
 	}
 	svcs.mcp = mcpSrv
-
-	// 联邦主侧：聚合从实例端口；从侧上行数据注入双通道（与 bridge 等价）
-	fedMgr := federation.NewManager(federation.LocalSide())
-	fedMgr.SetDataHandler(func(portKey string, data []byte) {
-		// 仅注入当前活动联邦端口的数据；从侧其他连接（如自留口）不上行混流
-		if fedMgr.ActiveFederatedPort() != portKey {
-			return
-		}
-		data = bridge.ConvertLFToCRLF(data)
-		wsSrv.Broadcast(data)
-		buf.Append(data)
-	})
-	mcpSrv.SetFederation(fedMgr, http.HandlerFunc(fedMgr.HandleWS))
 
 	addr := fmt.Sprintf("%s:%d", host, mcpPort)
 	httpSrv, err := mcpSrv.StartHTTPServer(addr, autoOpenBrowser)

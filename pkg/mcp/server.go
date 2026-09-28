@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/dongly/serialhub/internal/buffer"
-	"github.com/dongly/serialhub/internal/federation"
+	"github.com/dongly/serialhub/internal/instance"
 	"github.com/dongly/serialhub/pkg/mcp/tools"
 	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/dongly/serialhub/pkg/version"
@@ -23,34 +23,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FedRouter 是主实例的联邦路由能力，由 internal/federation.Manager 实现。
-// 从实例上报的端口在 MCP 工具层以此接口路由到远侧执行。
-type FedRouter interface {
-	LocalSide() string
-	WorkerCount() int
-	FederatedPorts() []federation.PortInfo
-	ActiveFederatedPort() string
-	IsFederated(portName string) bool
-	Open(portName string, baudRate int) federation.SerialResult
-	Write(portName string, data []byte) federation.SerialResult
-	Close(portName string) federation.SerialResult
-}
-
 // MCPServer manages the MCP server and tool registration
 type MCPServer struct {
 	serialManager *serial.SerialManager
 	dataBuffer    *buffer.DataBuffer
 	mcpServer     *mcpsdk.Server
 	wsServer      *web.WebSocketServer
-	federation    FedRouter
-	federationWS  http.Handler
-}
-
-// SetFederation 注入联邦路由器（主实例），并将联邦 WebSocket 端点
-// （从实例外连的 /federation）交由 StartHTTPServer 挂载。
-func (s *MCPServer) SetFederation(fr FedRouter, wsHandler http.Handler) {
-	s.federation = fr
-	s.federationWS = wsHandler
 }
 
 // NewMCPServer creates a new MCP server instance
@@ -209,10 +187,6 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streamableHandler)
-	// 联邦端点：从实例经 WebSocket 外连注册（仅主实例注入后存在）
-	if s.federationWS != nil {
-		mux.Handle("/federation", s.federationWS)
-	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -272,7 +246,7 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务器已启动: %s", ln.Addr())
 
-	// 终端地址始终提示；--no-browser/--stdio/从实例模式下仅跳过自动打开动作
+	// 终端地址始终提示；--no-browser/--stdio 模式下仅跳过自动打开动作
 	displayAddr := addr
 	if strings.HasPrefix(addr, "0.0.0.0:") {
 		displayAddr = "127.0.0.1:" + strings.TrimPrefix(addr, "0.0.0.0:")
@@ -361,29 +335,32 @@ func (s *MCPServer) withCORS(handler http.Handler) http.Handler {
 
 // Tool handlers - using low-level ToolHandler API
 
-// handleSerialList 聚合本侧与联邦（从实例上报）端口。
-// 本地端口对外名为裸名（如 COM3、/dev/ttyUSB1）；
-// 联邦端口对外名为 "side:port" 全名（如 "wsl:/dev/ttyUSB1"），connect 直接使用。
+// PortInfo 描述 serial_list 返回的一个串口条目（origin/side 供客户端区分来源）。
+type PortInfo struct {
+	Name   string `json:"name"`
+	Origin string `json:"origin"`
+	Side   string `json:"side"`
+	Port   string `json:"port"`
+}
+
+// handleSerialList 列出本实例可用串口（本地端口对外名为裸名，如 COM3、/dev/ttyUSB1）。
 func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	local := tools.ExecuteSerialList(s.serialManager)
 	if !local.Success {
 		return s.toolResultToMCPResult(local)
 	}
 
-	side := federation.LocalSide()
-	ports := make([]federation.PortInfo, 0, 8)
+	side := instance.LocalSide()
+	ports := make([]PortInfo, 0, 8)
 	m, ok := local.Data.(map[string]any)
 	if !ok {
-		logrus.Warnf("[SerialHub] 本地端口数据格式异常（期望 map，实际 %T），仅返回联邦端口", local.Data)
+		logrus.Warnf("[SerialHub] 本地端口数据格式异常（期望 map，实际 %T）", local.Data)
 	} else if localPorts, ok := m["ports"].([]string); !ok {
-		logrus.Warnf("[SerialHub] 本地端口列表类型异常（期望 []string），仅返回联邦端口")
+		logrus.Warnf("[SerialHub] 本地端口列表类型异常（期望 []string）")
 	} else {
 		for _, p := range localPorts {
-			ports = append(ports, federation.PortInfo{Name: p, Origin: "local", Side: side, Port: p})
+			ports = append(ports, PortInfo{Name: p, Origin: "local", Side: side, Port: p})
 		}
-	}
-	if s.federation != nil {
-		ports = append(ports, s.federation.FederatedPorts()...)
 	}
 
 	return s.toolResultToMCPResult(tools.ToolResult{
@@ -399,32 +376,11 @@ func (s *MCPServer) handleSerialConnect(ctx context.Context, req *mcpsdk.CallToo
 		return nil, s.invalidParamsError(err)
 	}
 
-	// 联邦端口：路由到从实例执行
-	if s.federation != nil && s.federation.IsFederated(input.Port) {
-		if s.serialManager.IsConnected() {
-			return s.toolResultToMCPResult(tools.ToolResult{Success: false, Message: "本地串口已连接，请先断开后再连接联邦端口"})
-		}
-		return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Open(input.Port, input.BaudRate)))
-	}
-
-	// 本地端口：联邦口活动时拒绝（全局单活动口模型，数据统一入 DataBuffer）
-	if s.federation != nil && s.federation.ActiveFederatedPort() != "" {
-		return s.toolResultToMCPResult(tools.ToolResult{
-			Success: false,
-			Message: fmt.Sprintf("联邦端口 %s 已连接，请先断开", s.federation.ActiveFederatedPort()),
-		})
-	}
-
 	result := tools.ExecuteSerialConnect(s.serialManager, input)
 	return s.toolResultToMCPResult(result)
 }
 
 func (s *MCPServer) handleSerialDisconnect(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-	if s.federation != nil {
-		if ap := s.federation.ActiveFederatedPort(); ap != "" {
-			return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Close(ap)))
-		}
-	}
 	result := tools.ExecuteSerialDisconnect(s.serialManager)
 	return s.toolResultToMCPResult(result)
 }
@@ -433,18 +389,6 @@ func (s *MCPServer) handleSerialWrite(ctx context.Context, req *mcpsdk.CallToolR
 	var input tools.WriteInput
 	if err := s.parseRequestParams(req, &input); err != nil {
 		return nil, s.invalidParamsError(err)
-	}
-
-	// 联邦口活动：数据路由到从实例写入（addNewline 在主侧展开，从侧只收裸字节）
-	if s.federation != nil {
-		if ap := s.federation.ActiveFederatedPort(); ap != "" {
-			data := input.Data
-			addNewline := input.AddNewline == nil || *input.AddNewline
-			if addNewline {
-				data += "\n"
-			}
-			return s.toolResultToMCPResult(fedSerialToToolResult(s.federation.Write(ap, []byte(data))))
-		}
 	}
 
 	result := tools.ExecuteSerialWrite(s.serialManager, input)
@@ -466,26 +410,8 @@ func (s *MCPServer) handleSerialClear(ctx context.Context, req *mcpsdk.CallToolR
 }
 
 func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-	if s.federation != nil {
-		if ap := s.federation.ActiveFederatedPort(); ap != "" {
-			return s.toolResultToMCPResult(tools.ToolResult{
-				Success: true,
-				Message: fmt.Sprintf("已连接联邦端口 %s", ap),
-				Data:    map[string]any{"connected": true, "port": ap, "origin": "federated"},
-			})
-		}
-	}
 	result := tools.ExecuteSerialStatus(s.serialManager)
 	return s.toolResultToMCPResult(result)
-}
-
-// fedSerialToToolResult 将联邦通道的 SerialResult 转为 tools.ToolResult。
-func fedSerialToToolResult(res federation.SerialResult) tools.ToolResult {
-	data := res.Data
-	if data == nil && res.Success {
-		data = map[string]any{}
-	}
-	return tools.ToolResult{Success: res.Success, Message: res.Message, Data: data}
 }
 
 // Helper functions

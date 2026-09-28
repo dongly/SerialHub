@@ -34,7 +34,7 @@ func newSetupCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(&setupClient, "client", "", "客户端 ID: opencode/claude/cursor/windsurf/vscode/codex")
-	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), "HTTP 端点（联邦模式下 127.0.0.1 两侧皆可用；仅 --mode http 时生效）")
+	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), "HTTP 端点（仅 --mode http 时生效）")
 	cmd.Flags().StringVar(&setupMode, "mode", "stdio", "接入模式: stdio | http（默认 stdio 本地模式）")
 	cmd.Flags().StringVar(&setupScope, "scope", "project", "写入层级: project | user（codex 仅 user）")
 	cmd.Flags().BoolVarP(&setupAssumeYes, "yes", "y", false, "非交互：确认全部默认选择")

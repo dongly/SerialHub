@@ -96,8 +96,7 @@ func (o *Options) stdioCommand() string {
 	return "serialhub"
 }
 
-// DefaultURL 返回 HTTP 模式的默认端点（端口取 config.DefaultHTTPPort；
-// 联邦模式下 127.0.0.1 两侧皆可用）。
+// DefaultURL 返回 HTTP 模式的默认端点（端口取 config.DefaultHTTPPort）。
 func DefaultURL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d/mcp", config.DefaultHTTPPort)
 }

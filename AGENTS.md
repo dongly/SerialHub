@@ -47,9 +47,8 @@ serialhub -p COM7 -D         # 直接启动
 
 **启动流程** (`cmd/serialhub/serve.go`)：
 1. `loadConfig()` — CLI 参数 > 配置文件 > 默认值
-2. 角色分流：`--stdio` 走 stdio 模式（有主则透明代理，无主自成主）；否则 `federation.DiscoverMaster()` 探测本机/Windows 宿主 `/health`（严格认 `role=master`），有主→从实例，无主→主实例
-3. 主实例：创建 `SerialManager` → `DataBuffer` → Windows 托盘或前台模式，`startServices()` 建 `DataBridge` + `MCPServer` + 联邦入口 `/federation`
-4. 从实例：上报本侧端口给主实例，本侧反代 `/mcp` + `/health`（`role=worker`）；主实例失联重连失败后自动晋升为主
+2. `--stdio` 走 stdio 模式：`instance.Read()` 读 lock 发现活主——有活主则 `RunStdioProxy` 透明代理，无主自成主实例（也持 lock）
+3. 主实例：`instance.Acquire()` 获取单实例 OS 文件锁（已被占用则报错退出）→ 创建 `SerialManager` → `DataBuffer` → Windows 托盘或前台模式，`startServices()` 建 `DataBridge` + `MCPServer`；退出时 `Release()` 关闭句柄释放锁
 
 **DataBridge** (`pkg/bridge/`)：核心事件总线，启动两个 goroutine：
 - 串口 → Telnet/WebSocket + MCP（串口数据同时广播到所有客户端）
@@ -64,7 +63,7 @@ serialhub -p COM7 -D         # 直接启动
 **DataBuffer** (`internal/buffer/`)：线程安全环形缓冲区，默认 64KB，溢出时丢弃旧数据。
 MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
-**联邦** (`internal/federation/`)：Windows 与 WSL 双侧各跑一个实例的协作协议。主实例聚合双侧串口（`serial_list`），从实例上报端口、受调度读写本侧串口并上行数据；主实例失联后从实例自动晋升。
+**单实例 lock** (`internal/instance/`)：每个配置/安装目录各一份 `instance.lock`（Linux XDG 用户目录 / Windows exe 同目录）；OS 锁判定所有权，JSON 记录 pid/port/host 供发现，文件常驻，进程退出释放锁；`IsWSL`/`LocalSide` 提供 side 标识。
 
 ## CLI 参数
 
@@ -105,7 +104,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 `<type>(<scope>): <subject>`
 
 Type: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-Scope: `serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`, `federation`
+Scope: `serial`, `web`, `mcp`, `tray`, `cli`, `bridge`, `config`, `buffer`, `instance`
 
 ## 项目结构
 
@@ -120,12 +119,12 @@ pkg/tray/              Windows 系统托盘（菜单、图标状态、配置同�
 pkg/config/            TOML 配置（viper）、CLI 参数合并
 pkg/version/           版本信息（构建时 ldflags 注入）
 internal/buffer/       DataBuffer 线程安全缓冲区（MCP 与 WebSocket 共享）
-internal/federation/   联邦协议（主从发现、注册、串口代理、数据上行、晋升）
+internal/instance/      单实例 lock（OS 文件锁互斥、活主发现）与侧别标识（IsWSL/LocalSide）
 internal/testutil/     Mock 串口（MockSerialPort）、Mock 网络连接（MockConn）、测试辅助
 tests/integration/     Python 集成测试（pytest，需运行中的服务）
 tests/e2e/             Python E2E 测试（Playwright，需真实串口）
 docs/                  领域术语表（CONTEXT.md）
-tools/                 开发辅助脚本（genicons.py 图标生成、federation-check.sh/.ps1 联邦状态巡检）
+tools/                 开发辅助脚本（genicons.py 图标生成）
 ```
 
 ## MCP 工具

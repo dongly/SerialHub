@@ -279,7 +279,7 @@ func (sm *SerialManager) ListPorts() ([]string, error) {
 		return nil, fmt.Errorf("获取串口列表失败: %w", err)
 	}
 	// WSL 环境下 hypervisor 会注入打不开的假串口（ttyS0~ttyS4 等），
-	// 枚举时只保留真实 USB/ACM 串口设备，避免假端口混入连接目标与联邦上报。
+	// 枚举时只保留真实 USB/ACM 串口设备，避免假端口混入连接目标。
 	if isWSL() {
 		filtered := make([]string, 0, len(ports))
 		for _, p := range ports {

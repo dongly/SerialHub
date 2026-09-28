@@ -13,7 +13,7 @@ SerialHub bridges a single MCU UART to both humans and AI agents:
 - **Humans** get a live xterm.js web terminal in the browser
 - **AI agents** get a native MCP server (Streamable HTTP + stdio) with 7 tools: `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - Both channels share **one serial connection and one data buffer** — humans and AI literally watch the same bytes
-- **Federation mode** links a Windows master with a WSL worker; serial ports from both sides are aggregated as `side:port` (e.g. `windows:COM3`, `wsl:/dev/ttyUSB0`), and the worker auto-promotes to master if the master goes down
+- **Single-instance lock**: one master per user-config/install directory (OS file lock); stdio mode discovers and proxies to that instance
 - Single Go binary with the web frontend embedded; runs on Windows (system tray) / Linux / macOS
 
 ## Architecture
@@ -52,7 +52,7 @@ flowchart TB
 - **Bidirectional**: commands from the web terminal or AI both reach the MCU
 - **Web terminal**: browser terminal over WebSocket with xterm.js; auto-opens in the browser on start (WSL pops the Windows browser too)
 - **MCP protocol**: standard HTTP JSON-RPC (MCP Streamable HTTP transport, non-streaming JSON responses); also `--stdio` for local launch (OpenCode local mode, transparently proxies to a running instance)
-- **Federation mode**: run on Windows and WSL at the same time — the later instance joins automatically, `serial_list` aggregates ports from both sides; the worker auto-promotes when the master is lost
+- **Single-instance lock**: the master holds an OS lock on `instance.lock` (port + PID metadata); another instance in the same directory is refused; stdio mode reads the lock to proxy — no port scanning
 - **Configurable**: all ports, baud rates, and timeouts via TOML or CLI
 - **Observable**: all data flows can be logged and traced
 - **Error recovery**: network/serial faults are handled gracefully
@@ -99,7 +99,7 @@ serialhub                                    # start with defaults
 serialhub -p COM8                            # specify serial port
 serialhub -p COM8 -b 9600 --parity even      # full serial options
 serialhub -m 8080                            # use port 8080
-serialhub --host 0.0.0.0                     # listen on all interfaces (needed by the Windows master in federation mode)
+serialhub --host 0.0.0.0                     # listen on all interfaces (LAN access)
 serialhub --stdio                            # stdio mode (launched by an MCP client)
 serialhub -c config.toml                     # use a config file
 serialhub -D                                 # debug mode

@@ -13,7 +13,7 @@ import (
 // 将 stdin/stdout 上的 MCP 消息逐条转发给已运行主实例的 HTTP /mcp 端点。
 //
 // 适用场景：MCP 客户端（如 OpenCode）以 local/stdio 方式拉起本进程，
-// 而主实例已在运行（联邦发现命中）。协议握手（initialize）被透明转发，
+// 而主实例已在运行（instance lock 发现命中）。协议握手（initialize）被透明转发，
 // 无会话语义依赖主实例的 Stateless 模式。
 func RunStdioProxy(ctx context.Context, masterURL string) error {
 	endpoint := masterURL + "/mcp"

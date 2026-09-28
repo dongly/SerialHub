@@ -13,7 +13,7 @@ SerialHub 把 MCU 串口同时桥接给人和 AI：
 - **人**：浏览器里的 xterm.js Web 终端，实时查看与输入
 - **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
-- **联邦模式**：Windows 主实例 + WSL 从实例，双侧串口以 `side:port` 形式聚合（如 `windows:COM3`、`wsl:/dev/ttyUSB0`），主实例失联后从实例自动晋升
+- **单实例互斥**：每个用户配置/安装目录只允许一个主实例（OS 文件锁）；stdio 模式自动发现并代理到已运行实例
 - 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS
 
 ## 系统架构
@@ -52,7 +52,7 @@ flowchart TB
 - **双向通信**：Web 终端或 AI 发送的命令均可传输到 MCU
 - **Web 终端**：基于 WebSocket 的浏览器终端，支持 xterm.js；启动后自动在浏览器打开（WSL 下也能弹出 Windows 浏览器）
 - **MCP 协议**：通过标准 HTTP JSON-RPC（MCP Streamable HTTP 传输、非流式 JSON 响应）提供 AI 工具集成；也支持 `--stdio` 本地拉起（OpenCode local 模式，自动代理到已运行实例）
-- **联邦模式**：Windows 与 WSL 可同时运行，后启动的自动接入，`serial_list` 聚合双侧串口；主实例失联时从实例自动晋升
+- **单实例互斥**：主实例持有 `instance.lock` 的 OS 文件锁（记录端口与 PID），同一目录再启动会报错；stdio 模式读 lock 自动代理，无需端口扫描
 - **可配置**：所有端口、波特率、超时参数均可通过 TOML 或命令行配置
 - **可观测**：所有数据流均可记录和追踪
 - **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
@@ -97,7 +97,7 @@ serialhub                                    # 默认配置启动
 serialhub -p COM8                            # 指定串口
 serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
 serialhub -m 8080                            # 使用 8080 端口
-serialhub --host 0.0.0.0                     # 监听所有网络接口（联邦模式 Windows 主侧需要）
+serialhub --host 0.0.0.0                     # 监听所有网络接口（局域网访问需要）
 serialhub --stdio                            # stdio 模式（MCP 客户端本地拉起）
 serialhub -c config.toml                     # 使用配置文件
 serialhub -D                                 # 调试模式

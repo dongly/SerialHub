@@ -51,7 +51,7 @@ serialhub --version    # 输出 SerialHub v0.5.0 形式即成功
 WSL 默认看不到 Windows 宿主的 USB 串口，需要 usbipd 挂载。推荐图形工具
 [wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) 一键 attach，
 或使用命令行 `usbipd`（`usbipd list` → `usbipd bind` → `usbipd attach --wsl`）。
-挂载成功后 WSL 内出现 `/dev/ttyUSB*`，即可被 SerialHub 联邦模式从侧使用。
+挂载成功后 WSL 内出现 `/dev/ttyUSB*`，即可被 SerialHub 使用（`serial_list` 可见）。
 
 ## 2. 启动 SerialHub
 
