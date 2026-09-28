@@ -12,9 +12,14 @@ import (
 var logFile *os.File
 
 func setupLogger(cfg *config.Config) {
-	if debugMode || cfg.Debug {
+	// --log-data 蕴含 -D：Trace 级包含 Debug/Info 全部输出，外加数据内容日志。
+	// logDataEffective 已在 loadConfig 按 显式 flag > 环境变量 > 配置文件 合并。
+	switch {
+	case logDataEffective:
+		logrus.SetLevel(logrus.TraceLevel)
+	case debugMode || cfg.Debug:
 		logrus.SetLevel(logrus.DebugLevel)
-	} else {
+	default:
 		logrus.SetLevel(logrus.InfoLevel)
 	}
 

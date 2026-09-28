@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/serial"
@@ -43,6 +44,20 @@ func loadConfig() *config.Config {
 	}
 	if mcpPort != config.DefaultHTTPPort && mcpPort != 0 {
 		cfg.MCP.HTTPPort = mcpPort
+	}
+	// --log-data 与 SERIALHUB_LOG_DATA 仅决定本次运行是否输出数据内容日志，
+	// 不回写配置文件（cfg.LogData 保持文件原值）：显式 flag（含
+	// --log-data=false 显式关闭）> 环境变量 > 配置文件 logData。
+	logDataEffective = cfg.LogData
+	if v, ok := os.LookupEnv("SERIALHUB_LOG_DATA"); ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			logDataEffective = b
+		} else {
+			logrus.Warnf("[SerialHub] SERIALHUB_LOG_DATA 值无效（%q），已忽略", v)
+		}
+	}
+	if logDataFlag != nil && logDataFlag.Changed {
+		logDataEffective = logDataMode
 	}
 
 	if configPath != "" {

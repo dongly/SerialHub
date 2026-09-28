@@ -76,6 +76,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 | `--host` | — | 127.0.0.1 | 监听地址 |
 | `--config` | `-c` | — | TOML 配置文件路径 |
 | `--debug` | `-D` | false | 调试模式 |
+| `--log-data` | — | false | 输出数据内容日志（500ms 时间窗聚合、单条展示截断 512 字节；也可用 SERIALHUB_LOG_DATA=1，显式 `--log-data=false` 优先；两者不回写配置文件） |
 | `--stdio` | — | false | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） |
 | `--minimized` | — | false | 脚本静默启动：窗口最小化（跨平台；Windows 下同时隐藏控制台）。浏览器仍默认自动打开（WSL 下经 Windows 宿主浏览器） |
 | `--no-browser` | — | false | 跳过自动打开浏览器（日志仍会提示 Web 终端地址） |

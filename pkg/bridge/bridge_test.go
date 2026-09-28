@@ -29,6 +29,14 @@ func (m *mockSerialReader) Write(data []byte) (int, error) {
 	m.writeData = append(m.writeData, data...)
 	return len(data), nil
 }
+
+// setWriteErr 带锁更新写入错误（bridge goroutine 可能正在 Write 中读取该字段，
+// 直接赋值会被 -race 检出数据竞争）。
+func (m *mockSerialReader) setWriteErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeErr = err
+}
 func (m *mockSerialReader) getWriteData() []byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -281,7 +289,7 @@ func TestForwardLoop_TelnetToSerial(t *testing.T) {
 
 func TestForwardLoop_TelnetToSerialWriteError(t *testing.T) {
 	b, serialMock, wsMock, _ := newTestBridge()
-	serialMock.writeErr = errors.New("写入失败")
+	serialMock.setWriteErr(errors.New("写入失败"))
 
 	b.Start()
 	defer b.Stop()
@@ -293,7 +301,7 @@ func TestForwardLoop_TelnetToSerialWriteError(t *testing.T) {
 
 	// 写入出错不应 panic, bridge 应继续运行
 	// 验证 bridge 仍然存活：修正 writeErr, 发新数据应能成功
-	serialMock.writeErr = nil
+	serialMock.setWriteErr(nil)
 	wsMock.dataChan <- []byte("ok")
 
 	time.Sleep(100 * time.Millisecond)

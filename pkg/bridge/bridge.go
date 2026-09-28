@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/sirupsen/logrus"
 )
 
@@ -105,7 +106,7 @@ func (db *DataBridge) forwardLoop() {
 				return
 			}
 			if len(data) > 0 {
-				logrus.Infof("[SerialHub] 收到 WebSocket 数据: %d 字节, 内容: %q", len(data), string(data))
+				logagg.Add(logagg.TagWebSocketRecv, data)
 				db.forwardWsToSerial(data)
 			}
 		}
@@ -146,11 +147,11 @@ func (db *DataBridge) forwardSerialToBoth(data []byte) {
 
 	wsCount := db.ws.Broadcast(cleanedData)
 	if wsCount > 0 {
-		logrus.Debugf("[SerialHub] 转发串口数据到 WebSocket: %d 字节, %d 客户端", len(cleanedData), wsCount)
+		logrus.Tracef("[SerialHub] 转发串口数据到 WebSocket: %d 字节, %d 客户端", len(cleanedData), wsCount)
 	}
 
 	db.mcpBuffer.Append(cleanedData)
-	logrus.Debugf("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(cleanedData))
+	logrus.Tracef("[SerialHub] 转发串口数据到 MCP 缓冲区: %d 字节", len(cleanedData))
 }
 
 func ConvertLFToCRLF(data []byte) []byte {
@@ -178,6 +179,6 @@ func (db *DataBridge) forwardWsToSerial(data []byte) {
 	if err != nil {
 		logrus.Errorf("[SerialHub] 转发 WebSocket 数据到串口失败: %v", err)
 	} else {
-		logrus.Debugf("[SerialHub] 转发 WebSocket 数据到串口: %d 字节", len(data))
+		logrus.Tracef("[SerialHub] 转发 WebSocket 数据到串口: %d 字节", len(data))
 	}
 }

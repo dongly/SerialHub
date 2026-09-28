@@ -103,8 +103,10 @@ Full options:
 | `--host <host>` | - | Listen address | 127.0.0.1 |
 | `--config <path>` | `-c` | Config file path | - |
 | `--debug` | `-D` | Debug mode | false |
+| `--log-data` | - | Log data content (aggregated in 500ms windows, 512-byte display cap; or SERIALHUB_LOG_DATA=1; an explicit `--log-data=false` takes precedence; neither is persisted back to the config file) | false |
 | `--stdio` | - | stdio mode: launched by an MCP client (transparent proxy if a master exists) | false |
-| `--minimized` | - | Script launch: skip auto-opening the browser (cross-platform; also hides the console on Windows) | false |
+| `--minimized` | - | Script launch: minimize the window (also hides the console on Windows); the browser still opens automatically | false |
+| `--no-browser` | - | Skip auto-opening the browser (the log still prints the Web terminal URL) | false |
 
 ### System Tray (Windows)
 

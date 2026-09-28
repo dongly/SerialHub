@@ -30,6 +30,11 @@ type Config struct {
 	Host   string
 	LogDir string
 	Debug  bool
+	// LogData 输出数据内容日志（串口/WebSocket 收发数据的 %q 内容，
+	// 经 500ms 时间窗聚合、单条展示截断 512 字节）。此字段只承载配置文件
+	// 的持久设置；--log-data 与 SERIALHUB_LOG_DATA 环境变量在运行时按
+	// 「显式 flag > 环境变量 > 配置文件」合并生效，且不回写配置文件。
+	LogData bool
 }
 
 func GetDefault() *Config {
@@ -44,8 +49,9 @@ func GetDefault() *Config {
 		MCP: MCPConfig{
 			HTTPPort: DefaultHTTPPort,
 		},
-		Host:  "127.0.0.1",
-		Debug: false,
+		Host:    "127.0.0.1",
+		Debug:   false,
+		LogData: false,
 	}
 }
 

@@ -949,6 +949,69 @@ func TestWrite_WriteError(t *testing.T) {
 	}
 }
 
+// TestWrite_ErrorConcurrentWithClose 写入错误投递与 Close 的通道关闭并发执行，
+// 不得出现 send on closed channel panic；通道满时静默丢弃；
+// Close 完成后 Write 返回未连接错误。（-race 下覆盖 send/close 竞争）
+func TestWrite_ErrorConcurrentWithClose(t *testing.T) {
+	cfg := &Config{
+		Port:     "MOCK1",
+		BaudRate: 115200,
+	}
+
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager() failed: %v", err)
+	}
+
+	// 注入带写入错误的 MockSerialPort（无 readLoop，直接挂 port）
+	mockPort := testutil.NewMockSerialPort(nil)
+	mockPort.WriteErr = fmt.Errorf("模拟写入错误")
+	sm.mu.Lock()
+	sm.port = mockPort
+	sm.mu.Unlock()
+
+	// 预先填满 errChan（容量 16）：并发期的错误投递全部走 default 丢弃路径
+	for i := 0; i < 16; i++ {
+		sm.errChan <- fmt.Errorf("占位错误 %d", i)
+	}
+
+	// 持续写入错误的同时关闭 manager：投递（读锁内）与 close(errChan)
+	//（写锁内）互斥，全程不得 panic
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_, _ = sm.Write([]byte("x"))
+			}
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sm.Close()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close 超时")
+	}
+	close(stop)
+	wg.Wait()
+
+	// Close 后写入应返回未连接错误，且不再触碰已关闭的通道
+	if _, err := sm.Write([]byte("x")); err == nil {
+		t.Error("Close 后 Write 应返回串口未连接错误")
+	}
+}
+
 // TestSetEventHandler 测试事件处理器设置和触发
 func TestSetEventHandler(t *testing.T) {
 	cfg := &Config{

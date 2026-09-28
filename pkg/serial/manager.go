@@ -16,6 +16,7 @@ import (
 	serial "go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
 
+	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/sirupsen/logrus"
 )
 
@@ -236,28 +237,31 @@ func (sm *SerialManager) Disconnect() error {
 // Write writes data to the serial port
 func (sm *SerialManager) Write(data []byte) (int, error) {
 	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	if sm.port == nil {
+	port := sm.port
+	if port == nil {
+		sm.mu.RUnlock()
 		return 0, fmt.Errorf("串口未连接")
 	}
-
-	logrus.Debugf("[SerialHub] 串口写入 %d 字节: %q", len(data), string(data))
-
-	n, err := sm.port.Write(data)
+	n, err := port.Write(data)
 	if err != nil {
-		logrus.Errorf("[SerialHub] 串口写入失败: %v", err)
-		// 非阻塞投递：errChan 无生产消费方持续排水时不能卡住写路径
-		//（本方法持有读锁，阻塞会把整个 manager 卡死）
+		// 错误投递必须与 Close 的通道关闭互斥：Close 在写锁内关闭 errChan，
+		// 此处持读锁完成非阻塞发送（select+default 不会阻塞）；若在锁外
+		// 发送，存在 send on closed channel 的 panic 窗口。
 		select {
 		case sm.errChan <- fmt.Errorf("写入错误: %w", err):
 		default:
-			logrus.Debug("[SerialHub] 错误通道已满，丢弃写入错误")
+			// 通道满时静默丢弃：下方 Errorf 仍会记录本次错误
 		}
+	}
+	sm.mu.RUnlock()
+
+	// 数据内容日志（聚合）在锁外输出，避免日志 I/O 拖住连接管理
+	logagg.Add(logagg.TagSerialWrite, data)
+
+	if err != nil {
+		logrus.Errorf("[SerialHub] 串口写入失败: %v", err)
 		return n, fmt.Errorf("写入失败: %w", err)
 	}
-
-	logrus.Debugf("[SerialHub] 串口写入成功: %d 字节", n)
 	return n, nil
 }
 
@@ -541,7 +545,8 @@ func (sm *SerialManager) readLoop(port Port) {
 				}
 
 				if len(data) > 0 {
-					logrus.Debugf("[SerialHub] 串口读取 %d 字节: %q", len(data), string(data))
+					// 数据内容日志：记录实际读到的字节（与入队归属无关），聚合输出
+					logagg.Add(logagg.TagSerialRead, data)
 					// 持锁完成"归属校验 + 非阻塞入队"：校验后解锁再发送的话，
 					// 间隙里端口可能被切换，旧连接的在途数据会混入新连接的流。
 					// select 带 default 不会阻塞；丢弃日志在锁外输出，避免文件 I/O 拖住 Disconnect/Connect。

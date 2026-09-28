@@ -16,6 +16,7 @@ import (
 
 	"github.com/dongly/serialhub/internal/buffer"
 	"github.com/dongly/serialhub/internal/federation"
+	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/dongly/serialhub/pkg/bridge"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcp"
@@ -41,6 +42,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	setupLogger(cfg)
 	defer closeLogger()
 	logrus.Infof("[SerialHub] SerialHub v%s 启动中...", appVersion)
+	if logDataEffective {
+		logrus.Info("[SerialHub] 数据内容日志已开启（--log-data / SERIALHUB_LOG_DATA=1），500ms 时间窗聚合输出")
+	}
 
 	masterURL := federation.DiscoverMaster(mcpPort)
 	if masterURL != "" {
@@ -141,7 +145,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr.Run(context.Background())
 
-	logrus.Info("[SerialHub] 正在关闭...")
+	// 「正在关闭」通知由 gracefulShutdown 的停机 goroutine 输出（控制线程不同步写日志）
 	gracefulShutdown(sm, svcs)
 	closeLogger()
 	return nil
@@ -155,12 +159,15 @@ type runningServices struct {
 }
 
 // gracefulShutdown 按序停机：数据桥 → MCP HTTP → 串口。
-// 任一环节卡死（如 USB 掉线导致串口 Close 阻塞）时整体限时 3s 强制退出，
-// 避免 Ctrl+C 后进程残留。
+// 服务清理最多等待 3 秒，日志收尾额外最多等待 500ms；任一环节卡死
+// （如 USB 掉线导致串口 Close 阻塞）时整体超时后强制退出。
+// 「正在关闭」通知放在停机 goroutine 内输出：控制线程（含超时计时）
+// 不做任何同步日志调用——日志输出链可能正被卡死的 I/O 占用。
 func gracefulShutdown(sm *serial.SerialManager, svcs *runningServices) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		logrus.Info("[SerialHub] 正在关闭...") // 卡死只阻塞本 goroutine，由下方超时兜底
 		if svcs != nil {
 			if svcs.bridge != nil {
 				if err := svcs.bridge.Stop(); err != nil {
@@ -184,11 +191,53 @@ func gracefulShutdown(sm *serial.SerialManager, svcs *runningServices) {
 
 	select {
 	case <-done:
-		logrus.Info("[SerialHub] 已完成停机")
+		// 两分支均不在控制线程上同步写日志：日志输出链可能正被卡死的 I/O
+		// 占用（stdout 背压/文件锁），同步调用会让停机流程永远无法返回
+		// （强退分支则永远到不了 os.Exit）。通知消息与收尾一并放进有界
+		// goroutine（服务清理最多 3s + 日志收尾最多 500ms）。
+		flushBoundedLog(logrus.InfoLevel, "[SerialHub] 已完成停机")
 	case <-time.After(3 * time.Second):
-		logrus.Warn("[SerialHub] 停机超时（3s），强制退出")
+		flushBoundedLog(logrus.WarnLevel, "[SerialHub] 停机超时（3s），强制退出")
 		closeLogger()
 		os.Exit(0)
+	}
+}
+
+// logAsync 异步输出一条日志：调用线程绝不等待日志 I/O。退出/换主等
+// 控制路径上，日志输出链可能正被卡死的 I/O 占用（stdout 背压/文件锁），
+// 同步调用会永久阻塞控制流。消息可能乱序或丢失，仅用于收尾通知。
+func logAsync(level logrus.Level, msg string) {
+	go func() {
+		switch level {
+		case logrus.DebugLevel:
+			logrus.Debug(msg)
+		case logrus.WarnLevel:
+			logrus.Warn(msg)
+		default:
+			logrus.Info(msg)
+		}
+	}()
+}
+
+// flushBoundedLog 在有界 goroutine 内输出一条停机通知并收尾数据内容日志：
+// 日志 I/O 异常卡死时不阻断控制线程，超时（500ms）放弃消息与最后一窗
+// 直接返回。
+func flushBoundedLog(level logrus.Level, msg string) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if msg != "" {
+			if level == logrus.WarnLevel {
+				logrus.Warn(msg)
+			} else {
+				logrus.Info(msg)
+			}
+		}
+		logagg.FlushAll()
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 
@@ -225,7 +274,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	logrus.Info("[SerialHub] 正在关闭...")
+	// 「正在关闭」通知由 gracefulShutdown 的停机 goroutine 输出（控制线程不同步写日志）
 	gracefulShutdown(sm, svcs)
 	closeLogger()
 	return nil
@@ -271,9 +320,10 @@ func runWorker(cfg *config.Config, masterURL string) error {
 
 	select {
 	case <-ctx.Done():
-		logrus.Info("[SerialHub] 从实例退出")
 		stopProxy()
 		closeSerialBounded(sm, 3*time.Second) // 进程即将退出，句柄由 OS 回收
+		// 「从实例退出」通知与数据日志收尾一并走有界 goroutine（控制线程不同步写日志）
+		flushBoundedLog(logrus.InfoLevel, "[SerialHub] 从实例退出")
 		return nil
 	case <-promoteCh:
 		// 晋升前复查：主实例可能只是网络抖动，或已有新主接管
@@ -284,7 +334,7 @@ func runWorker(cfg *config.Config, masterURL string) error {
 			cancel()
 			// 旧 sm 不再复用（递归会新建），有界关闭防 USB 掉线时 Close 阻塞卡住退出
 			if !closeSerialBounded(sm, 3*time.Second) {
-				logrus.Warn("[SerialHub] 旧串口管理器未在时限内关闭，其资源将滞留本进程；反复换主累积时建议重启进程")
+				logAsync(logrus.WarnLevel, "[SerialHub] 旧串口管理器未在时限内关闭，其资源将滞留本进程；反复换主累积时建议重启进程")
 			}
 			return runWorker(cfg, newMaster)
 		}
@@ -300,6 +350,7 @@ func runWorker(cfg *config.Config, masterURL string) error {
 // 不代表底层驱动 Close 已完成（其异步执行，句柄释放不在此等待）；
 // 调用方据此决定后续（进程退出场景句柄由 OS 回收，换主等继续运行
 // 场景需提示资源滞留）。
+// 超时告警异步输出：日志链可能正被卡死的 I/O 占用，控制线程不得等待。
 func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
@@ -312,7 +363,7 @@ func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
 	case <-done:
 		return true
 	case <-time.After(timeout):
-		logrus.Warnf("[SerialHub] 串口管理器关闭超时（%s），放弃等待", timeout)
+		logAsync(logrus.WarnLevel, fmt.Sprintf("[SerialHub] 串口管理器关闭超时（%s），放弃等待", timeout))
 		return false
 	}
 }
@@ -415,9 +466,9 @@ func runStdio(cfg *config.Config) error {
 	}
 
 	if err := svcs.mcp.RunStdioTransport(ctx); err != nil {
-		logrus.Debugf("[SerialHub] stdio 传输结束: %v", err)
+		logAsync(logrus.DebugLevel, fmt.Sprintf("[SerialHub] stdio 传输结束: %v", err))
 	}
-	logrus.Info("[SerialHub] stdio 连接断开，进程退出")
+	// 退出路径控制线程不同步写日志：通知由 gracefulShutdown/有界收尾输出
 	gracefulShutdown(sm, svcs)
 	return nil
 }
