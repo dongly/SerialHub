@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,12 @@ const discoverTimeout = 800 * time.Millisecond
 
 // IsWSL 判断当前是否运行在 WSL 环境中。
 func IsWSL() bool {
+	// Windows 构建永不运行在 WSL 内（GOOS=linux 才可能）。
+	// 仅靠 WSL_DISTRO_NAME 判断会把从 WSL interop 启动的 Windows 进程
+	// （继承该环境变量）误判为 WSL 侧，导致联邦 side 标注错误。
+	if runtime.GOOS != "linux" {
+		return false
+	}
 	if os.Getenv("WSL_DISTRO_NAME") != "" {
 		return true
 	}
