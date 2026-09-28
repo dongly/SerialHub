@@ -16,12 +16,17 @@ const (
 	lockfileFailImmediately = 0x1 // LOCKFILE_FAIL_IMMEDIATELY
 )
 
-// tryLock 尝试对文件起始 1 字节区域加排他锁（非阻塞）：成功返回 nil；
+// lockOffset 是加锁字节在文件中的偏移。选一个远超元数据长度的远端偏移：
+// 读取方只会读取文件开头的一小段 JSON 元数据，不会触及该字节；否则
+// 像 PowerShell Get-Content 这类按大缓冲区（数 KB）读取的工具会读到被锁
+// 区域并报 ERROR_LOCK_VIOLATION（表现为“文件正被另一进程使用”）。
+const lockOffset = 0x7FFFFFFF
+
+// tryLock 尝试对远端 1 字节区域加排他锁（非阻塞）：成功返回 nil；
 // 已被其他进程持有时返回错误。LockFileEx 区域锁由内核管理，进程退出
 // （含崩溃/被杀）时自动释放。
 func tryLock(f *os.File) error {
 	var overlapped windows.Overlapped
-	// 锁元数据区以外的字节：Windows 区域锁会阻止其他进程读取被锁区域。
-	overlapped.Offset = 4096
+	overlapped.Offset = lockOffset
 	return windows.LockFileEx(windows.Handle(f.Fd()), lockfileExclusiveLock|lockfileFailImmediately, 0, 1, 0, &overlapped)
 }
