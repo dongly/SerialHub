@@ -188,14 +188,19 @@ func TestDisconnect(t *testing.T) {
 		t.Error("断开后 IsConnected() 应该返回 false")
 	}
 
-	if !mockPort.IsClosed() {
-		t.Error("MockSerialPort 应该被关闭")
+	// 端口关闭在独立 goroutine 中异步执行，轮询等待完成
+	deadline := time.Now().Add(time.Second)
+	for !mockPort.IsClosed() {
+		if time.Now().After(deadline) {
+			t.Fatal("等待 MockSerialPort 被关闭超时")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 
-	// 再次断开应该返回错误
+	// 重复断开幂等成功（用户意图是"确保断开"，同时作废挂起的自动重连）
 	err = sm.Disconnect()
-	if err == nil {
-		t.Error("重复断开应该返回错误")
+	if err != nil {
+		t.Errorf("重复断开应幂等成功，实际: %v", err)
 	}
 }
 
@@ -393,10 +398,8 @@ func TestClose(t *testing.T) {
 		t.Errorf("Close() failed: %v", err)
 	}
 
-	// 验证 MockSerialPort 已关闭
-	if !mockPort.IsClosed() {
-		t.Error("Close() 应该关闭串口")
-	}
+	// 验证 MockSerialPort 已关闭（端口在独立 goroutine 中异步关闭，轮询等待）
+	waitClosed(t, mockPort, time.Second)
 
 	// 验证通道已关闭
 	select {
@@ -1076,7 +1079,7 @@ func TestReadLoop_ContextCancel(t *testing.T) {
 
 	// 手动启动 readLoop
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	// 取消 context 让 readLoop 退出
 	sm.cancel()
@@ -1099,7 +1102,7 @@ func TestReadLoop_PortNil(t *testing.T) {
 
 	// port 为 nil（默认值），readLoop 应立即退出
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(nil)
 
 	// 等待 readLoop 退出，加超时防止挂起
 	done := make(chan struct{})
@@ -1146,7 +1149,7 @@ func TestReadLoop_EOF(t *testing.T) {
 	})
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	// 等待 readLoop 退出
 	done := make(chan struct{})
@@ -1217,7 +1220,7 @@ func TestReadLoop_ReadError(t *testing.T) {
 	})
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	select {
 	case e := <-sm.ErrChan():
@@ -1259,7 +1262,7 @@ func TestReadLoop_DataReceive(t *testing.T) {
 	sm.mu.Unlock()
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	// 等待从 dataChan 接收数据
 	select {
@@ -1311,7 +1314,7 @@ func TestReadLoop_DataChanFull(t *testing.T) {
 	sm.mu.Unlock()
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	// 等一段时间让 readLoop 尝试发送数据（应该被丢弃）
 	time.Sleep(200 * time.Millisecond)
@@ -1374,6 +1377,7 @@ func TestConnect_PortOpenFailed(t *testing.T) {
 }
 
 // TestDisconnect_未连接 测试未连接时断开
+// 幂等语义：返回成功并作废挂起的自动重连（掉线后用户点断开，设备回神不得自动连上）
 func TestDisconnect_NotConnected(t *testing.T) {
 	cfg := &Config{
 		Port:     "MOCK1",
@@ -1386,9 +1390,11 @@ func TestDisconnect_NotConnected(t *testing.T) {
 	}
 	defer sm.Close()
 
-	err = sm.Disconnect()
-	if err == nil {
-		t.Error("未连接时 Disconnect() 应该返回错误")
+	if err := sm.Disconnect(); err != nil {
+		t.Errorf("未连接时 Disconnect() 应幂等成功，实际: %v", err)
+	}
+	if sm.IsConnected() {
+		t.Error("断开后 IsConnected() 应该返回 false")
 	}
 }
 

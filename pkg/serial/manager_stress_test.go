@@ -35,7 +35,7 @@ func TestReadLoop_NoRetryOnError(t *testing.T) {
 	})
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -63,19 +63,25 @@ func TestDisconnect_NoRepeatedErrors(t *testing.T) {
 	defer sm.Close()
 
 	var disconnectCount int32
+	var errorCount int32
 	sm.SetEventHandler(func(event Event) {
-		if event.Type == EventDisconnected {
+		switch event.Type {
+		case EventDisconnected:
 			atomic.AddInt32(&disconnectCount, 1)
+		case EventError:
+			atomic.AddInt32(&errorCount, 1)
 		}
 	})
 
-	mockPort := testutil.NewMockSerialPort([]byte("some data"))
+	// 静默端口：Read 阻塞到 Close（模拟"连接正常但无数据"），
+	// 保证 Disconnect 走主动断开路径，而非 EOF 先触发意外断开清理
+	mockPort := newQuietPort()
 	sm.mu.Lock()
 	sm.port = mockPort
 	sm.mu.Unlock()
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -99,8 +105,14 @@ func TestDisconnect_NoRepeatedErrors(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	finalDisconnectCount := atomic.LoadInt32(&disconnectCount)
-	if finalDisconnectCount < 1 {
-		t.Errorf("断开连接事件次数 = %d, want >= 1", finalDisconnectCount)
+	if finalDisconnectCount != 1 {
+		t.Errorf("断开连接事件次数 = %d, want 1", finalDisconnectCount)
+	}
+	if n := atomic.LoadInt32(&errorCount); n != 0 {
+		t.Errorf("主动断开不应触发错误事件，实际 %d 次", n)
+	}
+	if sm.IsConnected() {
+		t.Error("断开后 IsConnected() 应为 false")
 	}
 }
 
@@ -128,7 +140,7 @@ func TestReadLoop_PortClosedDuringRead(t *testing.T) {
 	})
 
 	sm.wg.Add(1)
-	go sm.readLoop()
+	go sm.readLoop(mockPort)
 
 	time.Sleep(100 * time.Millisecond)
 

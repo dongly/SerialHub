@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dongly/serialhub/internal/buffer"
 	"github.com/dongly/serialhub/internal/federation"
@@ -98,6 +99,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	var wsSrv *web.WebSocketServer
 	var cancelFunc context.CancelFunc
+	var svcs *runningServices
 
 	sm.SetEventHandler(createEventHandler(sm, trayMgr, wsSrv))
 
@@ -123,7 +125,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		}
 
 		// --no-browser（脚本静默启动）不自动打开浏览器
-		startServices(sm, wsSrv, buf, !noBrowser)
+		svcs = startServices(sm, wsSrv, buf, !noBrowser)
 
 		addr := fmt.Sprintf("%s:%d", host, mcpPort)
 		logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
@@ -140,8 +142,54 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	trayMgr.Run(context.Background())
 
 	logrus.Info("[SerialHub] 正在关闭...")
+	gracefulShutdown(sm, svcs)
 	closeLogger()
 	return nil
+}
+
+// runningServices 聚合主实例运行期服务句柄，供停机时按序关闭。
+type runningServices struct {
+	bridge     *bridge.DataBridge
+	mcp        *mcp.MCPServer
+	httpServer *http.Server
+}
+
+// gracefulShutdown 按序停机：数据桥 → MCP HTTP → 串口。
+// 任一环节卡死（如 USB 掉线导致串口 Close 阻塞）时整体限时 3s 强制退出，
+// 避免 Ctrl+C 后进程残留。
+func gracefulShutdown(sm *serial.SerialManager, svcs *runningServices) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if svcs != nil {
+			if svcs.bridge != nil {
+				if err := svcs.bridge.Stop(); err != nil {
+					logrus.Warnf("[SerialHub] 停止数据桥接失败: %v", err)
+				}
+			}
+			if svcs.httpServer != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				if err := svcs.httpServer.Shutdown(ctx); err != nil {
+					logrus.Warnf("[SerialHub] HTTP 服务关闭异常: %v", err)
+				}
+				cancel()
+			}
+		}
+		if sm != nil {
+			if err := sm.Close(); err != nil {
+				logrus.Debugf("[SerialHub] 串口管理器关闭异常: %v", err)
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+		logrus.Info("[SerialHub] 已完成停机")
+	case <-time.After(3 * time.Second):
+		logrus.Warn("[SerialHub] 停机超时（3s），强制退出")
+		closeLogger()
+		os.Exit(0)
+	}
 }
 
 // runWithoutTray 无托盘前台主实例（Linux/WSL 或晋升场景）。
@@ -162,7 +210,8 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
 
 	addr := fmt.Sprintf("%s:%d", host, mcpPort)
-	if startServices(sm, wsSrv, buf, autoOpenBrowser) == nil {
+	svcs := startServices(sm, wsSrv, buf, autoOpenBrowser)
+	if svcs == nil {
 		// 诚实失败：HTTP 监听失败（如端口被占）时明确退出，不做无服务的僵尸进程
 		return fmt.Errorf("主服务启动失败（%s 监听失败或初始化异常）", addr)
 	}
@@ -177,6 +226,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	<-sigChan
 
 	logrus.Info("[SerialHub] 正在关闭...")
+	gracefulShutdown(sm, svcs)
 	closeLogger()
 	return nil
 }
@@ -222,6 +272,8 @@ func runWorker(cfg *config.Config, masterURL string) error {
 	select {
 	case <-ctx.Done():
 		logrus.Info("[SerialHub] 从实例退出")
+		stopProxy()
+		closeSerialBounded(sm, 3*time.Second) // 进程即将退出，句柄由 OS 回收
 		return nil
 	case <-promoteCh:
 		// 晋升前复查：主实例可能只是网络抖动，或已有新主接管
@@ -230,12 +282,38 @@ func runWorker(cfg *config.Config, masterURL string) error {
 			logrus.Infof("[SerialHub] 发现新主实例 %s，重新以从实例模式接入", newMaster)
 			stopProxy() // 停旧反代（指向旧主），释放本侧端口
 			cancel()
+			// 旧 sm 不再复用（递归会新建），有界关闭防 USB 掉线时 Close 阻塞卡住退出
+			if !closeSerialBounded(sm, 3*time.Second) {
+				logrus.Warn("[SerialHub] 旧串口管理器未在时限内关闭，其资源将滞留本进程；反复换主累积时建议重启进程")
+			}
 			return runWorker(cfg, newMaster)
 		}
 		logrus.Info("[SerialHub] 确认无主实例，晋升为主实例")
 		stopProxy() // 释放本侧端口给晋升后的主服务，避免 EADDRINUSE
 		cancel()    // 停止旧联邦客户端
 		return runPromotedMaster(cfg, sm)
+	}
+}
+
+// closeSerialBounded 有界关闭串口管理器：USB 掉线导致串口 Close/Read
+// 阻塞时限时放弃等待。返回 manager 关闭流程是否在时限内返回——
+// 不代表底层驱动 Close 已完成（其异步执行，句柄释放不在此等待）；
+// 调用方据此决定后续（进程退出场景句柄由 OS 回收，换主等继续运行
+// 场景需提示资源滞留）。
+func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := sm.Close(); err != nil {
+			logrus.Debugf("[SerialHub] 串口管理器关闭异常: %v", err)
+		}
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		logrus.Warnf("[SerialHub] 串口管理器关闭超时（%s），放弃等待", timeout)
+		return false
 	}
 }
 
@@ -331,15 +409,16 @@ func runStdio(cfg *config.Config) error {
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
 
-	mcpSrv := startServices(sm, wsSrv, buf, false)
-	if mcpSrv == nil {
+	svcs := startServices(sm, wsSrv, buf, false)
+	if svcs == nil {
 		return fmt.Errorf("主服务启动失败")
 	}
 
-	if err := mcpSrv.RunStdioTransport(ctx); err != nil {
+	if err := svcs.mcp.RunStdioTransport(ctx); err != nil {
 		logrus.Debugf("[SerialHub] stdio 传输结束: %v", err)
 	}
 	logrus.Info("[SerialHub] stdio 连接断开，进程退出")
+	gracefulShutdown(sm, svcs)
 	return nil
 }
 
@@ -397,14 +476,16 @@ func createSerialEventHandler(wsSrv *web.WebSocketServer) func(serial.Event) {
 }
 
 // startServices 启动主实例服务面：数据桥、MCP HTTP（含联邦端点 /federation）。
-// 返回 MCPServer（stdio 模式需叠跑 stdio 传输）；启动失败返回 nil。
-func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool) *mcp.MCPServer {
+// 返回服务句柄集合（stdio 模式需叠跑 stdio 传输）；启动失败返回 nil。
+func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool) *runningServices {
+	svcs := &runningServices{}
 	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
 	if err != nil {
 		logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
 	} else {
 		bridgeSrv.SetCommandHandler(createCommandHandler(sm))
 		bridgeSrv.Start()
+		svcs.bridge = bridgeSrv
 		logrus.Info("[SerialHub] 数据桥接已启动")
 	}
 
@@ -417,6 +498,7 @@ func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *bu
 		logrus.Errorf("[SerialHub] 注册 MCP 工具失败: %v", err)
 		return nil
 	}
+	svcs.mcp = mcpSrv
 
 	// 联邦主侧：聚合从实例端口；从侧上行数据注入双通道（与 bridge 等价）
 	fedMgr := federation.NewManager(federation.LocalSide())
@@ -432,9 +514,11 @@ func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *bu
 	mcpSrv.SetFederation(fedMgr, http.HandlerFunc(fedMgr.HandleWS))
 
 	addr := fmt.Sprintf("%s:%d", host, mcpPort)
-	if _, err := mcpSrv.StartHTTPServer(addr, autoOpenBrowser); err != nil {
+	httpSrv, err := mcpSrv.StartHTTPServer(addr, autoOpenBrowser)
+	if err != nil {
 		logrus.Errorf("[SerialHub] 启动 HTTP 服务失败: %v", err)
 		return nil
 	}
-	return mcpSrv
+	svcs.httpServer = httpSrv
+	return svcs
 }
