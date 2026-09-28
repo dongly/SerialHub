@@ -16,7 +16,7 @@ def test_xterm():
     # 启动 SerialHub
     print("Starting SerialHub...")
     proc = subprocess.Popen(
-        ["powershell", "-ExecutionPolicy", "Bypass", "-File", "start.ps1"],
+        ["powershell", "-ExecutionPolicy", "Bypass", "-File", "serialhub.ps1"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd="D:\\Develop\\SerialHub"

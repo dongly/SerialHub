@@ -1,6 +1,6 @@
 # SerialHub 启动脚本
-# 用法: .\start.ps1 [参数]
-# 示例: .\start.ps1 -p COM9 -D
+# 用法: .\serialhub.ps1 [参数]
+# 示例: .\serialhub.ps1 -p COM9 -D
 
 param(
     [string]$p = "",      # 串口名

@@ -9,10 +9,10 @@ import os
 def test_xterm():
     from playwright.sync_api import sync_playwright
     
-    # Start SerialHub using start.ps1
-    print("Starting SerialHub with start.ps1...")
+    # Start SerialHub using serialhub.ps1
+    print("Starting SerialHub with serialhub.ps1...")
     proc = subprocess.Popen(
-        ["powershell", "-ExecutionPolicy", "Bypass", "-File", "start.ps1"],
+        ["powershell", "-ExecutionPolicy", "Bypass", "-File", "serialhub.ps1"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd="D:\\Develop\\SerialHub"
@@ -32,7 +32,7 @@ def test_xterm():
             page.screenshot(path="tests/e2e/xterm_com7_initial.png")
             print("Screenshot saved: xterm_com7_initial.png")
             
-            # Wait for connection (COM7 should auto-connect via start.ps1)
+            # Wait for connection (COM7 should auto-connect via serialhub.ps1)
             print("Waiting for connection...")
             time.sleep(3)
             

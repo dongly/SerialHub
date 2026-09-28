@@ -54,7 +54,7 @@ git push github v0.6.0
 |------|------|
 | `serialhub(.exe)` | 主程序 |
 | `config.toml` | 配置文件模板 |
-| `start.ps1` | PowerShell 启动脚本（仅 Windows 包） |
+| `serialhub.ps1` | PowerShell 启动脚本（仅 Windows 包） |
 | `README.md` / `MCP.md` / `QUICKSTART.md` | 文档 |
 | `VERSION` | 版本信息文件 |
 | `LICENSE` | Apache-2.0 许可证 |

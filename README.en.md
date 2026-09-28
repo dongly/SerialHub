@@ -60,7 +60,7 @@ flowchart TB
 ## Installation
 
 Download the archive for your platform from [GitHub Releases](https://github.com/dongly/serialhub/releases)
-and unzip — no installer needed (Windows archives include `start.ps1`/`start.bat` launch scripts).
+and unzip — no installer needed (Windows archives include `serialhub.ps1`/`serialhub.bat` launch scripts).
 
 Already installed? Upgrade in place (config and logs are preserved):
 

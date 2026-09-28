@@ -60,7 +60,7 @@ flowchart TB
 ## 安装
 
 从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的压缩包，
-解压即用（Windows 包内含 `start.ps1`/`start.bat` 启动脚本）。
+解压即用（Windows 包内含 `serialhub.ps1`/`serialhub.bat` 启动脚本）。
 
 已安装旧版本可直接自升级（配置与日志保留不动）：
 

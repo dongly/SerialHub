@@ -30,7 +30,7 @@ go test ./pkg/bridge/ -run TestDataBridge_StartStop
 $env:SERIALHUB_HARDWARE_TEST="1"; $env:SERIALHUB_TEST_PORT="COM9"; go test ./...
 
 # 启动（推荐用脚本）
-.\start.ps1 -p COM7 -D       # 自动杀旧进程、最小化窗口、输出日志路径
+.\serialhub.ps1 -p COM7 -D     # 自动杀旧进程、最小化窗口、输出日志路径
 serialhub -p COM7 -D         # 直接启动
 ```
 
