@@ -2,150 +2,56 @@
 
 English | [简体中文](./README.md)
 
-A bidirectional bridge between a serial port (MCU) and network clients (web terminal / AI).
+A two-way bridge between serial ports (MCU) and network clients (Web terminal / AI tools).
 
-**📚 Docs**: [MCP Guide](./MCP.md) | [Project Architecture](./AGENTS.md) | [Integration Tests](./tests/integration/README.md)
+**📚 Docs**: [Quick Start](./QUICKSTART.md) (中文) | [MCP Guide](./MCP.md) (中文) | [Config & Architecture](./AGENTS.md) | [Release Process](./RELEASING.md) | [Integration Tests](./tests/integration/README.md)
 
 ## Overview
 
-SerialHub bridges a single MCU UART to both humans and AI agents:
+SerialHub bridges a single MCU serial port to both humans and AI:
 
-- **Humans** get a live xterm.js web terminal in the browser
-- **AI agents** get a native MCP server (Streamable HTTP + stdio) with 7 tools: `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
-- Both channels share **one serial connection and one data buffer** — humans and AI literally watch the same bytes
-- **Single-instance lock**: one master per user-config/install directory (OS file lock); stdio mode discovers and proxies to that instance
-- Single Go binary with the web frontend embedded; runs on Windows (system tray) / Linux / macOS
+- **Humans**: an xterm.js Web terminal in the browser for live viewing and input (opens automatically on startup; on WSL it opens the Windows host browser)
+- **AI**: a native MCP server (Streamable HTTP + stdio) exposing 7 tools — `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
+- Both channels share **the same serial connection and data buffer** — humans and AI see the same bytes
+- **Single-instance lock**: one master instance per user-config/install directory (OS file lock); stdio mode auto-discovers and proxies to a running instance
+- A single Go binary (frontend embedded); supports Windows (system tray) / Linux / macOS; everything configurable via TOML or CLI flags, data logging on demand (`--log-data`)
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    MCU["MCU"] <-->|"UART (COM9, 115200, 8N1)"| Serial["Serial<br/>Manager"]
+    MCU["MCU"] <-->|"Serial (COM9, 115200, 8N1)"| Serial["Serial Manager"]
 
     subgraph SerialHub["SerialHub (single binary)"]
-        Serial <-->|"event bus"| Bridge["DataBridge"]
+        Serial <-->|"Event bus"| Bridge["DataBridge"]
         Bridge <-->|"read / write"| Buffer["DataBuffer<br/>shared buffer"]
         Bridge <-->|"WebSocket (port 5050)"| Web["Web Terminal<br/>xterm.js"]
         Bridge <-->|"JSON-RPC (HTTP)"| MCP["MCP Server<br/>7 tools"]
     end
 
     Web <-->|"WebSocket"| Browser["Browser<br/>human"]
-    MCP <-->|"MCP protocol"| AI["AI tools<br/>OpenCode / iFlow CLI"]
+    MCP <-->|"MCP protocol"| AI["AI tools<br/>OpenCode / iFlow CLI etc."]
 ```
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Language | Go 1.26+ |
-| Serial I/O | go.bug.st/serial |
-| AI interface | MCP (Model Context Protocol) / go-sdk |
-| Web terminal | WebSocket / xterm.js |
-| CLI | spf13/cobra |
-| Config | spf13/viper |
-| System tray | getlantern/systray |
-| Logging | sirupsen/logrus |
-
-## Features
-
-- **Dual forwarding**: serial data is forwarded to the web terminal and the AI interface simultaneously
-- **Bidirectional**: commands from the web terminal or AI both reach the MCU
-- **Web terminal**: browser terminal over WebSocket with xterm.js; auto-opens in the browser on start (WSL pops the Windows browser too)
-- **MCP protocol**: standard HTTP JSON-RPC (MCP Streamable HTTP transport, non-streaming JSON responses); also `--stdio` for local launch (OpenCode local mode, transparently proxies to a running instance)
-- **Single-instance lock**: the master holds an OS lock on `instance.lock` (port + PID metadata); another instance in the same directory is refused; stdio mode reads the lock to proxy — no port scanning
-- **Configurable**: all ports, baud rates, and timeouts via TOML or CLI
-- **Observable**: all data flows can be logged and traced
-- **Error recovery**: network/serial faults are handled gracefully
 
 ## Installation
 
-Download the archive for your platform from [GitHub Releases](https://github.com/dongly/serialhub/releases)
-and unzip — no installer needed (Windows archives include `serialhub.ps1`/`serialhub.bat` launch scripts).
+Download the archive for your platform from
+[GitHub Releases](https://github.com/dongly/serialhub/releases) and extract it
+(the Windows archive ships `serialhub.ps1` / `serialhub.bat` launcher scripts).
 
-Already installed? Upgrade in place (config and logs are preserved):
+Self-upgrade from an installed older version (config and logs are preserved):
 
 ```bash
-serialhub upgrade          # check GitHub Releases for the latest version, verify sha256, atomically replace self
+serialhub upgrade          # fetch latest release, verify checksum, atomically replace itself
+serialhub uninstall        # uninstall: dry-run list, then clean MCP entries / config / logs / binary
 ```
 
-Network proxy honors `HTTPS_PROXY`/`HTTP_PROXY`; a custom mirror can be set via
+Proxies honor `HTTPS_PROXY` / `HTTP_PROXY`; a private mirror can be set via
 `SERIALHUB_GITHUB_API` (default `https://api.github.com`).
+Full steps (PATH setup, install verification, WSL USB serial attach) see
+[QUICKSTART.md](./QUICKSTART.md) (Chinese).
 
-Uninstall (removes MCP client entries, config & log directories, and the binary itself):
-
-```bash
-serialhub uninstall        # dry-run first, then confirm; -y skips confirmation
-```
-
-For details (PATH setup, install verification, USB serial ports under WSL) see
-[QUICKSTART.md](./QUICKSTART.md). WSL users are recommended
-[wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) to attach USB serial
-devices into WSL with one click.
-
-## Build
-
-```bash
-go build -o bin/serialhub.exe ./cmd/serialhub
-```
-
-## Command Reference
-
-### `serialhub` (default: serve mode)
-
-Starts the HTTP + web terminal server:
-
-```bash
-serialhub                                    # start with defaults
-serialhub -p COM8                            # specify serial port
-serialhub -p COM8 -b 9600 --parity even      # full serial options
-serialhub -m 8080                            # use port 8080
-serialhub --host 0.0.0.0                     # listen on all interfaces (LAN access)
-serialhub --stdio                            # stdio mode (launched by an MCP client)
-serialhub -c config.toml                     # use a config file
-serialhub -D                                 # debug mode
-```
-
-Full options:
-
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--serial-port <port>` | `-p` | Serial port name | config file or empty |
-| `--baud-rate <rate>` | `-b` | Baud rate | 115200 |
-| `--data-bits <bits>` | `-d` | Data bits (5/6/7/8) | 8 |
-| `--parity <type>` | - | Parity (none/even/odd) | none |
-| `--stop-bits <bits>` | `-s` | Stop bits (1/2) | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP port | 5050 |
-| `--host <host>` | - | Listen address | 127.0.0.1 |
-| `--config <path>` | `-c` | Config file path | - |
-| `--debug` | `-D` | Debug mode | false |
-| `--log-data` | - | Log data content (aggregated in 500ms windows, 512-byte display cap; or SERIALHUB_LOG_DATA=1; an explicit `--log-data=false` takes precedence; neither is persisted back to the config file) | false |
-| `--stdio` | - | stdio mode: launched by an MCP client (transparent proxy if a master exists) | false |
-| `--minimized` | - | Script launch: minimize the window (also hides the console on Windows); the browser still opens automatically | false |
-| `--no-browser` | - | Skip auto-opening the browser (the log still prints the Web terminal URL) | false |
-
-### System Tray (Windows)
-
-On Windows, `serialhub` starts a system tray icon by default and hides the console window.
-
-**Tray icon states:**
-- Gray — no serial port connected
-- Green — serial port connected
-- Red — connection error
-
-**Context menu:**
-
-| Menu item | Function |
-|-----------|----------|
-| Serial info | Click to connect/disconnect |
-| Port info | Shows the MCP port (not clickable) |
-| Show/hide console | Toggles the console window |
-| Exit | Quits SerialHub |
-
-**Interaction:**
-- Double-click the tray icon: toggle the console window
-- Right-click the tray icon: open the menu
-
-### Quick Start
+## Quick Start
 
 **Scenario: human + AI debugging together**
 
@@ -155,185 +61,96 @@ On Windows, `serialhub` starts a system tray icon by default and hides the conso
 serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
-2. Human monitors via the web terminal:
+2. Human watches via the Web terminal: open `http://localhost:5050/terminal`
 
-Open `http://localhost:5050/terminal` in a browser.
-
-3. AI tool connects via HTTP MCP:
+3. AI tools connect via HTTP MCP:
 
 ```json
 {
   "mcp": {
-    "serialhub": {
-      "type": "remote",
-      "url": "http://localhost:5050/mcp",
-      "enabled": true
+    "servers": {
+      "serialhub": {
+        "type": "remote",
+        "url": "http://localhost:5050/mcp",
+        "oauth": false
+      }
     }
   }
 }
 ```
 
-4. Serial data flows to both the web terminal and the AI interface; either side can send commands.
+4. Serial data is forwarded to both the Web terminal and the AI interface; each can send commands independently.
+
+> One-command MCP client setup: `serialhub setup` (stdio local mode by default; supports OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex).
+
+## Command Reference
+
+### `serialhub` (default: serve mode)
+
+```bash
+serialhub                                    # start with defaults
+serialhub -p COM8                            # specify serial port
+serialhub -p COM8 -b 9600 --parity even      # full serial parameters
+serialhub -m 8080                            # use port 8080
+serialhub --host 0.0.0.0                     # listen on all interfaces (LAN access)
+serialhub --stdio                            # stdio mode (spawned by MCP clients)
+serialhub -c config.toml                     # use a config file
+serialhub -D                                 # debug mode
+```
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--serial-port <port>` | `-p` | Serial port name | config file or empty |
+| `--baud-rate <rate>` | `-b` | Baud rate | 115200 |
+| `--data-bits <bits>` | `-d` | Data bits (5/6/7/8) | 8 |
+| `--parity <type>` | - | Parity (none/even/odd) | none |
+| `--stop-bits <bits>` | `-s` | Stop bits (1/2) | 1 |
+| `--mcp-port <port>` | `-m` | MCP HTTP service port | 5050 |
+| `--host <host>` | - | Listen address | 127.0.0.1 |
+| `--config <path>` | `-c` | Config file path | - |
+| `--debug` | `-D` | Enable debug mode | false |
+| `--log-data` | - | Emit data-content logs (500ms window aggregation, 512-byte display truncation; also `SERIALHUB_LOG_DATA=1`, explicit `--log-data=false` wins; neither is persisted to the config file) | false |
+| `--stdio` | - | stdio mode: spawned by MCP clients (transparently proxies when a master instance exists) | false |
+| `--minimized` | - | Launched by scripts; minimize window (also hides console on Windows); browser still opens by default | false |
+| `--no-browser` | - | Skip auto-opening the browser (log still prints the Web terminal URL) | false |
+
+On Windows the system tray starts by default (icon color reflects serial state; right-click menu to connect/disconnect, show console, quit) — see [QUICKSTART.md](./QUICKSTART.md#windows-系统托盘) (Chinese).
 
 ### Web Terminal
 
-SerialHub embeds a WebSocket terminal built on xterm.js.
+`http://localhost:5050/terminal`: live serial output, keyboard input forwarded to the serial port (Ctrl+C etc. supported), auto-reconnect.
 
-**URL**: `http://localhost:5050/terminal`
+### MCP Tools
 
-**Features:**
-- Live serial output
-- Keyboard input forwarded to the serial port
-- Control characters (Ctrl+C, Ctrl+D, …)
-- Auto-reconnect
-
-### MCP HTTP API
-
-Once the server is running, call MCP tools via JSON-RPC:
-
-```bash
-# Health check
-curl http://localhost:5050/health
-
-# List serial ports
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
-
-# Connect a serial port
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_connect","arguments":{"port":"COM9"}},"id":2}'
-
-# Send a command (newline appended automatically)
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_write","arguments":{"data":"help"}},"id":3}'
-
-# Read response (blocking; timeout=0 waits forever)
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_read","arguments":{"timeout":5000}},"id":4}'
-```
-
-## MCP Tools
-
-| Tool | Description | Arguments |
-|------|-------------|-----------|
+| Tool | Description | Parameters |
+|------|-------------|------------|
 | `serial_list` | List all available serial ports | - |
 | `serial_connect` | Connect to a serial port | `port` (required), `baudRate?` (default 115200) |
 | `serial_disconnect` | Disconnect the current port | - |
-| `serial_write` | Send data to the serial port | `data` (required), `addNewline?` (default true) |
-| `serial_read` | Blocking read; returns when data arrives | `timeout?` (default 1000ms, 0=wait forever), `maxSize?` (default 4096 bytes) |
-| `serial_clear` | Clear the read buffer, drop unread data | - |
-| `serial_status` | Query connection status | - |
+| `serial_write` | Send data to the serial port | `data` (required), `addNewline?` (default true; set false to disable) |
+| `serial_read` | Blocking read, returns when data arrives | `timeout?` (default 1000ms, 0 = wait forever), `maxSize?` (default 4096 bytes) |
+| `serial_clear` | Clear the read buffer, discard unread data | - |
+| `serial_status` | Get serial connection status | - |
 
-### AI Tool Usage Guide
-
-#### Standard workflow
-
-```
-serial_list → identify target → serial_connect → serial_write → serial_read
-```
-
-#### When to use which tool
-
-| Scenario | Recommended | Notes |
-|----------|-------------|-------|
-| Don't know the port name | `serial_list` | Pick by vendorId/productId or vendor name |
-| Before debugging | `serial_connect` | Must connect first |
-| Send a shell command | `serial_write` + `serial_read` | Write then immediately read, e.g. `help`, `version`, `reboot` |
-| Send a control command | `serial_write` | Control or config commands to the MCU |
-| Get command output | `serial_read` | timeout=0 for unknown response times |
-| Check connection | `serial_status` | Confirm before acting, or after failures |
-| Switch device | `serial_disconnect` → `serial_connect` | Disconnect then connect the new one |
-| End session | `serial_disconnect` | Release the serial port |
-
-#### Examples
-
-**1. First connection**
-
-```
-serial_list()
-// returns: { ports: [{ path: "COM6", vendorId: "0D28", productId: "0202" }, ...] }
-
-serial_connect({ port: "COM6", baudRate: 115200 })
-// returns: { success: true, port: "COM6", baudRate: 115200 }
-```
-
-**2. Send a command and get the response**
-
-```
-serial_write({ data: "version" })       // newline appended automatically
-// returns: { success: true, bytesWritten: 8 }
-
-serial_read({ timeout: 2000 })
-// returns: { data: "MCU v1.2.3\nBuild: 2024-01-15\n", timedOut: false, bytes: 28 }
-```
-
-**3. Wait for an unknown-duration response**
-
-```
-serial_write({ data: "flash_verify" })  // long operation
-serial_read({ timeout: 0 })             // wait until the device replies
-```
-
-**4. Switch to another device**
-
-```
-serial_disconnect()
-serial_list()
-serial_connect({ port: "COM7" })
-```
-
-**5. Check status**
-
-```
-serial_status()
-// connected: { connected: true, port: "COM6", baudRate: 115200 }
-// idle:      { connected: false }
-```
-
-#### Error Handling
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| serial_write returns `serial port not connected` | Not connected yet or dropped | Call serial_connect first |
-| serial_read returns `timedOut: true` | No data within timeout | Increase timeout or check the device |
-| serial_connect returns `success: false` | Port missing, permission, or busy | Check serial_list output and baud rate |
-| Partial output | Long output, single read incomplete | Loop serial_read until timedOut=true |
-
-#### Best Practices
-
-1. **Check status first** for complex operations
-2. **Match the baud rate** — common values 115200, 9600
-3. **Set timeouts sensibly** — 1–5s for regular commands, 0 for long operations
-4. **Read right after writing** to avoid data piling up
-5. **Expect newlines** (`\n`) in most shell responses
+Standard workflow: `serial_list` → `serial_connect` → `serial_write` → `serial_read` → `serial_disconnect`.
+cURL/Python examples, typical workflows, error handling, when-to-use-which and best practices see [MCP.md](./MCP.md) (Chinese).
 
 ## Configuration
 
-Priority: **CLI flags > config file > defaults**
+Precedence: **CLI flags > config file > defaults**
 
 Config file lookup order (without `-c`):
 
-- **Linux/macOS**: `./config.toml` (working directory) > `~/.config/serialhub/config.toml` (`XDG_CONFIG_HOME`); if a legacy `config.toml` exists next to the executable and no user config exists, it is migrated (moved) to the user config dir on first start; if none exists, a new one is created there.
-
-Config write-back timing: the merged config (CLI args included) is written back to `config.toml` **only after the single-instance lock is acquired** (i.e. this process becomes the master). A refused duplicate instance or a stdio proxy does not modify the config file (preventing one-off flags like `-m` from polluting the on-disk config).
+- **Linux/macOS**: `./config.toml` (CWD) > `~/.config/serialhub/config.toml` (`XDG_CONFIG_HOME`); a legacy `config.toml` next to the binary is auto-migrated (moved) to the user config dir on first start if the user dir has none; if none exists anywhere, a new one is created in the user config dir.
 - **Windows**: `config.toml` next to the executable (same as previous versions).
 
-Default log directory: `~/.config/serialhub/logs/` on Linux/macOS (legacy `logs/` history is not migrated), still `logs/` next to the executable on Windows; override with `logDir` or `SERIALHUB_LOG_DIR`.
+Persist timing: the merged config is written back **only after the single-instance lock is acquired** (i.e. becoming the master instance); rejected duplicate instances and stdio proxy mode never modify the config file (prevents `-m`-style flags from polluting the on-disk config).
 
-TOML config with `#` comments:
+Default log directory: `~/.config/serialhub/logs/` on Linux/macOS (legacy `logs/` history is not migrated), `logs/` next to the executable on Windows; overridable via `logDir` or `SERIALHUB_LOG_DIR`.
+
+TOML format with `#` comments; full example in [config.example.toml](./config.example.toml):
 
 ```toml
-# Log directory; empty = platform default log directory
-# logDir = "D:/Logs"
-
 [serial]
 port = ""           # serial port; empty = no auto-connect
 baudRate = 115200
@@ -345,36 +162,19 @@ stopBits = 1
 httpPort = 5050
 ```
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `serial.port` | `""` | Serial port; empty = no auto-connect |
-| `serial.baudRate` | `115200` | Baud rate |
-| `serial.dataBits` | `8` | Data bits (5/6/7/8) |
-| `serial.parity` | `"none"` | Parity (none/even/odd) |
-| `serial.stopBits` | `1` | Stop bits (1/2) |
-| `mcp.httpPort` | `5050` | MCP HTTP port (also serves the web terminal) |
-| `logDir` | `""` | Log directory; empty = platform default (user config dir `logs/` on Linux/macOS, `logs/` next to the executable on Windows) |
-| `debug` | `false` | Debug mode |
-
 ## Development
 
 ```bash
-# Run
-go run ./cmd/serialhub
-
-# Build
-go build -o bin/serialhub.exe ./cmd/serialhub
-
-# Test
-go test ./...
-
-# Static analysis
+go run ./cmd/serialhub          # dev run
+go build -o bin/serialhub ./cmd/serialhub
+go test ./...                   # tests (mock serial/conns in internal/testutil)
 go vet ./...
-
-# Tidy dependencies
-go mod tidy
 ```
+
+- Testing Windows builds from WSL (tray, single-instance lock, PowerShell scripts): [docs/wsl-windows-testing.md](./docs/wsl-windows-testing.md) (Chinese).
+- Hardware-in-the-loop tests are gated by `SERIALHUB_HARDWARE_TEST=1` with `SERIALHUB_TEST_PORT`.
+- Release process: [RELEASING.md](./RELEASING.md).
 
 ## License
 
-This project is licensed under the [Apache License 2.0](./LICENSE) (Copyright 2026 dongly).
+Released under the [Apache License 2.0](./LICENSE) (Copyright 2026 dongly).

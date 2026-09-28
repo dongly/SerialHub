@@ -2,19 +2,19 @@
 
 [English](./README.en.md) | 简体中文
 
-串口（MCU）与网络连接（Web终端/AI）之间的双向桥接器。
+串口（MCU）与网络连接（Web 终端/AI）之间的双向桥接器。
 
-**📚 文档**: [MCP 使用指南](./MCP.md) | [项目架构](./AGENTS.md) | [集成测试](./tests/integration/README.md)
+**📚 文档**：[快速开始](./QUICKSTART.md) | [MCP 使用指南](./MCP.md) | [配置与架构](./AGENTS.md) | [发布流程](./RELEASING.md) | [集成测试](./tests/integration/README.md)
 
 ## 项目简介
 
 SerialHub 把 MCU 串口同时桥接给人和 AI：
 
-- **人**：浏览器里的 xterm.js Web 终端，实时查看与输入
+- **人**：浏览器里的 xterm.js Web 终端，实时查看与输入（启动后自动打开浏览器，WSL 下也能弹出 Windows 宿主浏览器）
 - **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
 - **单实例互斥**：每个用户配置/安装目录只允许一个主实例（OS 文件锁）；stdio 模式自动发现并代理到已运行实例
-- 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS
+- 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS；所有参数均可通过 TOML 或命令行配置，数据流可按需记录（`--log-data`）
 
 ## 系统架构
 
@@ -33,30 +33,6 @@ flowchart TB
     MCP <-->|"MCP 协议"| AI["AI 工具<br/>OpenCode / iFlow CLI 等"]
 ```
 
-## 技术栈
-
-| 组件 | 技术 |
-|------|------|
-| 语言 | Go 1.26+ |
-| 串口通信 | go.bug.st/serial |
-| AI 接口 | MCP (Model Context Protocol) / go-sdk |
-| Web 终端 | WebSocket / xterm.js |
-| CLI | spf13/cobra |
-| 配置 | spf13/viper |
-| 系统托盘 | getlantern/systray |
-| 日志 | sirupsen/logrus |
-
-## 功能特性
-
-- **双路转发**：串口数据同时转发到 Web 终端和 AI 接口
-- **双向通信**：Web 终端或 AI 发送的命令均可传输到 MCU
-- **Web 终端**：基于 WebSocket 的浏览器终端，支持 xterm.js；启动后自动在浏览器打开（WSL 下也能弹出 Windows 浏览器）
-- **MCP 协议**：通过标准 HTTP JSON-RPC（MCP Streamable HTTP 传输、非流式 JSON 响应）提供 AI 工具集成；也支持 `--stdio` 本地拉起（OpenCode local 模式，自动代理到已运行实例）
-- **单实例互斥**：主实例持有 `instance.lock` 的 OS 文件锁（记录端口与 PID），同一目录再启动会报错；stdio 模式读 lock 自动代理，无需端口扫描
-- **可配置**：所有端口、波特率、超时参数均可通过 TOML 或命令行配置
-- **可观测**：所有数据流均可记录和追踪
-- **错误恢复**：网络/串口故障时优雅处理，不影响其他功能
-
 ## 安装
 
 从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的压缩包，
@@ -66,84 +42,13 @@ flowchart TB
 
 ```bash
 serialhub upgrade          # 查询 GitHub Releases 最新版，下载校验并原子替换自身
+serialhub uninstall        # 卸载：dry-run 列清单确认后清理 MCP 条目/配置/日志/二进制
 ```
 
-网络代理遵从 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量；私有加速可设 `SERIALHUB_GITHUB_API`（默认 `https://api.github.com`）。
-
-卸载（清理 MCP 客户端接入条目、配置与日志目录、二进制本身）：
-
-```bash
-serialhub uninstall        # 先 dry-run 列清单，确认后执行；-y 跳过确认
-```
-
+网络代理遵从 `HTTPS_PROXY`/`HTTP_PROXY`；私有加速可设 `SERIALHUB_GITHUB_API`（默认 `https://api.github.com`）。
 详细步骤（PATH 配置、安装验证、WSL USB 串口挂载）见 [QUICKSTART.md](./QUICKSTART.md)。
-WSL 用户推荐用 [wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) 一键把
-USB 串口 attach 进 WSL。
 
-## 构建
-
-```bash
-go build -o bin/serialhub.exe ./cmd/serialhub
-```
-
-## 命令参考
-
-### `serialhub`（默认：serve 模式）
-
-启动 HTTP + Web 终端服务器：
-
-```bash
-serialhub                                    # 默认配置启动
-serialhub -p COM8                            # 指定串口
-serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
-serialhub -m 8080                            # 使用 8080 端口
-serialhub --host 0.0.0.0                     # 监听所有网络接口（局域网访问需要）
-serialhub --stdio                            # stdio 模式（MCP 客户端本地拉起）
-serialhub -c config.toml                     # 使用配置文件
-serialhub -D                                 # 调试模式
-```
-
-完整的选项：
-
-| 选项 | 简写 | 说明 | 默认值 |
-|------|------|------|--------|
-| `--serial-port <port>` | `-p` | 串口名 | 配置文件或空 |
-| `--baud-rate <rate>` | `-b` | 波特率 | 115200 |
-| `--data-bits <bits>` | `-d` | 数据位（5/6/7/8） | 8 |
-| `--parity <type>` | - | 校验位（none/even/odd） | none |
-| `--stop-bits <bits>` | `-s` | 停止位（1/2） | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5050 |
-| `--host <host>` | - | 监听地址 | 127.0.0.1 |
-| `--config <path>` | `-c` | 配置文件路径 | - |
-| `--debug` | `-D` | 启用调试模式 | false |
-| `--log-data` | - | 输出数据内容日志（500ms 时间窗聚合、单条展示截断 512 字节；也可用 SERIALHUB_LOG_DATA=1，显式 `--log-data=false` 优先；两者不回写配置文件） | false |
-| `--stdio` | - | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） | false |
-| `--minimized` | - | 由脚本启动，窗口最小化（Windows 下同时隐藏控制台）；浏览器仍默认自动打开 | false |
-| `--no-browser` | - | 跳过自动打开浏览器（日志仍会提示 Web 终端地址） | false |
-
-### 系统托盘（Windows）
-
-`serialhub` 在 Windows 上默认启动系统托盘图标，启动后自动隐藏控制台窗口。
-
-**托盘图标状态：**
-- 灰色 — 未连接串口
-- 绿色 — 串口已连接
-- 红色 — 连接错误
-
-**右键菜单功能：**
-
-| 菜单项 | 功能 |
-|--------|------|
-| 串口信息 | 点击可连接/断开串口 |
-| 端口信息 | 显示 MCP 端口（不可点击） |
-| 显示/隐藏控制台 | 切换控制台窗口 |
-| 退出 | 关闭 SerialHub |
-
-**交互方式：**
-- 双击托盘图标：切换控制台窗口显示/隐藏
-- 右键托盘图标：打开菜单
-
-### 快速开始
+## 快速开始
 
 **场景：人工 + AI 同时调试**
 
@@ -153,9 +58,7 @@ serialhub -D                                 # 调试模式
 serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
-2. 人工通过 Web 终端连接监视：
-
-打开浏览器访问 `http://localhost:5050/terminal`
+2. 人工通过 Web 终端监视：浏览器打开 `http://localhost:5050/terminal`
 
 3. AI 工具通过 HTTP MCP 连接：
 
@@ -175,52 +78,46 @@ serialhub -p COM9 --host 0.0.0.0 -D
 
 4. 串口数据同时转发到 Web 终端和 AI 接口，两者可独立向串口发送命令。
 
-### 通过 Web 终端访问
+> 一键写入 MCP 客户端配置：`serialhub setup`（默认 stdio 本地模式，支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex）。
 
-SerialHub 内置基于 WebSocket 的终端界面，使用 xterm.js 提供完整的终端体验。
+## 命令参考
 
-**访问地址**：`http://localhost:5050/terminal`
-
-**功能特性**：
-- 实时显示串口输出
-- 支持键盘输入发送到串口
-- 支持 Ctrl+C、Ctrl+D 等控制字符
-- 自动重连
-
-### MCP HTTP API 调用
-
-服务器启动后，可通过 JSON-RPC 调用 MCP 工具：
+### `serialhub`（默认：serve 模式）
 
 ```bash
-# 健康检查
-curl http://localhost:5050/health
-
-# 列出可用串口
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_list"},"id":1}'
-
-# 连接串口
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_connect","arguments":{"port":"COM9"}},"id":2}'
-
-# 发送命令（自动追加换行符）
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_write","arguments":{"data":"help"}},"id":3}'
-
-# 读取串口返回数据（阻塞等待，timeout=0 表示无限等待）
-curl -X POST http://localhost:5050/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"serial_read","arguments":{"timeout":5000}},"id":4}'
+serialhub                                    # 默认配置启动
+serialhub -p COM8                            # 指定串口
+serialhub -p COM8 -b 9600 --parity even      # 完整串口参数
+serialhub -m 8080                            # 使用 8080 端口
+serialhub --host 0.0.0.0                     # 监听所有网络接口（局域网访问需要）
+serialhub --stdio                            # stdio 模式（MCP 客户端本地拉起）
+serialhub -c config.toml                     # 使用配置文件
+serialhub -D                                 # 调试模式
 ```
 
-## MCP 工具列表
+| 选项 | 简写 | 说明 | 默认值 |
+|------|------|------|--------|
+| `--serial-port <port>` | `-p` | 串口名 | 配置文件或空 |
+| `--baud-rate <rate>` | `-b` | 波特率 | 115200 |
+| `--data-bits <bits>` | `-d` | 数据位（5/6/7/8） | 8 |
+| `--parity <type>` | - | 校验位（none/even/odd） | none |
+| `--stop-bits <bits>` | `-s` | 停止位（1/2） | 1 |
+| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5050 |
+| `--host <host>` | - | 监听地址 | 127.0.0.1 |
+| `--config <path>` | `-c` | 配置文件路径 | - |
+| `--debug` | `-D` | 启用调试模式 | false |
+| `--log-data` | - | 输出数据内容日志（500ms 时间窗聚合、单条展示截断 512 字节；也可用 SERIALHUB_LOG_DATA=1，显式 `--log-data=false` 优先；两者不回写配置文件） | false |
+| `--stdio` | - | stdio 模式：MCP 客户端本地拉起（发现主实例则透明代理） | false |
+| `--minimized` | - | 由脚本启动，窗口最小化（Windows 下同时隐藏控制台）；浏览器仍默认自动打开 | false |
+| `--no-browser` | - | 跳过自动打开浏览器（日志仍会提示 Web 终端地址） | false |
+
+Windows 上默认启动系统托盘（图标颜色表示串口状态，右键菜单可连接/断开串口、显示控制台、退出），详见 [QUICKSTART.md](./QUICKSTART.md#windows-系统托盘)。
+
+### Web 终端
+
+`http://localhost:5050/terminal`：实时显示串口输出、键盘输入发送到串口（支持 Ctrl+C 等控制字符）、断线自动重连。
+
+### MCP 工具
 
 | 工具名 | 描述 | 参数 |
 |--------|------|------|
@@ -232,93 +129,8 @@ curl -X POST http://localhost:5050/mcp \
 | `serial_clear` | 清空 read 缓冲区，丢弃尚未读取的数据 | - |
 | `serial_status` | 获取串口连接状态 | - |
 
-### AI 工具使用指南
-
-#### 标准工作流程
-
-```
-serial_list → 识别目标串口 → serial_connect → serial_write 发送命令 → serial_read 读取响应
-```
-
-#### 工具使用时机
-
-| 场景 | 推荐工具 | 说明 |
-|------|----------|------|
-| 不知道串口名 | `serial_list` | 获取可用串口列表，根据 vendorId/productId 或厂商名识别目标设备 |
-| 开始调试前 | `serial_connect` | 必须先连接串口才能进行后续操作 |
-| 发送 Shell 命令 | `serial_write` + `serial_read` | 写入后立即读取响应，如 `help`、`version`、`reboot` |
-| 发送调试指令 | `serial_write` | 向 MCU 发送控制命令或配置参数 |
-| 获取命令输出 | `serial_read` | 读取设备返回的数据，timeout=0 无限等待适合不确定响应时间 |
-| 检查连接状态 | `serial_status` | 操作前确认已连接，或操作失败时检查连接是否断开 |
-| 切换设备 | `serial_disconnect` → `serial_connect` | 先断开当前连接，再连接新设备 |
-| 结束会话 | `serial_disconnect` | 释放串口资源 |
-
-#### 常见操作示例
-
-**1. 首次连接设备**
-
-```
-// 步骤 1: 查找可用串口
-serial_list()
-// 返回: { ports: [{ path: "COM6", vendorId: "0D28", productId: "0202" }, ...] }
-
-// 步骤 2: 根据硬件 ID 识别目标设备，连接
-serial_connect({ port: "COM6", baudRate: 115200 })
-// 返回: { success: true, port: "COM6", baudRate: 115200 }
-```
-
-**2. 发送命令并获取响应**
-
-```
-// 发送命令（自动追加换行符）
-serial_write({ data: "version" })
-// 返回: { success: true, bytesWritten: 8 }
-
-// 读取响应（等待 2 秒）
-serial_read({ timeout: 2000 })
-// 返回: { data: "MCU v1.2.3\nBuild: 2024-01-15\n", timedOut: false, bytes: 28 }
-```
-
-**3. 等待不确定时间的响应**
-
-```
-// timeout=0 表示无限等待，直到有数据到达
-serial_write({ data: "flash_verify" })  // 耗时操作
-serial_read({ timeout: 0 })  // 等待直到设备返回结果
-```
-
-**4. 切换到不同设备**
-
-```
-serial_disconnect()  // 断开当前连接
-serial_list()        // 重新查找串口
-serial_connect({ port: "COM7" })  // 连接新设备
-```
-
-**5. 检查连接状态**
-
-```
-serial_status()
-// 已连接: { connected: true, port: "COM6", baudRate: 115200 }
-// 未连接: { connected: false }
-```
-
-#### 错误处理
-
-| 错误情况 | 原因 | 解决方案 |
-|----------|------|----------|
-| serial_write 返回 `串口未连接` | 未调用 serial_connect 或连接已断开 | 先调用 serial_connect |
-| serial_read 返回 `timedOut: true` | 超时内无数据到达 | 增大 timeout 或检查设备是否正常响应 |
-| serial_connect 返回 `success: false` | 串口不存在、权限问题或设备占用 | 检查 serial_list 结果、确认波特率配置 |
-| 读取内容不完整 | 输出较长，一次读取未完全获取 | 循环调用 serial_read 直到 timedOut=true |
-
-#### 最佳实践
-
-1. **始终先检查状态**：复杂操作前调用 `serial_status` 确认连接有效
-2. **匹配波特率**：`baudRate` 必须与目标设备配置一致，常见值 115200、9600
-3. **合理设置 timeout**：常规命令 1-5 秒，耗时操作设为 0（无限等待）
-4. **发送后立即读取**：`serial_write` 完成后立即 `serial_read`，避免数据堆积
-5. **解析输出时考虑换行**：大多数 Shell 命令响应包含 `\n` 换行符
+标准工作流：`serial_list` → `serial_connect` → `serial_write` → `serial_read` → `serial_disconnect`。
+cURL/Python 调用示例、典型工作流（命令-响应/持续监听）、错误处理、使用时机与最佳实践见 [MCP.md](./MCP.md)。
 
 ## 配置说明
 
@@ -333,12 +145,9 @@ serial_status()
 
 日志目录默认值：Linux/macOS 为 `~/.config/serialhub/logs/`（旧 `logs/` 历史日志不迁移），Windows 仍为可执行文件目录下 `logs/`；均可用 `logDir` 或 `SERIALHUB_LOG_DIR` 覆盖。
 
-配置文件格式（TOML），支持 `#` 注释：
+配置文件格式（TOML），支持 `#` 注释，完整示例见 [config.example.toml](./config.example.toml)：
 
 ```toml
-# 日志目录，为空则按平台保存到默认日志目录
-# logDir = "D:/Logs"
-
 [serial]
 port = ""           # 串口号，为空时不自动连接
 baudRate = 115200
@@ -350,35 +159,18 @@ stopBits = 1
 httpPort = 5050
 ```
 
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `serial.port` | `""`（空） | 串口号，为空时不自动连接 |
-| `serial.baudRate` | `115200` | 波特率 |
-| `serial.dataBits` | `8` | 数据位（5/6/7/8） |
-| `serial.parity` | `"none"` | 校验位（none/even/odd） |
-| `serial.stopBits` | `1` | 停止位（1/2） |
-| `mcp.httpPort` | `5050` | MCP HTTP 服务端口（同时提供 Web 终端） |
-| `logDir` | `""` | 日志目录，为空则用平台默认（Linux/macOS 用户配置目录下 `logs/`，Windows 可执行文件目录下 `logs/`） |
-| `debug` | `false` | 调试模式开关 |
-
 ## 开发
 
 ```bash
-# 开发运行
-go run ./cmd/serialhub
-
-# 构建
-go build -o bin/serialhub.exe ./cmd/serialhub
-
-# 测试
-go test ./...
-
-# 静态分析
+go run ./cmd/serialhub          # 开发运行
+go build -o bin/serialhub ./cmd/serialhub
+go test ./...                   # 测试（internal/testutil 提供 mock 串口/连接）
 go vet ./...
-
-# 整理依赖
-go mod tidy
 ```
+
+- 在 WSL 中测试 Windows 版本（托盘、单实例锁、PowerShell 脚本）的方法与坑见 [docs/wsl-windows-testing.md](./docs/wsl-windows-testing.md)。
+- 硬件在环测试由 `SERIALHUB_HARDWARE_TEST=1` 控制，`SERIALHUB_TEST_PORT` 指定端口。
+- 发布流程见 [RELEASING.md](./RELEASING.md)。
 
 ## 许可证 / License
 
