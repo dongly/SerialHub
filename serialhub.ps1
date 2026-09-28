@@ -1,4 +1,4 @@
-# SerialHub 启动脚本
+﻿# SerialHub 启动脚本
 # 用法: .\serialhub.ps1 [参数]
 # 示例: .\serialhub.ps1 -p COM9 -D
 
@@ -8,10 +8,14 @@ param(
     [string]$c = "",      # 配置文件路径
     [switch]$D,           # 调试模式
     [int]$m = 5050,       # MCP 端口
-    [string]$listen = "127.0.0.1",  # 监听地址
+    [string]$listen = "127.0.0.1"  # 监听地址
 )
 
-$exePath = Join-Path $PSScriptRoot "bin\serialhub.exe"
+# exe 布局兼容：release 包在脚本同目录，仓库开发构建在 bin\ 下
+$exePath = Join-Path $PSScriptRoot "serialhub.exe"
+if (-not (Test-Path $exePath)) {
+    $exePath = Join-Path $PSScriptRoot "bin\serialhub.exe"
+}
 
 # 先杀掉已运行的 serialhub 进程
 $existingProcs = Get-Process -Name "serialhub" -ErrorAction SilentlyContinue
@@ -25,7 +29,7 @@ if ($existingProcs) {
 
 if (-not (Test-Path $exePath)) {
     Write-Error "找不到 SerialHub 可执行文件: $exePath"
-    Write-Host "请先运行: go build -o bin\serialhub.exe ./cmd/serialhub"
+    Write-Host "请将 serialhub.exe 放在脚本同目录（或 bin\ 子目录），或运行: go build -o bin\serialhub.exe ./cmd/serialhub"
     exit 1
 }
 
@@ -44,5 +48,5 @@ $args += "--minimized"
 $proc = Start-Process -FilePath $exePath -ArgumentList $args -WindowStyle Minimized -PassThru
 
 Write-Host "SerialHub 已启动 (PID: $($proc.Id))"
-Write-Host "日志文件: $(Join-Path $PSScriptRoot "bin\logs\serialhub.log")"
+Write-Host "日志文件: $(Join-Path (Split-Path $exePath -Parent) "logs\serialhub.log")"
 Write-Host "使用 Stop-Process -Id $($proc.Id) 停止服务"
