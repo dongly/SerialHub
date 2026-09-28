@@ -19,12 +19,26 @@ foreach ($p in $Port) {
     }
 }
 
+# ---- 安装目录候选: 运行中的 serialhub 进程(最可靠) > PATH 上的 serialhub > 脚本目录 ----
+# 注意: 同一台机器可能存在多份安装/旧副本，PATH 解析到的目录不一定是实例实际所在目录
+$exeDirs = New-Object System.Collections.Generic.List[string]
+foreach ($proc in (Get-Process serialhub -ErrorAction SilentlyContinue)) {
+    try {
+        $dir = Split-Path -Parent $proc.Path
+        if ($dir -and -not $exeDirs.Contains($dir)) { $exeDirs.Add($dir) }
+    } catch { }
+}
+$cmd = Get-Command serialhub -ErrorAction SilentlyContinue
+if ($cmd -and $cmd.Source) {
+    $dir = Split-Path -Parent $cmd.Source
+    if ($dir -and -not $exeDirs.Contains($dir)) { $exeDirs.Add($dir) }
+}
+$scriptDir = Split-Path -Parent $PSCommandPath
+if ($scriptDir -and -not $exeDirs.Contains($scriptDir)) { $exeDirs.Add($scriptDir) }
+$exeDir = $exeDirs[0]
+
 # ---- 端口发现: 默认 5050 + exe 同目录 config.toml [MCP] HTTPPort ----
 $ports = New-Object System.Collections.Generic.List[int]
-$exeDir = $null
-$cmd = Get-Command serialhub -ErrorAction SilentlyContinue
-if ($cmd) { $exeDir = Split-Path -Parent $cmd.Source }
-if (-not $exeDir) { $exeDir = Split-Path -Parent $PSCommandPath }
 $cfg = Join-Path $exeDir 'config.toml'
 $cfgPort = 0
 if (Test-Path $cfg) {
@@ -55,14 +69,16 @@ Write-Host ""
 # lock 位置：Windows=exe 同目录；Linux/macOS=用户配置目录（与实例实际写法一致）
 $onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 if ($onWindows) {
-    $lock = Join-Path $exeDir 'instance.lock'
+    # Windows 每个安装目录各一份 lock：逐一检查候选目录，取首个存在者
+    $lockCandidates = @($exeDirs | ForEach-Object { Join-Path $_ 'instance.lock' })
 } else {
     $xdg = $env:XDG_CONFIG_HOME
     if (-not $xdg -or -not [System.IO.Path]::IsPathRooted($xdg)) {
         $xdg = Join-Path $env:HOME '.config'
     }
-    $lock = Join-Path (Join-Path $xdg 'serialhub') 'instance.lock'
+    $lockCandidates = @(Join-Path (Join-Path $xdg 'serialhub') 'instance.lock')
 }
+$lock = $lockCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (Test-Path $lock) {
     Write-Host "lock 文件: 存在（$lock）"
     try {
@@ -80,7 +96,7 @@ if (Test-Path $lock) {
     }
     Write-Host "  说明: 文件可能常驻；仅 OS 文件锁能证明实例仍在运行"
 } else {
-    Write-Host "lock 文件: 不存在（$lock）"
+    Write-Host "lock 文件: 不存在（检查: $($lockCandidates -join ', ')）"
 }
 Write-Host ""
 $ports = $ports | Sort-Object -Unique
