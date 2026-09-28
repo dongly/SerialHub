@@ -4,12 +4,28 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/sirupsen/logrus"
 )
 
 var logFile *os.File
+
+// defaultLogDir 返回默认日志目录：Windows 为 exe 同目录 logs/（原有行为）；
+// 非 Windows 为用户配置目录 serialhub/logs/（与配置文件位置一致，旧
+// logs/ 历史日志不迁移），拿不到用户配置目录时退回 exe 同目录。
+func defaultLogDir() string {
+	if runtime.GOOS != "windows" {
+		if base := xdgConfigDir(); base != "" {
+			return filepath.Join(base, "serialhub", "logs")
+		}
+	}
+	if exePath, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exePath), "logs")
+	}
+	return "logs"
+}
 
 func setupLogger(cfg *config.Config) {
 	// --log-data 蕴含 -D：Trace 级包含 Debug/Info 全部输出，外加数据内容日志。
@@ -31,8 +47,7 @@ func setupLogger(cfg *config.Config) {
 
 	dir := cfg.LogDir
 	if dir == "" {
-		exePath, _ := os.Executable()
-		dir = filepath.Join(filepath.Dir(exePath), "logs")
+		dir = defaultLogDir()
 	}
 	os.MkdirAll(dir, 0755)
 

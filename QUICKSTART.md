@@ -142,6 +142,8 @@ serial_disconnect()
 
 ## 7. 配置文件示例
 
+配置文件查找顺序（未指定 `-c` 时）：Linux/macOS 为 `./config.toml`（当前目录）> `~/.config/serialhub/config.toml`，exe 同目录旧配置首次启动自动迁移过去（Windows 保持 exe 同目录）。
+
 编辑 `config.toml`：
 
 ```toml
@@ -150,7 +152,7 @@ serial_disconnect()
 # 监听地址
 host = "127.0.0.1"
 
-# 日志目录，为空则保存到可执行文件目录下的 logs/
+# 日志目录，为空则用平台默认（Linux/macOS: ~/.config/serialhub/logs/，Windows: exe 同目录 logs/）
 # logDir = "D:/Logs"
 
 # 调试模式

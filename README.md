@@ -310,10 +310,17 @@ serial_status()
 
 配置优先级：**CLI 参数 > 配置文件 > 默认值**
 
+配置文件查找顺序（未指定 `-c` 时）：
+
+- **Linux/macOS**：`./config.toml`（当前目录）> `~/.config/serialhub/config.toml`（`XDG_CONFIG_HOME`）；可执行文件目录下存在旧 `config.toml` 且用户配置目录无配置时，首次启动自动迁移（移动）到用户配置目录；三处皆无则新建写用户配置目录。
+- **Windows**：可执行文件目录下的 `config.toml`（与历史版本一致）。
+
+日志目录默认值：Linux/macOS 为 `~/.config/serialhub/logs/`（旧 `logs/` 历史日志不迁移），Windows 仍为可执行文件目录下 `logs/`；均可用 `logDir` 或 `SERIALHUB_LOG_DIR` 覆盖。
+
 配置文件格式（TOML），支持 `#` 注释：
 
 ```toml
-# 日志目录，为空则保存到可执行文件目录下的 logs/
+# 日志目录，为空则按平台保存到默认日志目录
 # logDir = "D:/Logs"
 
 [serial]
@@ -335,7 +342,7 @@ httpPort = 5050
 | `serial.parity` | `"none"` | 校验位（none/even/odd） |
 | `serial.stopBits` | `1` | 停止位（1/2） |
 | `mcp.httpPort` | `5050` | MCP HTTP 服务端口（同时提供 Web 终端） |
-| `logDir` | `""` | 日志目录，为空则保存到可执行文件目录下的 `logs/` |
+| `logDir` | `""` | 日志目录，为空则用平台默认（Linux/macOS 用户配置目录下 `logs/`，Windows 可执行文件目录下 `logs/`） |
 | `debug` | `false` | 调试模式开关 |
 
 ## 开发

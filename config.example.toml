@@ -4,6 +4,7 @@
 host = "127.0.0.1"
 
 # 日志目录，为空则保存到可执行文件目录下的 logs/
+# 日志目录，为空则用平台默认（Linux/macOS: ~/.config/serialhub/logs/，Windows: exe 同目录 logs/）
 # logDir = "D:/Logs"
 
 # 调试模式

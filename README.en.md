@@ -304,10 +304,17 @@ serial_status()
 
 Priority: **CLI flags > config file > defaults**
 
+Config file lookup order (without `-c`):
+
+- **Linux/macOS**: `./config.toml` (working directory) > `~/.config/serialhub/config.toml` (`XDG_CONFIG_HOME`); if a legacy `config.toml` exists next to the executable and no user config exists, it is migrated (moved) to the user config dir on first start; if none exists, a new one is created there.
+- **Windows**: `config.toml` next to the executable (same as previous versions).
+
+Default log directory: `~/.config/serialhub/logs/` on Linux/macOS (legacy `logs/` history is not migrated), still `logs/` next to the executable on Windows; override with `logDir` or `SERIALHUB_LOG_DIR`.
+
 TOML config with `#` comments:
 
 ```toml
-# Log directory; empty = ./logs/ next to the executable
+# Log directory; empty = platform default log directory
 # logDir = "D:/Logs"
 
 [serial]
@@ -329,7 +336,7 @@ httpPort = 5050
 | `serial.parity` | `"none"` | Parity (none/even/odd) |
 | `serial.stopBits` | `1` | Stop bits (1/2) |
 | `mcp.httpPort` | `5050` | MCP HTTP port (also serves the web terminal) |
-| `logDir` | `""` | Log directory; empty = `logs/` next to the executable |
+| `logDir` | `""` | Log directory; empty = platform default (user config dir `logs/` on Linux/macOS, `logs/` next to the executable on Windows) |
 | `debug` | `false` | Debug mode |
 
 ## Development

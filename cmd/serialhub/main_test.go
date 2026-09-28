@@ -82,6 +82,9 @@ func TestConfigToSerialConfig(t *testing.T) {
 }
 
 func TestLoadConfig_Default(t *testing.T) {
+	// 隔离用户配置目录：configPath 为空时走 XDG 解析，
+	// 不能读写真实 ~/.config/serialhub/
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configPath = ""
 	serialPort = ""
 	baudRate = 115200
@@ -93,6 +96,7 @@ func TestLoadConfig_Default(t *testing.T) {
 }
 
 func TestLoadConfig_WithSerialPort(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	originalPath := configPath
 	configPath = ""
 	serialPort = "COM9"
@@ -105,6 +109,7 @@ func TestLoadConfig_WithSerialPort(t *testing.T) {
 }
 
 func TestLoadConfig_WithBaudRate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	originalPath := configPath
 	originalBaud := baudRate
 	configPath = ""
@@ -122,6 +127,7 @@ func TestLoadConfig_WithEnvLogDir(t *testing.T) {
 	tempDir := t.TempDir()
 	os.Setenv("SERIALHUB_LOG_DIR", tempDir)
 	defer os.Unsetenv("SERIALHUB_LOG_DIR")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	configPath = ""
 	serialPort = ""

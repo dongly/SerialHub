@@ -85,7 +85,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
 为 MCP 客户端自动配置接入（交互向导，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不覆盖既有条目（实现于 `pkg/mcpsetup/`）。
 
-配置文件格式见 `config.example.toml`。
+配置文件格式见 `config.example.toml`。查找顺序（未指定 `-c`）：Linux/macOS 为 `./config.toml`（CWD）> `~/.config/serialhub/config.toml`（XDG_CONFIG_HOME），exe 同目录旧配置首次启动自动迁移（移动）过去；Windows 保持 exe 同目录。日志目录默认跟随用户配置目录（Linux/macOS）。
 
 ## 代码风格
 
