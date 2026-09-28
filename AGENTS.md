@@ -34,7 +34,7 @@ $env:SERIALHUB_HARDWARE_TEST="1"; $env:SERIALHUB_TEST_PORT="COM9"; go test ./...
 serialhub -p COM7 -D         # 直接启动
 ```
 
-日志：`bin\logs\serialhub.log` | Web 终端：`http://127.0.0.1:5050/terminal` | 健康检查：`http://127.0.0.1:5050/health`
+默认日志：Linux/macOS 用户配置目录下 `serialhub/logs/serialhub.log`（通常为 `~/.config/serialhub/logs/serialhub.log`）；Windows exe 同目录 `logs\serialhub.log`（仓库构建通常为 `bin\logs\serialhub.log`） | Web 终端：`http://127.0.0.1:5050/terminal` | 健康检查：`http://127.0.0.1:5050/health`
 
 ## 测试
 
