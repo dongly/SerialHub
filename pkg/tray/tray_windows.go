@@ -112,6 +112,11 @@ func (t *TrayManager) Run(_ context.Context) {
 	})
 }
 
+// Quit 请求托盘退出，服务启动失败时避免占锁但无服务。
+func (t *TrayManager) Quit() {
+	systray.Quit()
+}
+
 func (t *TrayManager) onReady() {
 	logrus.Info("[SerialHub] 系统托盘已启动")
 
@@ -342,6 +347,9 @@ func (t *TrayManager) setPort(port string) {
 
 	if wasConnected {
 		t.autoReconnect()
+	} else {
+		// 未连接时 autoReconnect 不执行，仍需刷新菜单文字（显示新端口）
+		t.UpdateSerialStatus()
 	}
 	logrus.Infof("[SerialHub] 选择串口: %s", port)
 }
@@ -565,25 +573,48 @@ func (t *TrayManager) UpdateState(state TrayState) {
 	logrus.Infof("[SerialHub] 托盘状态更新: %s", state)
 }
 
-func (t *TrayManager) UpdateSerialStatus() {
-	connected := t.serial != nil && t.serial.IsConnected()
+// serialMenuStatus 是一次串口状态刷新的目标呈现（菜单文字/tooltip/图标状态）。
+type serialMenuStatus struct {
+	State     TrayState
+	Connected bool
+	Tooltip   string
+	Title     string
+}
 
-	newState := TrayIdle
-	tooltip := "SerialHub - 未连接"
+// computeSerialMenuStatus 计算当前串口状态对应的菜单呈现（纯计算，
+// 供 UpdateSerialStatus 与测试使用）。
+func (t *TrayManager) computeSerialMenuStatus() serialMenuStatus {
+	connected := t.serial != nil && t.serial.IsConnected()
+	st := serialMenuStatus{
+		State:     TrayIdle,
+		Connected: connected,
+		Tooltip:   "SerialHub - 未连接",
+		Title:     t.getSerialMenuTitle(),
+	}
 	if connected {
-		newState = TrayConnected
-		tooltip = fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort())
+		st.State = TrayConnected
+		st.Tooltip = fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort())
+	}
+	return st
+}
+
+func (t *TrayManager) UpdateSerialStatus() {
+	st := t.computeSerialMenuStatus()
+
+	// 菜单文字与 tooltip 反映当前端口/波特率：切换串口等配置变更后即使
+	// 连接状态未变（下面的去重命中）也必须刷新，否则菜单仍显示旧端口。
+	if t.mSerial != nil {
+		t.mSerial.SetTitle(st.Title)
+		systray.SetTooltip(st.Tooltip)
 	}
 
-	if t.state == newState {
+	if t.state == st.State {
 		return
 	}
 
-	t.UpdateState(newState)
-	systray.SetTooltip(tooltip)
-	t.mSerial.SetTitle(t.getSerialMenuTitle())
+	t.UpdateState(st.State)
 
-	if connected {
+	if st.Connected {
 		t.mSerialConfig.Disable()
 	} else {
 		t.mSerialConfig.Enable()

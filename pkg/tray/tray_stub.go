@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,8 @@ type TrayManager struct {
 	version         string
 	state           TrayState
 	quitChan        chan struct{}
+	quitReq         chan struct{}
+	quitOnce        sync.Once
 	readyCallback   OnReadyFunc
 	exitCallback    func()
 	onConfigChanged OnConfigChangedFunc
@@ -50,6 +53,7 @@ func NewTrayManager(serialMgr *serial.SerialManager, cfg *config.Config, host st
 		version:  version,
 		state:    TrayIdle,
 		quitChan: make(chan struct{}),
+		quitReq:  make(chan struct{}),
 	}
 }
 
@@ -68,7 +72,15 @@ func (t *TrayManager) SetOnConfigChanged(fn OnConfigChangedFunc) {
 	t.onConfigChanged = fn
 }
 
-// Run 阻塞直到收到 ctx 取消或 SIGINT/SIGTERM 信号，语义上对齐
+// Quit 请求托盘退出（幂等）：服务启动失败等场景下让 Run 返回，
+// 避免保留占有实例锁但无服务的空壳实例。
+func (t *TrayManager) Quit() {
+	t.quitOnce.Do(func() {
+		close(t.quitReq)
+	})
+}
+
+// Run 阻塞直到收到 ctx 取消、quit 请求或 SIGINT/SIGTERM 信号，语义上对齐
 // Windows 版的 systray.Run（阻塞直到退出）。正常情况下非 Windows
 // 平台不会走到这里（serve.go 已按 GOOS 分流），仅为兜底。
 func (t *TrayManager) Run(ctx context.Context) {
@@ -78,6 +90,7 @@ func (t *TrayManager) Run(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 	case <-sigChan:
+	case <-t.quitReq:
 	}
 	t.onExit()
 }

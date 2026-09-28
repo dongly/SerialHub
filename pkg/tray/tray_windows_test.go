@@ -500,6 +500,33 @@ func TestUpdateSerialStatus_StateDedup(t *testing.T) {
 	testutil.AssertNotEqual(t, trayMgr.state, newState) // 不满足去重条件
 }
 
+// TestComputeSerialMenuStatus_切换串口刷新标题 回归：未连接状态下切换串口，
+// 连接状态仍为 TrayIdle（去重命中），但菜单标题必须反映新端口。
+func TestComputeSerialMenuStatus_切换串口刷新标题(t *testing.T) {
+	cfg := serial.DefaultConfig()
+	cfg.Port = "COM1"
+	serialMgr, err := serial.NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("NewSerialManager failed: %v", err)
+	}
+	defer serialMgr.Close()
+
+	conf := config.GetDefault()
+	conf.Serial.Port = "COM1"
+	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
+
+	st := trayMgr.computeSerialMenuStatus()
+	testutil.AssertEqual(t, TrayIdle, st.State)
+	testutil.AssertEqual(t, "连接 COM1", st.Title)
+
+	// 模拟 setPort 未连接分支：更新配置后仅调用 UpdateSerialStatus。
+	// 去重命中原状态，但标题计算必须已切换到新端口。
+	trayMgr.config.Serial.Port = "COM2"
+	st2 := trayMgr.computeSerialMenuStatus()
+	testutil.AssertEqual(t, TrayIdle, st2.State) // 状态未变 → 去重会命中
+	testutil.AssertEqual(t, "连接 COM2", st2.Title)
+}
+
 // TestRealIconFiles 测试实际图标文件（非 embed）
 func TestRealIconFiles(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
