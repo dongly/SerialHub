@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/dongly/serialhub/pkg/config"
@@ -145,11 +144,46 @@ func Install(opts Options) (string, error) {
 	return abs, nil
 }
 
-// target 根据客户端与层级返回（配置文件路径、顶层键、serialhub 条目值）。
-func target(opts Options) (path, topKey string, entry map[string]any, err error) {
+// configTarget 根据客户端与层级返回（配置文件路径、顶层键）。
+// 路径与接入模式无关，Install/Uninstall 共用。
+func configTarget(client string, scope Scope) (path, topKey string, err error) {
 	home, herr := os.UserHomeDir()
 	if herr != nil {
-		return "", "", nil, herr
+		return "", "", herr
+	}
+	switch client {
+	case "opencode":
+		topKey = "mcp.servers"
+		if scope == ScopeProject {
+			path = "opencode.json"
+		} else {
+			path = filepath.Join(home, ".config", "opencode", "opencode.json")
+		}
+	case "claude": // 项目级 .mcp.json
+		topKey, path = "mcpServers", ".mcp.json"
+	case "cursor":
+		topKey = "mcpServers"
+		if scope == ScopeProject {
+			path = filepath.Join(".cursor", "mcp.json")
+		} else {
+			path = filepath.Join(home, ".cursor", "mcp.json")
+		}
+	case "windsurf":
+		topKey = "mcpServers"
+		path = filepath.Join(home, ".codeium", "windsurf", "mcp_config.json")
+	case "vscode":
+		topKey, path = "servers", filepath.Join(".vscode", "mcp.json")
+	default:
+		return "", "", fmt.Errorf("客户端 %s 无文件配置面", client)
+	}
+	return path, topKey, nil
+}
+
+// target 根据客户端与层级返回（配置文件路径、顶层键、serialhub 条目值）。
+func target(opts Options) (path, topKey string, entry map[string]any, err error) {
+	path, topKey, err = configTarget(opts.Client, opts.Scope)
+	if err != nil {
+		return "", "", nil, err
 	}
 	m := opts.Mode
 	switch opts.Client {
@@ -162,50 +196,26 @@ func target(opts Options) (path, topKey string, entry map[string]any, err error)
 		} else {
 			entry = map[string]any{"type": "remote", "url": opts.URL, "oauth": false}
 		}
-		topKey = "mcp.servers"
-		if opts.Scope == ScopeProject {
-			path = "opencode.json"
-		} else if runtime.GOOS == "windows" {
-			path = filepath.Join(home, ".config", "opencode", "opencode.json")
-		} else {
-			path = filepath.Join(home, ".config", "opencode", "opencode.json")
-		}
-	case "claude": // 项目级 .mcp.json
+	case "claude":
 		if m == ModeStdio {
 			entry = map[string]any{"type": "stdio", "command": opts.stdioCommand(), "args": []string{"--stdio"}}
 		} else {
 			entry = map[string]any{"type": "http", "url": opts.URL}
 		}
-		topKey, path = "mcpServers", ".mcp.json"
-	case "cursor":
+	case "cursor", "windsurf":
 		if m == ModeStdio {
 			entry = map[string]any{"command": opts.stdioCommand(), "args": []string{"--stdio"}}
-		} else {
+		} else if opts.Client == "cursor" {
 			entry = map[string]any{"url": opts.URL}
-		}
-		topKey = "mcpServers"
-		if opts.Scope == ScopeProject {
-			path = filepath.Join(".cursor", "mcp.json")
-		} else {
-			path = filepath.Join(home, ".cursor", "mcp.json")
-		}
-	case "windsurf":
-		if m == ModeStdio {
-			entry = map[string]any{"command": opts.stdioCommand(), "args": []string{"--stdio"}}
 		} else {
 			entry = map[string]any{"serverUrl": opts.URL}
 		}
-		topKey = "mcpServers"
-		path = filepath.Join(home, ".codeium", "windsurf", "mcp_config.json")
 	case "vscode":
 		if m == ModeStdio {
 			entry = map[string]any{"type": "stdio", "command": opts.stdioCommand(), "args": []string{"--stdio"}}
 		} else {
 			entry = map[string]any{"type": "http", "url": opts.URL}
 		}
-		topKey, path = "servers", filepath.Join(".vscode", "mcp.json")
-	default:
-		return "", "", nil, fmt.Errorf("客户端 %s 无文件配置面", opts.Client)
 	}
 	return path, topKey, entry, nil
 }

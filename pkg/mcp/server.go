@@ -216,8 +216,8 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		// role 字段供实例发现区分主从（从实例反代 /health 返回 role=worker）
-		w.Write([]byte(`{"status":"ok","role":"master"}`))
+		// service 字段标识产品（供 uninstall 等工具识别身份）；role 字段供实例发现区分主从
+		w.Write([]byte(`{"status":"ok","service":"serialhub","role":"master"}`))
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

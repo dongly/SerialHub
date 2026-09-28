@@ -62,6 +62,21 @@ flowchart TB
 Download the archive for your platform from [GitHub Releases](https://github.com/dongly/serialhub/releases)
 and unzip — no installer needed (Windows archives include `start.ps1`/`start.bat` launch scripts).
 
+Already installed? Upgrade in place (config and logs are preserved):
+
+```bash
+serialhub upgrade          # check GitHub Releases for the latest version, verify sha256, atomically replace self
+```
+
+Network proxy honors `HTTPS_PROXY`/`HTTP_PROXY`; a custom mirror can be set via
+`SERIALHUB_GITHUB_API` (default `https://api.github.com`).
+
+Uninstall (removes MCP client entries, config & log directories, and the binary itself):
+
+```bash
+serialhub uninstall        # dry-run first, then confirm; -y skips confirmation
+```
+
 For details (PATH setup, install verification, USB serial ports under WSL) see
 [QUICKSTART.md](./QUICKSTART.md). WSL users are recommended
 [wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) to attach USB serial

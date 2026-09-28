@@ -336,6 +336,7 @@ serialhub.exe --host 0.0.0.0
 
 ## 典型工作流
 
+
 ### 1. 标准命令-响应模式
 
 ```mermaid

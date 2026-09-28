@@ -253,7 +253,7 @@ func TestStartHTTPServer_HealthEndpoint(t *testing.T) {
 		t.Fatalf("读取响应体失败: %v", err)
 	}
 
-	expected := `{"status":"ok","role":"master"}`
+	expected := `{"status":"ok","service":"serialhub","role":"master"}`
 	if strings.TrimSpace(string(body)) != expected {
 		t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
 	}
@@ -535,7 +535,7 @@ func TestStreamableHTTPHandler(t *testing.T) {
 			t.Fatalf("读取响应体失败: %v", err)
 		}
 
-		expected := `{"status":"ok","role":"master"}`
+		expected := `{"status":"ok","service":"serialhub","role":"master"}`
 		if strings.TrimSpace(string(body)) != expected {
 			t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
 		}

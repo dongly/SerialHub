@@ -57,6 +57,8 @@ func main() {
 	rootCmd.Version = appVersion
 	rootCmd.SetVersionTemplate(fmt.Sprintf("SerialHub v%s\n", appVersion))
 	rootCmd.AddCommand(newSetupCmd())
+	rootCmd.AddCommand(newUninstallCmd())
+	rootCmd.AddCommand(newUpgradeCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -62,6 +62,20 @@ flowchart TB
 从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的压缩包，
 解压即用（Windows 包内含 `start.ps1`/`start.bat` 启动脚本）。
 
+已安装旧版本可直接自升级（配置与日志保留不动）：
+
+```bash
+serialhub upgrade          # 查询 GitHub Releases 最新版，下载校验并原子替换自身
+```
+
+网络代理遵从 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量；私有加速可设 `SERIALHUB_GITHUB_API`（默认 `https://api.github.com`）。
+
+卸载（清理 MCP 客户端接入条目、配置与日志目录、二进制本身）：
+
+```bash
+serialhub uninstall        # 先 dry-run 列清单，确认后执行；-y 跳过确认
+```
+
 详细步骤（PATH 配置、安装验证、WSL USB 串口挂载）见 [QUICKSTART.md](./QUICKSTART.md)。
 WSL 用户推荐用 [wsl-usb-manager](https://github.com/nickbeth/wsl-usb-manager) 一键把
 USB 串口 attach 进 WSL。

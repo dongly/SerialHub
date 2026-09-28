@@ -390,7 +390,7 @@ func startWorkerProxy(masterURL string) (stop func()) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok","role":"worker"}`))
+		w.Write([]byte(`{"status":"ok","service":"serialhub","role":"worker"}`))
 	})
 	mux.Handle("/mcp", proxy)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
