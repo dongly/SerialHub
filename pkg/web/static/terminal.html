@@ -341,6 +341,7 @@
                 switch (msg.type) {
                     case 'ports':
                         updatePortList(msg.data);
+                        announcePorts(msg.data);
                         break;
                     case 'status':
                         updateConnectionStatus(msg.data.connected);
@@ -376,6 +377,15 @@
                     option.textContent = port;
                     portSelect.appendChild(option);
                 });
+            }
+
+            // 在终端写一行串口列表提示（刷新与页面加载时都会触发）
+            function announcePorts(ports) {
+                if (ports.length > 0) {
+                    terminal.writeln('\x1b[36m[SerialHub] 找到 ' + ports.length + ' 个串口: ' + ports.join(', ') + '\x1b[0m');
+                } else {
+                    terminal.writeln('\x1b[33m[SerialHub] 找到 0 个串口: 请检查设备物理连接；WSL 下请确认 usbipd attach 是否生效\x1b[0m');
+                }
             }
 
             function selectPortFromStatus(portInfo) {
