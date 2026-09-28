@@ -322,6 +322,8 @@ Priority: **CLI flags > config file > defaults**
 Config file lookup order (without `-c`):
 
 - **Linux/macOS**: `./config.toml` (working directory) > `~/.config/serialhub/config.toml` (`XDG_CONFIG_HOME`); if a legacy `config.toml` exists next to the executable and no user config exists, it is migrated (moved) to the user config dir on first start; if none exists, a new one is created there.
+
+Config write-back timing: the merged config (CLI args included) is written back to `config.toml` **only after the single-instance lock is acquired** (i.e. this process becomes the master). A refused duplicate instance or a stdio proxy does not modify the config file (preventing one-off flags like `-m` from polluting the on-disk config).
 - **Windows**: `config.toml` next to the executable (same as previous versions).
 
 Default log directory: `~/.config/serialhub/logs/` on Linux/macOS (legacy `logs/` history is not migrated), still `logs/` next to the executable on Windows; override with `logDir` or `SERIALHUB_LOG_DIR`.

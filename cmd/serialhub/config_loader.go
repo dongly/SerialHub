@@ -59,12 +59,6 @@ func loadConfig() *config.Config {
 		logDataEffective = logDataMode
 	}
 
-	if configPath != "" {
-		if err := config.Save(configPath, cfg); err != nil {
-			logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
-		}
-	}
-
 	// 回填全局变量：serve 流程（HTTP 监听）统一使用
 	// 最终生效的端口与地址——否则配置文件指定的端口不会传导，
 	// 监听仍停留在 flag 默认值（如 5050）。
@@ -74,12 +68,25 @@ func loadConfig() *config.Config {
 	return cfg
 }
 
+// persistConfig 把 CLI 参数合并后的最终配置回写磁盘。仅在成功取得
+// 单实例锁（成为主实例）后调用：被拒绝的重复实例与 stdio 代理模式
+// 不落盘，避免把仅本次生效的参数（如 -m 指定的端口）写进 config.toml，
+// 造成磁盘配置与实际运行实例不一致。
+func persistConfig(cfg *config.Config) {
+	if configPath == "" {
+		return
+	}
+	if err := config.Save(configPath, cfg); err != nil {
+		logrus.Warnf("[SerialHub] 保存配置失败: %v", err)
+	}
+}
+
 // resolveConfigPath 决定配置文件路径，包级 configPath 作为显式 -c 参数：
 //   - Windows：-c > exe 同目录（保持原有行为，不迁移）。
 //   - 非 Windows：-c > ./config.toml（CWD，用而不迁）>
 //     用户配置目录 serialhub/config.toml；exe 同目录存在旧配置且用户配置
 //     目录无 → 迁移（移动）到用户配置目录；三处皆无 → 返回用户配置目录
-//     路径（首次由 loadConfig 的 Save 落盘）。
+//     路径（首次由成为主实例后的 persistConfig 落盘）。
 func resolveConfigPath() string {
 	var exeDir string
 	if exePath, err := os.Executable(); err == nil {

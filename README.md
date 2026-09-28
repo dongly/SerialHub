@@ -329,6 +329,8 @@ serial_status()
 - **Linux/macOS**：`./config.toml`（当前目录）> `~/.config/serialhub/config.toml`（`XDG_CONFIG_HOME`）；可执行文件目录下存在旧 `config.toml` 且用户配置目录无配置时，首次启动自动迁移（移动）到用户配置目录；三处皆无则新建写用户配置目录。
 - **Windows**：可执行文件目录下的 `config.toml`（与历史版本一致）。
 
+配置回写时机：合并 CLI 参数后的配置**在成功取得单实例锁（成为主实例）后才写回** `config.toml`；被拒绝的重复实例与 stdio 代理模式不修改配置文件（避免 `-m` 等本次参数污染磁盘配置）。
+
 日志目录默认值：Linux/macOS 为 `~/.config/serialhub/logs/`（旧 `logs/` 历史日志不迁移），Windows 仍为可执行文件目录下 `logs/`；均可用 `logDir` 或 `SERIALHUB_LOG_DIR` 覆盖。
 
 配置文件格式（TOML），支持 `#` 注释：

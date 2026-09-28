@@ -140,7 +140,7 @@ func TestLoadConfigLogDataPriority(t *testing.T) {
 				t.Errorf("logDataEffective = %v, 期望 %v", logDataEffective, tc.wantEffective)
 			}
 
-			// loadConfig 会回写配置文件：运行期开关（flag/env）不得改变文件中的 logData
+			// loadConfig 不落盘：文件应保持原值，运行期开关（flag/env）不得改变文件中的 logData
 			saved, err := config.Load(cfgPath)
 			if err != nil {
 				t.Fatalf("读回配置失败: %v", err)
@@ -412,7 +412,8 @@ func TestResolveConfigPathImpl(t *testing.T) {
 }
 
 // TestLoadConfig_首次启动在用户配置目录落盘 覆盖三处皆无时的新建路径：
-// resolveConfigPath 对自动选择的路径创建父目录，首次 Save 能成功落盘。
+// resolveConfigPath 对自动选择的路径创建父目录；loadConfig 本身不落盘
+// （避免被拒绝的重复实例写配置），成为主实例后 persistConfig 首次落盘。
 func TestLoadConfig_首次启动在用户配置目录落盘(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 的自动路径是 exe 同目录，不走 XDG 新建路径")
@@ -440,11 +441,16 @@ func TestLoadConfig_首次启动在用户配置目录落盘(t *testing.T) {
 	configPath = ""
 	mcpPort, host = config.DefaultHTTPPort, "127.0.0.1"
 
-	loadConfig()
-
 	want := filepath.Join(xdg, "serialhub", "config.toml")
+
+	cfg := loadConfig()
+	if fileExists(want) {
+		t.Fatalf("loadConfig 不应落盘（被拒实例不得写配置）: %q 不应存在", want)
+	}
+
+	persistConfig(cfg)
 	if !fileExists(want) {
-		t.Fatalf("首次启动应在 %q 落盘默认配置", want)
+		t.Fatalf("成为主实例后应在 %q 落盘默认配置", want)
 	}
 	if _, err := config.Load(want); err != nil {
 		t.Errorf("落盘的配置应可解析: %v", err)

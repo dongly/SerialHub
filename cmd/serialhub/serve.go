@@ -73,6 +73,9 @@ func runMaster(cfg *config.Config) error {
 	}
 	defer instance.Release()
 
+	// 成为主实例后才回写配置（含 CLI 参数合并结果）；被拒实例不落盘
+	persistConfig(cfg)
+
 	sm := newSerialManagerFromConfig(cfg)
 	buf := buffer.NewDataBuffer()
 
@@ -345,6 +348,9 @@ func runStdio(cfg *config.Config) error {
 		return fmt.Errorf("获取单实例锁失败：%w", err)
 	}
 	defer instance.Release()
+
+	// 成为主实例后才回写配置；stdio 代理模式不落盘
+	persistConfig(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
