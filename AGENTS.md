@@ -83,7 +83,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
 ### `serialhub setup`
 
-为 MCP 客户端自动配置接入（交互向导，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不覆盖既有条目（实现于 `pkg/mcpsetup/`）。
+为 MCP 客户端自动配置接入（交互向导，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不动其他服务条目；serialhub 自身条目已存在时交互模式会确认、`-y` 非交互直接更新（可用于切换 stdio/HTTP 接入模式）；Codex 与 Claude 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI 行为（实现于 `pkg/mcpsetup/`）。默认 **stdio 本地模式**（客户端拉起 `serialhub --stdio`，无需先启动服务）；HTTP 需显式 `--mode http`。
 
 配置文件格式见 `config.example.toml`。查找顺序（未指定 `-c`）：Linux/macOS 为 `./config.toml`（CWD）> `~/.config/serialhub/config.toml`（XDG_CONFIG_HOME），exe 同目录旧配置首次启动自动迁移（移动）过去；Windows 保持 exe 同目录。日志目录默认跟随用户配置目录（Linux/macOS）。
 

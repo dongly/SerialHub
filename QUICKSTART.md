@@ -108,7 +108,10 @@ SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf /
 本地拉起方式（客户端自动启动、退出时随之结束）。
 
 最简单的方式：运行 `serialhub setup` 向导，自动为上述任一客户端写入配置
-（非交互：`serialhub setup --client cursor -y`）。
+（非交互：`serialhub setup --client cursor -y`，已有 serialhub 条目时直接
+更新，可借此切换接入模式；Codex 与 Claude 用户级经官方 CLI 写入，已有
+条目的处理遵循该 CLI 行为）。默认 stdio 本地模式（客户端自动拉起，无需先
+启动服务）；如需 HTTP 加 `--mode http`。
 
 ## 5. 常用命令
 

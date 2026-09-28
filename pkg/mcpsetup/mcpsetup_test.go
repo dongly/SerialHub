@@ -199,3 +199,47 @@ func TestOpenCodeStdioCommand数组(t *testing.T) {
 		t.Fatal("V2 无独立 args 字段")
 	}
 }
+
+// Mode 留空时应默认 stdio 本地模式（Install 填充，v0.6 起默认从 HTTP 改为 stdio）
+func TestInstall默认模式为Stdio(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir) // 项目级 Install 写入当前目录 opencode.json，需隔离
+	path := filepath.Join(dir, "opencode.json")
+	if _, err := Install(Options{
+		Client: "opencode",
+		Scope:  ScopeProject,
+		URL:    "http://ignored-example:9999/mcp", // stdio 模式应忽略 URL
+	}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取 opencode.json: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析 opencode.json: %v", err)
+	}
+	mcpObj, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("缺少 mcp 容器: %v", cfg)
+	}
+	servers, ok := mcpObj["servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("缺少 mcp.servers 容器: %v", mcpObj)
+	}
+	entry, ok := servers["serialhub"].(map[string]any)
+	if !ok {
+		t.Fatalf("缺少 serialhub 条目: %v", servers)
+	}
+	if got := entry["type"]; got != "local" {
+		t.Errorf("type 应为 local，得到 %v", got)
+	}
+	cmd, ok := entry["command"].([]any) // JSON 反序列化后是 []any 而非 []string
+	if !ok || len(cmd) != 2 || cmd[0] != "serialhub" || cmd[1] != "--stdio" {
+		t.Fatalf("默认模式应为 stdio（command=[serialhub --stdio]），得到 %v", entry)
+	}
+	if _, has := entry["url"]; has {
+		t.Errorf("stdio 模式不应写入 url 字段: %v", entry)
+	}
+}

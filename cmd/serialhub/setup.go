@@ -26,15 +26,16 @@ func newSetupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "为 MCP 客户端自动配置 SerialHub 接入",
 		Long: "交互式向导：选择 MCP 客户端（OpenCode / Claude Code / Cursor / Windsurf / " +
-			"VS Code / Codex）→ 接入模式（HTTP 或 stdio）→ 写入层级（项目级/用户级），\n" +
-			"然后合并写入该客户端的配置文件（不覆盖其他条目）。\n" +
-			fmt.Sprintf("非交互用法：serialhub setup --client cursor --url %s -y", mcpsetup.DefaultURL()),
+			"VS Code / Codex）→ 接入模式（stdio 或 HTTP，默认 stdio 本地模式，客户端自动拉起）→ 写入层级（项目级/用户级），\n" +
+			"然后合并写入该客户端的配置文件（不动其他服务条目；已有 serialhub 条目时交互模式会确认，-y 直接更新，可借此切换接入模式；\n" +
+			"Codex 与 Claude 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI 行为）。\n" +
+			"非交互用法：serialhub setup --client cursor -y（如需 HTTP：serialhub setup --client cursor --mode http -y）",
 		RunE: runSetup,
 		Args: cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(&setupClient, "client", "", "客户端 ID: opencode/claude/cursor/windsurf/vscode/codex")
-	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), "HTTP 端点（联邦模式下 127.0.0.1 两侧皆可用）")
-	cmd.Flags().StringVar(&setupMode, "mode", "http", "接入模式: http | stdio")
+	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), "HTTP 端点（联邦模式下 127.0.0.1 两侧皆可用；仅 --mode http 时生效）")
+	cmd.Flags().StringVar(&setupMode, "mode", "stdio", "接入模式: stdio | http（默认 stdio 本地模式）")
 	cmd.Flags().StringVar(&setupScope, "scope", "project", "写入层级: project | user（codex 仅 user）")
 	cmd.Flags().BoolVarP(&setupAssumeYes, "yes", "y", false, "非交互：确认全部默认选择")
 	return cmd
@@ -74,18 +75,20 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. 模式
+	// 2. 模式：交互向导且未显式指定 --mode 时询问；-y 或显式指定时直接采用 flag 值
 	mode := mcpsetup.Mode(setupMode)
-	if mode != mcpsetup.ModeHTTP && mode != mcpsetup.ModeStdio {
-		return fmt.Errorf("无效模式 %q（可选 http/stdio）", setupMode)
-	}
-	if mode == "" {
-		pick := ask("接入模式: 1) HTTP（推荐） 2) stdio（客户端自动拉起） [1]: ", "1")
-		if pick == "2" {
+	if !cmd.Flags().Changed("mode") && !setupAssumeYes {
+		pick := ask("接入模式: 1) stdio（推荐，客户端自动拉起） 2) HTTP [1]: ", "1")
+		switch pick {
+		case "", "1":
 			mode = mcpsetup.ModeStdio
-		} else {
+		case "2":
 			mode = mcpsetup.ModeHTTP
+		default:
+			return fmt.Errorf("无效选项 %q（可选 1/2）", pick)
 		}
+	} else if mode != mcpsetup.ModeHTTP && mode != mcpsetup.ModeStdio {
+		return fmt.Errorf("无效模式 %q（可选 http/stdio）", setupMode)
 	}
 
 	// 3. 层级（Codex 仅用户级）

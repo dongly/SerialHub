@@ -110,7 +110,7 @@ func Install(opts Options) (string, error) {
 		return "", err
 	}
 	if opts.Mode == "" {
-		opts.Mode = ModeHTTP
+		opts.Mode = ModeStdio // 默认本地模式：客户端拉起 serialhub --stdio，无需先启动服务
 	}
 	if opts.Mode == ModeHTTP && opts.URL == "" {
 		opts.URL = DefaultURL()
