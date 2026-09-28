@@ -304,18 +304,19 @@ stdio 方式把 `type` 换成 `"stdio"`，用 `"command": "serialhub", "args": [
 
 - **lock 位置**：与配置文件同目录——Linux/macOS 为 `~/.config/serialhub/instance.lock`（XDG），Windows 为 exe 同目录。
 - **内容**：JSON，记录主实例的 `pid`、`port`、`host`、`started_at`。
-- **互斥**：主实例持有文件锁直至退出；已有持有者时再启动会报错并尽力展示地址（`serialhub upgrade` 等命令不受影响）。文件本身不删除。
+- **互斥**：主实例持有文件锁直至退出；已有持有者时再启动不报错，转 stdio 透明代理挂起（尽力展示地址；`serialhub upgrade` 等命令不受影响）。文件本身不删除。
 - **stdio 发现**：`serialhub --stdio` 读 lock 的 OS 锁状态及地址（非端口扫描）——有活主则透明代理到该实例，无主则自成主实例。
 - **异常退出**：内核自动释放锁；常驻文件中的旧信息由下一次取得锁的实例覆盖，不代表仍有主实例。
 
 ```bash
-# 已有实例运行时再启动：
+# 已有实例运行时再启动（自动转代理，Ctrl+C 退出）：
 $ serialhub
-[SerialHub] 启动失败：已有运行中的主实例 http://127.0.0.1:5050（pid 12345，启动于 ...）
+[SerialHub] 检测到主实例 http://127.0.0.1:5050（pid 12345），本进程以代理模式运行（Ctrl+C 退出）
+[SerialHub] 主实例 http://127.0.0.1:5050 就绪，以透明代理运行
 
 # stdio 模式自动代理（MCP 客户端无感知）：
 $ serialhub --stdio
-[SerialHub] stdio 模式：主实例 http://127.0.0.1:5050 就绪，以透明代理运行
+[SerialHub] 主实例 http://127.0.0.1:5050 就绪，以透明代理运行
 ```
 
 > Windows 与 WSL 是两套独立的用户目录/exe 目录，各自持有一份 lock——两侧各跑一个实例互不冲突，串口各自独立（跨侧访问请用局域网地址）。

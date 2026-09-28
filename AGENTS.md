@@ -48,7 +48,7 @@ serialhub -p COM7 -D         # 直接启动
 **启动流程** (`cmd/serialhub/serve.go`)：
 1. `loadConfig()` — CLI 参数 > 配置文件 > 默认值
 2. `--stdio` 走 stdio 模式：`instance.Read()` 读 lock 发现活主——有活主则 `RunStdioProxy` 透明代理，无主自成主实例（也持 lock）
-3. 主实例：`instance.Acquire()` 获取单实例 OS 文件锁（已被占用则报错退出）→ 创建 `SerialManager` → `DataBuffer` → Windows 托盘或前台模式，`startServices()` 建 `DataBridge` + `MCPServer`；退出时 `Release()` 关闭句柄释放锁
+3. 主实例：`instance.Acquire()` 获取单实例 OS 文件锁（已被占用则转 stdio 透明代理，与 `--stdio` 发现行为一致）→ 创建 `SerialManager` → `DataBuffer` → Windows 托盘或前台模式，`startServices()` 建 `DataBridge` + `MCPServer`；退出时 `Release()` 关闭句柄释放锁
 
 **DataBridge** (`pkg/bridge/`)：核心事件总线，启动两个 goroutine：
 - 串口 → Telnet/WebSocket + MCP（串口数据同时广播到所有客户端）

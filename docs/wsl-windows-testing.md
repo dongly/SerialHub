@@ -73,11 +73,11 @@ if($e){"PARSE ERRORS: $($e.Count)"}else{"ParseFile OK"}'
 按序验证，全部可在 WSL 内经 pwsh.exe 完成：
 
 1. 独立目录起实例 → `instance.lock` 生成于 exe 同目录，`Get-Content -Raw` 可读（内容 pid/port/host/started_at）。
-2. 同目录第二实例（不同端口）→ `exit=1` 被拒，提示已有实例地址。
-3. 两实例并发启动 → 恰一个持锁成为主，另一个退出。
+2. 同目录第二实例（不同端口）→ 检测到主实例后以代理模式运行（stdin/stdout 透明代理挂起），不再报错退出。
+3. 两实例并发启动 → 恰一个持锁成为主，另一个转代理模式。
 4. `Stop-Process -Force` 后残留 lock → 新进程接管并覆盖元数据。
 5. `tests/instance-check.ps1 -Port <p>` → rc=0；`-Port 0` / `-Port 70000` → rc=3。
-6. 被拒实例**不得**修改 `config.toml`（配置回写发生在成功取得单实例锁之后）——测试后核对 `HTTPPort` 未被 `-m` 参数污染。
+6. 代理模式实例**不得**修改 `config.toml`（配置回写发生在成功取得单实例锁之后）——测试后核对 `HTTPPort` 未被 `-m` 参数污染。
 
 ## 7. 清理
 

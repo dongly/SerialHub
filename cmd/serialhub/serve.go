@@ -64,16 +64,26 @@ func newSerialManagerFromConfig(cfg *config.Config) *serial.SerialManager {
 
 // runMaster 主实例：完整服务面（HTTP/MCP/xterm web/本侧串口）。
 func runMaster(cfg *config.Config) error {
-	// 单实例 lock：已有活主（含 tray/前台/另一终端误启动）时报错退出
-	if info, err := instance.Acquire(host, mcpPort); err != nil {
+	// 单实例 lock：已有活主（含 tray/前台/另一终端误启动）时不报错，
+	// 与 --stdio 的发现行为一致——本进程转 stdio 透明代理挂起。
+	info, err := instance.Acquire(host, mcpPort)
+	if err != nil {
 		if errors.Is(err, instance.ErrActive) {
-			return fmt.Errorf("本机已有运行中的主实例 %s（pid %d，启动于 %s）；同一配置作用域只允许一个主实例", info.URL(), info.PID, info.StartedAt)
+			logrus.Infof("[SerialHub] 检测到主实例 %s（pid %d），本进程以代理模式运行（Ctrl+C 退出）", info.URL(), info.PID)
+			if info.Port > 0 {
+				return proxyToMaster(info)
+			}
+			// 活主但元数据尚未写完：有界等待其可读
+			if live := instance.WaitForInfo(10 * time.Second); live != nil {
+				return proxyToMaster(*live)
+			}
+			return errMasterMetadataUnavailable
 		}
 		return fmt.Errorf("获取单实例锁失败：%w", err)
 	}
 	defer instance.Release()
 
-	// 成为主实例后才回写配置（含 CLI 参数合并结果）；被拒实例不落盘
+	// 成为主实例后才回写配置（含 CLI 参数合并结果）；重复启动的代理实例不落盘
 	persistConfig(cfg)
 
 	sm := newSerialManagerFromConfig(cfg)
@@ -397,7 +407,7 @@ func proxyToMaster(info instance.LockInfo) error {
 	if !instance.WaitReady(info, 15*time.Second) {
 		return fmt.Errorf("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", info.URL())
 	}
-	logrus.Infof("[SerialHub] stdio 模式：主实例 %s 就绪，以透明代理运行", info.URL())
+	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
 	return mcp.RunStdioProxy(context.Background(), info.URL())
 }
 

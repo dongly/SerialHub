@@ -13,7 +13,7 @@ SerialHub bridges a single MCU serial port to both humans and AI:
 - **Humans**: an xterm.js Web terminal in the browser for live viewing and input (opens automatically on startup; on WSL it opens the Windows host browser)
 - **AI**: a native MCP server (Streamable HTTP + stdio) exposing 7 tools — `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - Both channels share **the same serial connection and data buffer** — humans and AI see the same bytes
-- **Single-instance lock**: one master instance per user-config/install directory (OS file lock); stdio mode auto-discovers and proxies to a running instance
+- **Single-instance lock**: one master instance per user-config/install directory (OS file lock); a duplicate launch transparently proxies to the running instance instead of failing
 - A single Go binary (frontend embedded); supports Windows (system tray) / Linux / macOS; everything configurable via TOML or CLI flags, data logging on demand (`--log-data`)
 
 ## Architecture
@@ -144,7 +144,7 @@ Config file lookup order (without `-c`):
 - **Linux/macOS**: `./config.toml` (CWD) > `~/.config/serialhub/config.toml` (`XDG_CONFIG_HOME`); a legacy `config.toml` next to the binary is auto-migrated (moved) to the user config dir on first start if the user dir has none; if none exists anywhere, a new one is created in the user config dir.
 - **Windows**: `config.toml` next to the executable (same as previous versions).
 
-Persist timing: the merged config is written back **only after the single-instance lock is acquired** (i.e. becoming the master instance); rejected duplicate instances and stdio proxy mode never modify the config file (prevents `-m`-style flags from polluting the on-disk config).
+Persist timing: the merged config is written back **only after the single-instance lock is acquired** (i.e. becoming the master instance); a duplicate launch that proxies to the running master never modifies the config file (prevents `-m`-style flags from polluting the on-disk config).
 
 Default log directory: `~/.config/serialhub/logs/` on Linux/macOS (legacy `logs/` history is not migrated), `logs/` next to the executable on Windows; overridable via `logDir` or `SERIALHUB_LOG_DIR`.
 

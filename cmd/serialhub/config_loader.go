@@ -69,7 +69,7 @@ func loadConfig() *config.Config {
 }
 
 // persistConfig 把 CLI 参数合并后的最终配置回写磁盘。仅在成功取得
-// 单实例锁（成为主实例）后调用：被拒绝的重复实例与 stdio 代理模式
+// 单实例锁（成为主实例）后调用：重复启动的代理实例与 stdio 代理模式
 // 不落盘，避免把仅本次生效的参数（如 -m 指定的端口）写进 config.toml，
 // 造成磁盘配置与实际运行实例不一致。
 func persistConfig(cfg *config.Config) {

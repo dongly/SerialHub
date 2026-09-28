@@ -13,7 +13,7 @@ SerialHub 把 MCU 串口同时桥接给人和 AI：
 - **人**：浏览器里的 xterm.js Web 终端，实时查看与输入（启动后自动打开浏览器，WSL 下也能弹出 Windows 宿主浏览器）
 - **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
-- **单实例互斥**：每个用户配置/安装目录只允许一个主实例（OS 文件锁）；stdio 模式自动发现并代理到已运行实例
+- **单实例互斥**：每个用户配置/安装目录只允许一个主实例（OS 文件锁）；重复启动自动转 stdio 代理到已运行实例，不报错
 - 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS；所有参数均可通过 TOML 或命令行配置，数据流可按需记录（`--log-data`）
 
 ## 系统架构
@@ -141,7 +141,7 @@ cURL/Python 调用示例、典型工作流（命令-响应/持续监听）、错
 - **Linux/macOS**：`./config.toml`（当前目录）> `~/.config/serialhub/config.toml`（`XDG_CONFIG_HOME`）；可执行文件目录下存在旧 `config.toml` 且用户配置目录无配置时，首次启动自动迁移（移动）到用户配置目录；三处皆无则新建写用户配置目录。
 - **Windows**：可执行文件目录下的 `config.toml`（与历史版本一致）。
 
-配置回写时机：合并 CLI 参数后的配置**在成功取得单实例锁（成为主实例）后才写回** `config.toml`；被拒绝的重复实例与 stdio 代理模式不修改配置文件（避免 `-m` 等本次参数污染磁盘配置）。
+配置回写时机：合并 CLI 参数后的配置**在成功取得单实例锁（成为主实例）后才写回** `config.toml`；重复启动的代理模式实例不修改配置文件（避免 `-m` 等本次参数污染磁盘配置）。
 
 日志目录默认值：Linux/macOS 为 `~/.config/serialhub/logs/`（旧 `logs/` 历史日志不迁移），Windows 仍为可执行文件目录下 `logs/`；均可用 `logDir` 或 `SERIALHUB_LOG_DIR` 覆盖。
 
