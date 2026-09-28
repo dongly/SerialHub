@@ -125,7 +125,7 @@ internal/testutil/     Mock 串口（MockSerialPort）、Mock 网络连接（Moc
 tests/integration/     Python 集成测试（pytest，需运行中的服务）
 tests/e2e/             Python E2E 测试（Playwright，需真实串口）
 docs/                  领域术语表（CONTEXT.md）
-tools/                 开发辅助脚本（genicons.py 图标生成）
+tools/                 开发辅助脚本（genicons.py 图标生成、federation-check.sh/.ps1 联邦状态巡检）
 ```
 
 ## MCP 工具
