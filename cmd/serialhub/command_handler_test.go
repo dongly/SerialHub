@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/serial"
 )
 
@@ -43,12 +44,18 @@ func TestCommandHandler_Shutdown(t *testing.T) {
 		}
 		var msg struct {
 			Type string `json:"type"`
+			Data struct {
+				Code string `json:"code"`
+			} `json:"data"`
 		}
 		if err := json.Unmarshal(resp, &msg); err != nil {
 			t.Fatalf("解析响应失败: %v", err)
 		}
 		if msg.Type != "error" {
 			t.Fatalf("响应类型 = %q, 期望 error", msg.Type)
+		}
+		if msg.Data.Code != i18n.WebEvent.ShutdownUnsupported {
+			t.Fatalf("错误码 = %q, 期望 %q", msg.Data.Code, i18n.WebEvent.ShutdownUnsupported)
 		}
 	})
 
@@ -81,6 +88,28 @@ func drainWebShutdown() {
 		case <-webShutdown:
 		default:
 			return
+		}
+	}
+}
+
+func TestWebSerialEvent_只传事件标识(t *testing.T) {
+	for _, tc := range []struct{ code, port string }{
+		{i18n.WebEvent.Connected, "COM19"},
+		{i18n.WebEvent.Disconnected, ""},
+		{i18n.WebEvent.SerialError, ""},
+	} {
+		var msg struct {
+			Type string `json:"type"`
+			Data struct {
+				Code string `json:"code"`
+				Port string `json:"port"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(webSerialEvent(tc.code, tc.port)), &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.Type != "serial_event" || msg.Data.Code != tc.code || msg.Data.Port != tc.port {
+			t.Fatalf("事件内容不符：%+v", msg)
 		}
 	}
 }

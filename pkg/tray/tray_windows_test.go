@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/internal/testutil"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/serial"
@@ -517,14 +518,14 @@ func TestComputeSerialMenuStatus_切换串口刷新标题(t *testing.T) {
 
 	st := trayMgr.computeSerialMenuStatus()
 	testutil.AssertEqual(t, TrayIdle, st.State)
-	testutil.AssertEqual(t, "连接 COM1", st.Title)
+	testutil.AssertEqual(t, fmt.Sprintf(i18n.Tray.TitleConnect, "COM1"), st.Title)
 
 	// 模拟 setPort 未连接分支：更新配置后仅调用 UpdateSerialStatus。
 	// 去重命中原状态，但标题计算必须已切换到新端口。
 	trayMgr.config.Serial.Port = "COM2"
 	st2 := trayMgr.computeSerialMenuStatus()
 	testutil.AssertEqual(t, TrayIdle, st2.State) // 状态未变 → 去重会命中
-	testutil.AssertEqual(t, "连接 COM2", st2.Title)
+	testutil.AssertEqual(t, fmt.Sprintf(i18n.Tray.TitleConnect, "COM2"), st2.Title)
 }
 
 // TestRealIconFiles 测试实际图标文件（非 embed）

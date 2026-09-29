@@ -153,7 +153,7 @@ On Windows the system tray starts by default (icon color reflects serial state; 
 
 ### Web Terminal
 
-`http://localhost:5050/terminal`: live serial output, keyboard input forwarded to the serial port (Ctrl+C etc. supported), auto-reconnect; the "Exit" button remotely shuts down SerialHub (graceful shutdown; beware when exposed to LAN via `--host 0.0.0.0`, anyone who can open the page can stop the service).
+`http://localhost:5050/terminal`: live serial output, keyboard input forwarded to the serial port (Ctrl+C etc. supported), auto-reconnect. The UI follows the browser language; click “中文 / English” to switch and remember your choice. The "Exit" button remotely shuts down SerialHub (graceful shutdown; beware when exposed to LAN via `--host 0.0.0.0`, anyone who can open the page can stop the service).
 
 ### MCP Tools
 

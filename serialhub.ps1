@@ -1,39 +1,40 @@
-﻿# SerialHub 启动脚本
-# 用法: .\serialhub.ps1 [参数]
-# 示例: .\serialhub.ps1 -p COM9 -D
+﻿# SerialHub launcher script
+# Usage: .\serialhub.ps1 [args]
+# Example: .\serialhub.ps1 -p COM9 -D
 
 param(
-    [string]$p = "",      # 串口名
-    [int]$b = 115200,     # 波特率
-    [string]$c = "",      # 配置文件路径
-    [switch]$D,           # 调试模式
-    [int]$m = 5050,       # MCP 端口
-    [string]$listen = "127.0.0.1"  # 监听地址
+    [string]$p = "",      # serial port name
+    [int]$b = 115200,     # baud rate
+    [string]$c = "",      # config file path
+    [switch]$D,           # debug mode
+    [int]$m = 5050,       # MCP port
+    [string]$listen = "127.0.0.1"  # listen address
 )
 
-# exe 布局兼容：release 包在脚本同目录，仓库开发构建在 bin\ 下
+# exe layout compatibility: release package ships alongside this script,
+# repo dev build lives in bin\
 $exePath = Join-Path $PSScriptRoot "serialhub.exe"
 if (-not (Test-Path $exePath)) {
     $exePath = Join-Path $PSScriptRoot "bin\serialhub.exe"
 }
 
-# 先杀掉已运行的 serialhub 进程
+# Kill any running serialhub process first
 $existingProcs = Get-Process -Name "serialhub" -ErrorAction SilentlyContinue
 if ($existingProcs) {
-    Write-Host "正在终止已运行的 serialhub 进程..."
-    $existingProcs | ForEach-Object { 
+    Write-Host "Terminating running serialhub process..."
+    $existingProcs | ForEach-Object {
         Stop-Process -Id $_.Id -Force
-        Write-Host "  已终止 PID: $($_.Id)"
+        Write-Host "  Terminated PID: $($_.Id)"
     }
 }
 
 if (-not (Test-Path $exePath)) {
-    Write-Error "找不到 SerialHub 可执行文件: $exePath"
-    Write-Host "请将 serialhub.exe 放在脚本同目录（或 bin\ 子目录），或运行: go build -o bin\serialhub.exe ./cmd/serialhub"
+    Write-Error "SerialHub executable not found: $exePath"
+    Write-Host "Place serialhub.exe next to this script (or in the bin\ subdirectory), or run: go build -o bin\serialhub.exe ./cmd/serialhub"
     exit 1
 }
 
-# 构建参数数组
+# Build the argument list
 $args = @()
 if ($p) { $args += "-p"; $args += $p }
 if ($b -ne 115200) { $args += "-b"; $args += $b }
@@ -42,11 +43,10 @@ if ($D) { $args += "-D" }
 if ($m -ne 5050) { $args += "-m"; $args += $m }
 if ($listen -ne "127.0.0.1") { $args += "--host"; $args += $listen }
 
-# 使用 Start-Process 启动，-WindowStyle Minimized 最小化窗口
-# 这样可以看到日志输出，但不会阻塞 PowerShell
+# Start with a minimized window: logs stay available without blocking PowerShell
 $args += "--minimized"
 $proc = Start-Process -FilePath $exePath -ArgumentList $args -WindowStyle Minimized -PassThru
 
-Write-Host "SerialHub 已启动 (PID: $($proc.Id))"
-Write-Host "日志文件: $(Join-Path (Split-Path $exePath -Parent) "logs\serialhub.log")"
-Write-Host "使用 Stop-Process -Id $($proc.Id) 停止服务"
+Write-Host "SerialHub started (PID: $($proc.Id))"
+Write-Host "Log file: $(Join-Path (Split-Path $exePath -Parent) "logs\serialhub.log")"
+Write-Host "Stop it with: Stop-Process -Id $($proc.Id)"

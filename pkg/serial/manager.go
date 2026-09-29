@@ -16,6 +16,7 @@ import (
 	serial "go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/sirupsen/logrus"
 )
@@ -98,7 +99,7 @@ type SerialManager struct {
 // NewSerialManager creates a new serial manager
 func NewSerialManager(cfg *Config) (*SerialManager, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("配置不能为空")
+		return nil, errors.New(i18n.Serial.ConfigNil)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,7 +144,7 @@ func listRealDetailedPorts() []usbPortDetails {
 }
 
 // errReconnectCancelled 重连任务因用户干预（连接/断开/改配置）或管理器关闭而失效。
-var errReconnectCancelled = errors.New("重连已取消")
+var errReconnectCancelled = errors.New(i18n.Serial.ReconnectCancelled)
 
 // Connect connects to the serial port
 func (sm *SerialManager) Connect() error {
@@ -155,11 +156,11 @@ func (sm *SerialManager) Connect() error {
 // connectLocked 连接主体（调用方需持有 sm.mu 写锁）。
 func (sm *SerialManager) connectLocked() error {
 	if sm.closed {
-		return fmt.Errorf("串口管理器已关闭，无法连接")
+		return errors.New(i18n.Serial.ManagerClosed)
 	}
 
 	if sm.port != nil {
-		return fmt.Errorf("串口已连接: %s", sm.config.Port)
+		return fmt.Errorf(i18n.Serial.AlreadyConnected, sm.config.Port)
 	}
 
 	logrus.Debugf("[SerialHub] 尝试连接串口: %s", sm.config.String())
@@ -167,7 +168,7 @@ func (sm *SerialManager) connectLocked() error {
 	mode, err := sm.config.ToMode()
 	if err != nil {
 		logrus.Errorf("[SerialHub] 串口配置转换失败: %v", err)
-		return fmt.Errorf("配置转换失败: %w", err)
+		return fmt.Errorf(i18n.Serial.ConvertConfigFailed, err)
 	}
 
 	logrus.Debugf("[SerialHub] 串口模式: BaudRate=%d, DataBits=%d, Parity=%v, StopBits=%v",
@@ -176,7 +177,7 @@ func (sm *SerialManager) connectLocked() error {
 	port, err := sm.openPort(sm.config.Port, mode)
 	if err != nil {
 		logrus.Errorf("[SerialHub] 打开串口失败 %s: %v", sm.config.Port, err)
-		return fmt.Errorf("打开串口失败: %w", err)
+		return fmt.Errorf(i18n.Serial.OpenFailed, err)
 	}
 
 	sm.port = port
@@ -240,7 +241,7 @@ func (sm *SerialManager) Write(data []byte) (int, error) {
 	port := sm.port
 	if port == nil {
 		sm.mu.RUnlock()
-		return 0, fmt.Errorf("串口未连接")
+		return 0, errors.New(i18n.Serial.NotConnected)
 	}
 	n, err := port.Write(data)
 	if err != nil {
@@ -248,7 +249,7 @@ func (sm *SerialManager) Write(data []byte) (int, error) {
 		// 此处持读锁完成非阻塞发送（select+default 不会阻塞）；若在锁外
 		// 发送，存在 send on closed channel 的 panic 窗口。
 		select {
-		case sm.errChan <- fmt.Errorf("写入错误: %w", err):
+		case sm.errChan <- fmt.Errorf(i18n.Serial.WriteError, err):
 		default:
 			// 通道满时静默丢弃：下方 Errorf 仍会记录本次错误
 		}
@@ -260,7 +261,7 @@ func (sm *SerialManager) Write(data []byte) (int, error) {
 
 	if err != nil {
 		logrus.Errorf("[SerialHub] 串口写入失败: %v", err)
-		return n, fmt.Errorf("写入失败: %w", err)
+		return n, fmt.Errorf(i18n.Serial.WriteFailed, err)
 	}
 	return n, nil
 }
@@ -276,7 +277,7 @@ func (sm *SerialManager) WriteLine(line string) error {
 func (sm *SerialManager) ListPorts() ([]string, error) {
 	ports, err := sm.listPortsFn()
 	if err != nil {
-		return nil, fmt.Errorf("获取串口列表失败: %w", err)
+		return nil, fmt.Errorf(i18n.Serial.ListFailed, err)
 	}
 	// WSL 环境下 hypervisor 会注入打不开的假串口（ttyS0~ttyS4 等），
 	// 枚举时只保留真实 USB/ACM 串口设备，避免假端口混入连接目标。
@@ -346,14 +347,14 @@ func (sm *SerialManager) UpdateConfig(cfg *Config) error {
 // 重连任务内部改名同步走此路径，不递增代次（那是重连自身的合法操作）。
 func (sm *SerialManager) updateConfigLocked(cfg *Config) error {
 	if sm.port != nil {
-		return fmt.Errorf("串口已连接，无法更新配置")
+		return errors.New(i18n.Serial.UpdateWhileConnected)
 	}
 
 	if cfg == nil {
-		return fmt.Errorf("配置不能为空")
+		return errors.New(i18n.Serial.ConfigNil)
 	}
 	if cfg.Port == "" {
-		return fmt.Errorf("端口不能为空")
+		return errors.New(i18n.Serial.PortEmpty)
 	}
 
 	sm.config = cfg.Clone()
@@ -602,17 +603,17 @@ func (sm *SerialManager) handleUnexpectedDisconnect(port Port, cause error) {
 		}
 	}()
 
-	reason := "连接已关闭 (EOF)"
+	reason := i18n.Serial.EventConnClosedEOF
 	evType := EventDisconnected
 	if cause != io.EOF {
-		reason = fmt.Sprintf("读取错误: %v", cause)
+		reason = fmt.Sprintf(i18n.Serial.EventReadError, cause)
 		evType = EventError
 	}
 	logrus.Warnf("[SerialHub] 串口 %s 意外断开: %s", portName, reason)
 
 	// 非阻塞投递诊断错误：errChan 无持续消费方时不能卡住断开处理
 	//（否则事件广播与自动重连都被背压阻塞）
-	errMsg := fmt.Errorf("串口 %s %s", portName, reason)
+	errMsg := fmt.Errorf(i18n.Serial.EventPortError, portName, reason)
 	select {
 	case sm.errChan <- errMsg:
 	default:
@@ -622,7 +623,7 @@ func (sm *SerialManager) handleUnexpectedDisconnect(port Port, cause error) {
 	sm.emitEvent(Event{
 		Type:    evType,
 		Port:    portName,
-		Message: reason + "，将自动重连",
+		Message: reason + i18n.Serial.EventWillReconnect,
 	})
 
 	if sm.ctx.Err() == nil {
@@ -702,7 +703,7 @@ func (sm *SerialManager) reconnectLoop(portName, vid, pid string, gen uint64) {
 	sm.emitEvent(Event{
 		Type:    EventError,
 		Port:    portName,
-		Message: "自动重连失败：端口未恢复，请手动重连",
+		Message: i18n.Serial.EventReconnectFailed,
 	})
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/serial"
 )
 
@@ -25,7 +26,7 @@ func createCommandHandler(sm *serial.SerialManager, requestShutdown func()) func
 		case "get_ports":
 			ports, err := sm.ListPorts()
 			if err != nil {
-				return jsonResponse("error", err.Error())
+				return webError(i18n.WebEvent.ListPortsFailed)
 			}
 			return jsonResponse("ports", ports)
 
@@ -44,7 +45,7 @@ func createCommandHandler(sm *serial.SerialManager, requestShutdown func()) func
 
 		case "disconnect":
 			if err := sm.Disconnect(); err != nil {
-				return jsonResponse("error", err.Error())
+				return webError(i18n.WebEvent.DisconnectFailed)
 			}
 			return jsonResponse("disconnected", nil)
 
@@ -54,7 +55,7 @@ func createCommandHandler(sm *serial.SerialManager, requestShutdown func()) func
 			// 停机由 requestShutdown 非阻塞触发，主循环收到 webShutdown
 			// 后统一走 gracefulShutdown（与 Ctrl-C 同路径：bridge→HTTP→串口、释放锁）。
 			if requestShutdown == nil {
-				return jsonResponse("error", "本实例不支持远程退出")
+				return webError(i18n.WebEvent.ShutdownUnsupported)
 			}
 			requestShutdown()
 			return jsonResponse("shutting_down", nil)
@@ -68,12 +69,12 @@ func createCommandHandler(sm *serial.SerialManager, requestShutdown func()) func
 func handleConnectCommand(sm *serial.SerialManager, msg map[string]interface{}) []byte {
 	data, ok := msg["data"].(map[string]interface{})
 	if !ok {
-		return jsonResponse("error", "缺少连接参数")
+		return webError(i18n.WebEvent.MissingConnection)
 	}
 
 	port, _ := data["port"].(string)
 	if port == "" {
-		return jsonResponse("error", "缺少端口参数")
+		return webError(i18n.WebEvent.MissingPort)
 	}
 
 	baudRate := 115200
@@ -102,10 +103,12 @@ func handleConnectCommand(sm *serial.SerialManager, msg map[string]interface{}) 
 	cfg.DataBits = dataBits
 	cfg.Parity = parity
 	cfg.StopBits = float32(stopBits)
-	sm.UpdateConfig(cfg)
+	if err := sm.UpdateConfig(cfg); err != nil {
+		return webError(i18n.WebEvent.UpdateSettingsFailed)
+	}
 
 	if err := sm.Connect(); err != nil {
-		return jsonResponse("error", err.Error())
+		return webError(i18n.WebEvent.ConnectFailed)
 	}
 	return jsonResponse("connected", sm.GetConfig().String())
 }
@@ -117,4 +120,8 @@ func jsonResponse(msgType string, data interface{}) []byte {
 	}
 	jsonData, _ := json.Marshal(response)
 	return jsonData
+}
+
+func webError(code string) []byte {
+	return jsonResponse("error", map[string]string{"code": code})
 }

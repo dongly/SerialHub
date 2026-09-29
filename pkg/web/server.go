@@ -3,7 +3,7 @@ package web
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/url"
 	"sync"
@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+
+	"github.com/dongly/serialhub/internal/i18n"
 )
 
 // WebSocketServer 管理 WebSocket 服务器和客户端连接。
@@ -32,7 +34,7 @@ type WebSocketServer struct {
 // NewWebSocketServer 创建新的 WebSocket 服务器。
 func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (*WebSocketServer, error) {
 	if port < 0 || port > 65535 {
-		return nil, fmt.Errorf("端口号必须在 0-65535 范围内")
+		return nil, errors.New(i18n.Web.InvalidPort)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

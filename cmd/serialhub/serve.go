@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/internal/instance"
 	"github.com/dongly/serialhub/internal/logagg"
 	"github.com/dongly/serialhub/pkg/bridge"
@@ -28,7 +30,7 @@ import (
 
 // errMasterMetadataUnavailable：检测到活主，但 lock 元数据尚未可读
 // （主实例刚持锁、写元数据完成之前的短暂窗口）。
-var errMasterMetadataUnavailable = errors.New("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务")
+var errMasterMetadataUnavailable = errors.New(i18n.ServeErrors.MetadataUnavailable)
 
 // webShutdown 由 Web 终端「退出」按钮触发（shutdown 命令），
 // 语义等价于收到 SIGINT：各主循环感知后统一走 gracefulShutdown。
@@ -88,10 +90,10 @@ func resolveListenPort(host string, startPort int) (int, error) {
 			firstErr = err
 		}
 		if !isAddrInUse(err) {
-			return 0, fmt.Errorf("监听 %s 失败: %w", net.JoinHostPort(host, strconv.Itoa(port)), err)
+			return 0, fmt.Errorf(i18n.ServeErrors.ListenFailed, net.JoinHostPort(host, strconv.Itoa(port)), err)
 		}
 	}
-	return 0, fmt.Errorf("端口 %d~%d 均被占用: %w", startPort, startPort+maxPortFallback, firstErr)
+	return 0, fmt.Errorf(i18n.ServeErrors.PortsOccupied, startPort, startPort+maxPortFallback, firstErr)
 }
 
 // newSerialManagerFromConfig 构造串口管理器（初始化失败回退默认配置）。
@@ -122,7 +124,7 @@ func runMaster(cfg *config.Config) error {
 			}
 			return errMasterMetadataUnavailable
 		}
-		return fmt.Errorf("获取单实例锁失败：%w", err)
+		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
 	}
 	defer instance.Release()
 
@@ -131,7 +133,7 @@ func runMaster(cfg *config.Config) error {
 	// 逐个 +1 试探（最多 10 个），保证双侧都能独立成主实例。
 	actualPort, err := resolveListenPort(host, mcpPort)
 	if err != nil {
-		return fmt.Errorf("选择监听端口失败: %w", err)
+		return fmt.Errorf(i18n.ServeErrors.SelectPortFailed, err)
 	}
 	if actualPort != mcpPort {
 		logrus.Infof("[SerialHub] 端口 %d 已被占用（可能为对侧系统实例的 localhost 转发或其他程序），自动改用 %d", mcpPort, actualPort)
@@ -211,7 +213,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		// --no-browser（脚本静默启动）不自动打开浏览器
 		svcs = startServices(sm, wsSrv, buf, !noBrowser)
 		if svcs == nil {
-			startupErr = fmt.Errorf("主服务启动失败")
+			startupErr = errors.New(i18n.ServeErrors.MasterStartFailed)
 			trayMgr.Quit() // MCP/HTTP 启动失败：退出托盘
 			return
 		}
@@ -345,7 +347,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 		return ""
 	})
 	if err != nil {
-		return fmt.Errorf("创建 WebSocket 服务失败: %w", err)
+		return fmt.Errorf(i18n.ServeErrors.WebSocketFailed, err)
 	}
 
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
@@ -354,7 +356,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	svcs := startServices(sm, wsSrv, buf, autoOpenBrowser)
 	if svcs == nil {
 		// 诚实失败：HTTP 监听失败（如端口被占）时明确退出，不做无服务的僵尸进程
-		return fmt.Errorf("主服务启动失败（%s 监听失败或初始化异常）", addr)
+		return fmt.Errorf(i18n.ServeErrors.HTTPStartFailed, addr)
 	}
 
 	logrus.Infof("[SerialHub] MCP HTTP 服务: http://%s/mcp", addr)
@@ -423,7 +425,7 @@ func runStdio(cfg *config.Config) error {
 			}
 			return errMasterMetadataUnavailable
 		}
-		return fmt.Errorf("获取单实例锁失败：%w", err)
+		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
 	}
 	defer instance.Release()
 
@@ -454,14 +456,14 @@ func runStdio(cfg *config.Config) error {
 		return ""
 	})
 	if err != nil {
-		return fmt.Errorf("创建 WebSocket 服务失败: %w", err)
+		return fmt.Errorf(i18n.ServeErrors.WebSocketFailed, err)
 	}
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
 
 	svcs := startServices(sm, wsSrv, buf, false)
 	if svcs == nil {
-		return fmt.Errorf("主服务启动失败")
+		return errors.New(i18n.ServeErrors.MasterStartFailed)
 	}
 
 	if err := svcs.mcp.RunStdioTransport(ctx); err != nil {
@@ -476,7 +478,7 @@ func runStdio(cfg *config.Config) error {
 // 主实例先持锁写元数据、后启动 HTTP；此处的等待不改变锁所有权。
 func proxyToMaster(info instance.LockInfo) error {
 	if !instance.WaitReady(info, 15*time.Second) {
-		return fmt.Errorf("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", info.URL())
+		return fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL())
 	}
 	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
 	return mcp.RunStdioProxy(context.Background(), info.URL())
@@ -497,6 +499,15 @@ func createSaveConfigFunc(cfg *config.Config) func(*serial.Config) {
 	}
 }
 
+// webSerialEvent 为每个 Web 页面广播语言无关的事件，由页面按自身语言渲染。
+func webSerialEvent(code, port string) string {
+	b, _ := json.Marshal(map[string]interface{}{
+		"type": "serial_event",
+		"data": map[string]string{"code": code, "port": port},
+	})
+	return string(b)
+}
+
 func createEventHandler(sm *serial.SerialManager, trayMgr *tray.TrayManager, wsSrv *web.WebSocketServer) func(serial.Event) {
 	return func(event serial.Event) {
 		trayMgr.UpdateSerialStatus()
@@ -505,11 +516,12 @@ func createEventHandler(sm *serial.SerialManager, trayMgr *tray.TrayManager, wsS
 			var msg string
 			switch event.Type {
 			case serial.EventConnected:
-				msg = fmt.Sprintf("\r\n[SerialHub] 串口已连接: %s\r\n", event.Port)
+				msg = webSerialEvent(i18n.WebEvent.Connected, event.Port)
 			case serial.EventDisconnected:
-				msg = fmt.Sprintf("\r\n[SerialHub] 串口已断开\r\n")
+				msg = webSerialEvent(i18n.WebEvent.Disconnected, "")
 			case serial.EventError:
-				msg = fmt.Sprintf("\r\n[SerialHub] 串口错误: %s\r\n", event.Message)
+				// 驱动错误可能含本地化文本；事件只携带标识，详细错误在服务日志。
+				msg = webSerialEvent(i18n.WebEvent.SerialError, "")
 			}
 			if msg != "" {
 				wsSrv.Broadcast([]byte(msg))
@@ -523,11 +535,11 @@ func createSerialEventHandler(wsSrv *web.WebSocketServer) func(serial.Event) {
 		var msg string
 		switch event.Type {
 		case serial.EventConnected:
-			msg = fmt.Sprintf("\r\n[SerialHub] 串口已连接: %s\r\n", event.Port)
+			msg = webSerialEvent(i18n.WebEvent.Connected, event.Port)
 		case serial.EventDisconnected:
-			msg = fmt.Sprintf("\r\n[SerialHub] 串口已断开\r\n")
+			msg = webSerialEvent(i18n.WebEvent.Disconnected, "")
 		case serial.EventError:
-			msg = fmt.Sprintf("\r\n[SerialHub] 串口错误: %s\r\n", event.Message)
+			msg = webSerialEvent(i18n.WebEvent.SerialError, "")
 		}
 		if msg != "" {
 			wsSrv.Broadcast([]byte(msg))

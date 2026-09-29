@@ -13,6 +13,8 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/sirupsen/logrus"
 
+	"github.com/dongly/serialhub/internal/i18n"
+
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/serial"
 )
@@ -136,37 +138,37 @@ func (t *TrayManager) onReady() {
 
 func (t *TrayManager) createMenu() {
 	// 1. 串口连接/断开
-	t.mSerial = systray.AddMenuItem(t.getSerialMenuTitle(), "串口连接")
+	t.mSerial = systray.AddMenuItem(t.getSerialMenuTitle(), i18n.Tray.MenuSerialTip)
 
 	// 2. 选择串口子菜单
-	t.mSelectPort = systray.AddMenuItem("选择串口 ▶", "选择串口")
-	t.mRefresh = t.mSelectPort.AddSubMenuItem("刷新列表", "刷新串口列表")
-	t.mSelectPort.AddSubMenuItem("──────────", "分隔线").Disable()
+	t.mSelectPort = systray.AddMenuItem(i18n.Tray.MenuSelectPort, i18n.Tray.MenuSelectPortTip)
+	t.mRefresh = t.mSelectPort.AddSubMenuItem(i18n.Tray.MenuRefresh, i18n.Tray.MenuRefreshTip)
+	t.mSelectPort.AddSubMenuItem("──────────", i18n.Tray.SeparatorTip).Disable()
 
 	// 3. 串口设置子菜单（连接时禁用）
-	t.mSerialConfig = systray.AddMenuItem("串口设置 ▶", "串口参数配置")
+	t.mSerialConfig = systray.AddMenuItem(i18n.Tray.MenuSerialConfig, i18n.Tray.MenuSerialConfigTip)
 
-	t.mBaudRate = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("波特率: %d ▶", t.config.Serial.BaudRate), "选择波特率")
+	t.mBaudRate = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.BaudRateMenu, t.config.Serial.BaudRate), i18n.Tray.BaudRateTip)
 	for _, rate := range baudRates {
 		label := strconv.Itoa(rate)
 		if rate == t.config.Serial.BaudRate {
 			label = "✓ " + label
 		}
-		item := t.mBaudRate.AddSubMenuItem(label, fmt.Sprintf("波特率 %d", rate))
+		item := t.mBaudRate.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.BaudRateItem, rate))
 		t.mBaudRateItems[rate] = item
 	}
 
-	t.mDataBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("数据位: %d ▶", t.config.Serial.DataBits), "选择数据位")
+	t.mDataBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.DataBitsMenu, t.config.Serial.DataBits), i18n.Tray.DataBitsTip)
 	for _, bits := range dataBitsList {
 		label := strconv.Itoa(bits)
 		if bits == t.config.Serial.DataBits {
 			label = "✓ " + label
 		}
-		item := t.mDataBits.AddSubMenuItem(label, fmt.Sprintf("数据位 %d", bits))
+		item := t.mDataBits.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.DataBitsItem, bits))
 		t.mDataBitsItems[bits] = item
 	}
 
-	t.mStopBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("停止位: %.0f ▶", float64(t.config.Serial.StopBits)), "选择停止位")
+	t.mStopBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.StopBitsMenu, float64(t.config.Serial.StopBits)), i18n.Tray.StopBitsTip)
 	for _, bits := range stopBitsList {
 		label := fmt.Sprintf("%.0f", bits)
 		if bits == 1.5 {
@@ -175,32 +177,32 @@ func (t *TrayManager) createMenu() {
 		if bits == t.config.Serial.StopBits {
 			label = "✓ " + label
 		}
-		item := t.mStopBits.AddSubMenuItem(label, fmt.Sprintf("停止位 %s", label))
+		item := t.mStopBits.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.StopBitsItem, label))
 		t.mStopBitsItems[bits] = item
 	}
 
-	t.mParity = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf("校验位: %s ▶", t.config.Serial.Parity), "选择校验位")
+	t.mParity = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.ParityMenu, t.config.Serial.Parity), i18n.Tray.ParityTip)
 	for _, p := range parityList {
 		label := p
 		if strings.EqualFold(p, t.config.Serial.Parity) {
 			label = "✓ " + label
 		}
-		item := t.mParity.AddSubMenuItem(label, fmt.Sprintf("校验位 %s", p))
+		item := t.mParity.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.ParityItem, p))
 		t.mParityItems[p] = item
 	}
 
 	// 4. 当前配置显示
-	t.mCurrentConfig = systray.AddMenuItem(t.getConfigSummary(), "当前配置")
+	t.mCurrentConfig = systray.AddMenuItem(t.getConfigSummary(), i18n.Tray.CurrentConfigTip)
 	t.mCurrentConfig.Disable()
 
 	systray.AddSeparator()
 
 	// 5. 网络状态
-	t.mNetworkStatus = systray.AddMenuItem(t.getNetworkStatus(), "网络状态")
+	t.mNetworkStatus = systray.AddMenuItem(t.getNetworkStatus(), i18n.Tray.NetworkStatusTip)
 	t.mNetworkStatus.Disable()
 
 	// 6. 打开终端 (xterm.js)
-	t.mOpenTerminal = systray.AddMenuItem("打开终端 🌐", "在浏览器中打开 Web 终端")
+	t.mOpenTerminal = systray.AddMenuItem(i18n.Tray.MenuOpenTerminal, i18n.Tray.MenuOpenTerminalTip)
 	go func() {
 		for range t.mOpenTerminal.ClickedCh {
 			t.openTerminal()
@@ -211,18 +213,18 @@ func (t *TrayManager) createMenu() {
 
 	// 7. 显示/隐藏窗口（仅当 showConsoleMenu=true 时显示）
 	if t.showConsoleMenu {
-		t.mShowLog = systray.AddMenuItem("显示窗口", "显示控制台窗口")
+		t.mShowLog = systray.AddMenuItem(i18n.Tray.MenuShowWindow, i18n.Tray.MenuShowWindowTip)
 		systray.AddSeparator()
 	}
 
 	// 7. 版本
-	mVersion := systray.AddMenuItem(fmt.Sprintf("版本 %s", t.version), "版本")
+	mVersion := systray.AddMenuItem(fmt.Sprintf(i18n.Tray.MenuVersion, t.version), i18n.Tray.MenuVersionTip)
 	mVersion.Disable()
 
 	systray.AddSeparator()
 
 	// 8. 退出
-	mQuit := systray.AddMenuItem("❌ 退出", "退出 SerialHub")
+	mQuit := systray.AddMenuItem(i18n.Tray.MenuQuit, i18n.Tray.MenuQuitTip)
 
 	go func() {
 		<-mQuit.ClickedCh
@@ -310,7 +312,7 @@ func (t *TrayManager) refreshPortList() {
 		if port == t.config.Serial.Port {
 			label = "✓ " + port
 		}
-		item := t.mSelectPort.AddSubMenuItem(label, fmt.Sprintf("选择串口 %s", port))
+		item := t.mSelectPort.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.SelectPortItemTip, port))
 		t.mPortItems[port] = item
 
 		go func(p string, i *systray.MenuItem) {
@@ -373,7 +375,7 @@ func (t *TrayManager) setBaudRate(rate int) {
 
 	t.config.Serial.BaudRate = rate
 	t.syncSerialConfig()
-	t.mBaudRate.SetTitle(fmt.Sprintf("波特率: %d ▶", rate))
+	t.mBaudRate.SetTitle(fmt.Sprintf(i18n.Tray.BaudRateMenu, rate))
 	t.updateConfigDisplay()
 	t.notifyConfigChangedAndReconnect()
 
@@ -402,7 +404,7 @@ func (t *TrayManager) setDataBits(bits int) {
 
 	t.config.Serial.DataBits = bits
 	t.syncSerialConfig()
-	t.mDataBits.SetTitle(fmt.Sprintf("数据位: %d ▶", bits))
+	t.mDataBits.SetTitle(fmt.Sprintf(i18n.Tray.DataBitsMenu, bits))
 	t.updateConfigDisplay()
 	t.notifyConfigChangedAndReconnect()
 
@@ -439,7 +441,7 @@ func (t *TrayManager) setStopBits(bits float64) {
 	if bits == 1.5 {
 		label = "1.5"
 	}
-	t.mStopBits.SetTitle(fmt.Sprintf("停止位: %s ▶", label))
+	t.mStopBits.SetTitle(fmt.Sprintf(i18n.Tray.StopBitsMenu, label))
 	t.updateConfigDisplay()
 	t.notifyConfigChangedAndReconnect()
 
@@ -468,7 +470,7 @@ func (t *TrayManager) setParity(parity string) {
 
 	t.config.Serial.Parity = parity
 	t.syncSerialConfig()
-	t.mParity.SetTitle(fmt.Sprintf("校验位: %s ▶", parity))
+	t.mParity.SetTitle(fmt.Sprintf(i18n.Tray.ParityMenu, parity))
 	t.updateConfigDisplay()
 	t.notifyConfigChangedAndReconnect()
 
@@ -529,9 +531,9 @@ func (t *TrayManager) getConfigSummary() string {
 	}
 	port := t.config.Serial.Port
 	if port == "" {
-		port = "未选择"
+		port = i18n.Tray.PortNotSelected
 	}
-	return fmt.Sprintf("当前: %s %d %d%s%s",
+	return fmt.Sprintf(i18n.Tray.ConfigSummary,
 		port,
 		t.config.Serial.BaudRate,
 		t.config.Serial.DataBits,
@@ -545,9 +547,9 @@ func (t *TrayManager) getNetworkStatus() string {
 
 func (t *TrayManager) getSerialMenuTitle() string {
 	if t.serial.IsConnected() {
-		return fmt.Sprintf("已连接 %s @ %d", t.serial.CurrentPort(), t.config.Serial.BaudRate)
+		return fmt.Sprintf(i18n.Tray.TitleConnected, t.serial.CurrentPort(), t.config.Serial.BaudRate)
 	}
-	return fmt.Sprintf("连接 %s", t.config.Serial.Port)
+	return fmt.Sprintf(i18n.Tray.TitleConnect, t.config.Serial.Port)
 }
 
 func (t *TrayManager) onExit() {
@@ -588,12 +590,12 @@ func (t *TrayManager) computeSerialMenuStatus() serialMenuStatus {
 	st := serialMenuStatus{
 		State:     TrayIdle,
 		Connected: connected,
-		Tooltip:   "SerialHub - 未连接",
+		Tooltip:   i18n.Tray.TooltipIdle,
 		Title:     t.getSerialMenuTitle(),
 	}
 	if connected {
 		st.State = TrayConnected
-		st.Tooltip = fmt.Sprintf("SerialHub - 已连接 %s", t.serial.CurrentPort())
+		st.Tooltip = fmt.Sprintf(i18n.Tray.TooltipConnected, t.serial.CurrentPort())
 	}
 	return st
 }
@@ -660,12 +662,12 @@ func (t *TrayManager) toggleConsoleWindow() {
 	if t.consoleVisible {
 		HideConsole()
 		t.consoleVisible = false
-		t.mShowLog.SetTitle("显示窗口")
+		t.mShowLog.SetTitle(i18n.Tray.MenuShowWindow)
 		logrus.Debug("[SerialHub] 菜单已更新: 显示窗口")
 	} else {
 		ShowConsole()
 		t.consoleVisible = true
-		t.mShowLog.SetTitle("隐藏窗口")
+		t.mShowLog.SetTitle(i18n.Tray.MenuHideWindow)
 		logrus.Debug("[SerialHub] 菜单已更新: 隐藏窗口")
 	}
 }

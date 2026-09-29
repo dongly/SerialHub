@@ -1,0 +1,50 @@
+// SerialHub terminal UI messages. Server-to-terminal notifications remain English;
+// only the UI and client-generated feedback are localized here.
+window.serialHubTranslations = {
+    en: {
+        portLabel: 'Port:', refreshPlaceholder: '-- Refresh list --', selectPlaceholder: '-- Select port --',
+        baudLabel: 'Baud rate:', dataBitsLabel: 'Data bits:', parityLabel: 'Parity:', stopBitsLabel: 'Stop bits:',
+        connect: 'Connect', disconnect: 'Disconnect', refresh: 'Refresh', exit: 'Exit',
+        switchLanguage: 'Switch language', terminalTitle: 'SerialHub Terminal',
+        serialConnected: 'Serial port connected: ', serialDisconnected: 'Serial port disconnected',
+        listPortsFailed: 'Failed to list serial ports; see service logs',
+        disconnectFailed: 'Failed to disconnect serial port; see service logs',
+        shutdownUnsupported: 'Remote shutdown is not supported on this instance',
+        missingConnection: 'Missing connection parameters', missingPort: 'Missing port parameter',
+        updateSettingsFailed: 'Failed to update serial settings; see service logs',
+        connectFailed: 'Failed to connect serial port; see service logs',
+        serialError: 'Serial port error; see service logs for details',
+        connectedPort: 'Serial port connected: ', disconnectedPort: 'Serial port disconnected',
+        shuttingDown: 'Server confirmed shutdown; connection will close shortly', error: 'Error: ',
+        portsFound: n => `Found ${n} serial port(s): `,
+        noPorts: 'Found 0 serial ports: check the physical connection; in WSL, verify usbipd attach',
+        choosePort: 'Select a serial port first', connecting: 'Connecting to serial port: ',
+        disconnecting: 'Disconnecting serial port...', refreshing: 'Refreshing serial port list...',
+        confirmExit: 'Shut down SerialHub?\nAll connections (including other clients) will be closed.',
+        requestedExit: 'Shutdown requested; stopping service...', notSent: 'Connection not ready; shutdown request was not sent',
+        terminalConnected: 'Terminal Connected', wsError: 'WebSocket Error', connectionClosed: 'Connection Closed'
+    },
+    zh: {
+        portLabel: '串口:', refreshPlaceholder: '-- 刷新列表 --', selectPlaceholder: '-- 选择串口 --',
+        baudLabel: '波特率:', dataBitsLabel: '数据位:', parityLabel: '校验位:', stopBitsLabel: '停止位:',
+        connect: '连接', disconnect: '断开', refresh: '刷新', exit: '退出',
+        switchLanguage: '切换语言', terminalTitle: 'SerialHub 终端',
+        serialConnected: '串口已连接: ', serialDisconnected: '串口已断开',
+        listPortsFailed: '获取串口列表失败，请查看服务日志',
+        disconnectFailed: '断开串口失败，请查看服务日志',
+        shutdownUnsupported: '此实例不支持远程关闭',
+        missingConnection: '缺少连接参数', missingPort: '缺少串口名称',
+        updateSettingsFailed: '更新串口设置失败，请查看服务日志',
+        connectFailed: '连接串口失败，请查看服务日志',
+        serialError: '串口错误，请查看服务日志了解详情',
+        connectedPort: '串口已连接: ', disconnectedPort: '串口已断开',
+        shuttingDown: '服务端已确认，正在关闭…（连接即将断开）', error: '错误: ',
+        portsFound: n => `找到 ${n} 个串口: `,
+        noPorts: '找到 0 个串口: 请检查设备物理连接；WSL 下请确认 usbipd attach 是否生效',
+        choosePort: '请先选择串口', connecting: '正在连接串口: ',
+        disconnecting: '正在断开串口...', refreshing: '刷新串口列表...',
+        confirmExit: '确定关闭 SerialHub 服务？\n所有连接（本页与其他客户端）都将断开。',
+        requestedExit: '已发送关闭请求，正在退出服务...', notSent: '连接未就绪，关闭请求未发送',
+        terminalConnected: '终端已连接', wsError: 'WebSocket 错误', connectionClosed: '连接已关闭'
+    }
+};

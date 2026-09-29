@@ -2,11 +2,14 @@
 package serial
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	serial "go.bug.st/serial"
+
+	"github.com/dongly/serialhub/internal/i18n"
 )
 
 // Config represents serial port connection configuration
@@ -40,11 +43,11 @@ func DefaultConfig() *Config {
 // ToMode converts configuration to go.bug.st/serial.Mode
 func (c *Config) ToMode() (*serial.Mode, error) {
 	if c.BaudRate <= 0 {
-		return nil, fmt.Errorf("无效的波特率: %d", c.BaudRate)
+		return nil, fmt.Errorf(i18n.Serial.InvalidBaudRate, c.BaudRate)
 	}
 
 	if c.DataBits < 5 || c.DataBits > 8 {
-		return nil, fmt.Errorf("无效的数据位: %d（支持 5/6/7/8）", c.DataBits)
+		return nil, fmt.Errorf(i18n.Serial.InvalidDataBits, c.DataBits)
 	}
 
 	var parity serial.Parity
@@ -56,7 +59,7 @@ func (c *Config) ToMode() (*serial.Mode, error) {
 	case "odd":
 		parity = serial.OddParity
 	default:
-		return nil, fmt.Errorf("无效的校验位: %s（支持 none/even/odd）", c.Parity)
+		return nil, fmt.Errorf(i18n.Serial.InvalidParity, c.Parity)
 	}
 
 	var stopBits serial.StopBits
@@ -68,7 +71,7 @@ func (c *Config) ToMode() (*serial.Mode, error) {
 	case 2:
 		stopBits = serial.TwoStopBits
 	default:
-		return nil, fmt.Errorf("无效的停止位: %v（支持 1/1.5/2）", c.StopBits)
+		return nil, fmt.Errorf(i18n.Serial.InvalidStopBits, c.StopBits)
 	}
 
 	return &serial.Mode{
@@ -114,7 +117,7 @@ func ParsePort(portStr string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	if portStr == "" {
-		return nil, fmt.Errorf("端口字符串不能为空")
+		return nil, errors.New(i18n.Serial.PortStringEmpty)
 	}
 
 	// Check if baud rate is included
@@ -124,7 +127,7 @@ func ParsePort(portStr string) (*Config, error) {
 			baudStr := portStr[i+1:]
 			baud, err := strconv.Atoi(baudStr)
 			if err != nil {
-				return nil, fmt.Errorf("无效的波特率: %s", baudStr)
+				return nil, fmt.Errorf(i18n.Serial.InvalidBaudRateStr, baudStr)
 			}
 			cfg.BaudRate = baud
 			return cfg, nil

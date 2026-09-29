@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcpsetup"
 )
@@ -28,21 +29,12 @@ var uninstallAssumeYes bool
 func newUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "卸载 SerialHub（清理 MCP 接入条目、配置日志与二进制）",
-		Long: "卸载 SerialHub：\n" +
-			"  1. 移除各 MCP 客户端中的 serialhub 条目（OpenCode/Claude/Cursor/Windsurf/VS Code/Codex，\n" +
-			"     含当前目录的项目级配置；Codex 与 Claude 用户级经官方 CLI 移除，遵循该 CLI 行为）\n" +
-			"  2. 删除配置与日志目录（Linux/macOS: ~/.config/serialhub/；Windows: exe 同目录 config.toml 与 logs/ + 锁目录 %LOCALAPPDATA%\\serialhub\\）\n" +
-			"  3. 删除二进制本身（Windows 下经延迟删除命令）\n" +
-			"默认先列出将清理的项（dry-run），确认后执行；全程幂等，不存在的项自动跳过。\n" +
-			"运行实例检测覆盖默认端口与用户配置文件的地址端口（含 Windows exe 同目录配置）；\n" +
-			"其他自定义端口（-m/-c 临时指定）的实例请自行确认已退出。\n" +
-			"前置清理项失败时会跳过二进制删除并返回非零退出码，修复后重跑即可。\n" +
-			"注意：-c/--config 指定的自定义路径配置不在清理范围，需手动删除。",
-		RunE: runUninstall,
-		Args: cobra.NoArgs,
+		Short: i18n.Uninstall.Short,
+		Long:  i18n.Uninstall.Long,
+		RunE:  runUninstall,
+		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().BoolVarP(&uninstallAssumeYes, "yes", "y", false, "跳过确认直接卸载")
+	cmd.Flags().BoolVarP(&uninstallAssumeYes, "yes", "y", false, i18n.Uninstall.Yes)
 	return cmd
 }
 
@@ -61,14 +53,14 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	for _, t := range detectCandidateTargets() {
 		base := "http://" + net.JoinHostPort(t.host, strconv.Itoa(t.port))
 		if serialhubRunningAt(base) {
-			return fmt.Errorf("检测到 SerialHub 正在运行（%s/health），请先退出再卸载", base)
+			return fmt.Errorf(i18n.Uninstall.Running, base)
 		}
 	}
 
 	actions := buildUninstallActions()
 
 	// 1. dry-run 清单
-	fmt.Println("[SerialHub] 卸载将清理以下内容：")
+	fmt.Println(i18n.Uninstall.Plan)
 	some := false
 	for i, a := range actions {
 		if ok, tag := a.probe(); ok {
@@ -77,17 +69,17 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if !some {
-		fmt.Println("  （无可清理项，已是干净状态）")
+		fmt.Println(i18n.Uninstall.Empty)
 		return nil
 	}
 
 	// 2. 确认
 	if !uninstallAssumeYes {
-		fmt.Print("确认执行卸载? (y/N): ")
+		fmt.Print(i18n.Uninstall.Confirm)
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		ans := strings.TrimSpace(line)
 		if !strings.EqualFold(ans, "y") && !strings.EqualFold(ans, "yes") {
-			fmt.Println("已取消卸载。")
+			fmt.Println(i18n.Uninstall.Cancel)
 			return nil
 		}
 	}
@@ -95,13 +87,13 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	// 3. 逐项执行（不存在的项由 run 幂等跳过）；硬错误汇总。
 	failures, manualPending := executeUninstallActions(actions)
 	if len(failures) > 0 {
-		return fmt.Errorf("卸载未完全完成，%d 项失败：\n%s", len(failures), strings.Join(failures, "\n"))
+		return fmt.Errorf(i18n.Uninstall.Failed, len(failures), strings.Join(failures, "\n"))
 	}
 	if manualPending {
-		fmt.Println("[SerialHub] 卸载完成（存在待手动处理项，见上方说明）。")
+		fmt.Println(i18n.Uninstall.ManualDone)
 		return nil
 	}
-	fmt.Println("[SerialHub] 卸载完成。感谢使用！")
+	fmt.Println(i18n.Uninstall.Done)
 	return nil
 }
 
@@ -110,13 +102,13 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 func executeUninstallActions(actions []uninstallAction) (failures []string, manualPending bool) {
 	for _, a := range actions {
 		if a.selfBinary && len(failures) > 0 {
-			fmt.Println("  跳过二进制删除：存在失败项，请修复后重跑卸载")
+			fmt.Println(i18n.Uninstall.SkipBinary)
 			continue
 		}
 		desc, manual, err := a.run()
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s：%v", a.desc, err))
-			fmt.Printf("  失败 %s：%v\n", a.desc, err)
+			fmt.Printf(i18n.Uninstall.ActionFailed, a.desc, err)
 			continue
 		}
 		fmt.Println("  " + desc)
@@ -135,26 +127,26 @@ func buildUninstallActions() []uninstallAction {
 		var desc string
 		c, err := mcpsetup.Find(client)
 		if err == nil {
-			desc = fmt.Sprintf("%s（%s 级）serialhub 条目", c.Name, scope)
+			desc = fmt.Sprintf(i18n.Uninstall.Entry, c.Name, scope)
 		} else {
-			desc = client + " serialhub 条目"
+			desc = fmt.Sprintf(i18n.Uninstall.Entry, client, scope)
 		}
 		isCLI := false
 		if client == "codex" {
-			desc = "Codex（用户级，经 codex CLI）serialhub 条目"
+			desc = i18n.Uninstall.CLIEntryCodex
 			isCLI = true
 		} else if client == "claude" && scope == "user" {
-			desc = "Claude Code（用户级，经 claude CLI）serialhub 条目"
+			desc = i18n.Uninstall.CLIEntryClaude
 			isCLI = true
 		}
 		opts := mcpsetup.UninstallOptions{Client: client, Scope: mcpsetup.Scope(scope)}
 		probe := func() (bool, string) {
 			if isCLI {
 				// CLI 型无法廉价探测，恒列出待执行时再判断
-				return true, "待检查"
+				return true, i18n.Uninstall.Pending
 			}
 			if mcpsetup.EntryExists(opts) {
-				return true, "配置文件存在"
+				return true, i18n.Uninstall.FileExists
 			}
 			return false, ""
 		}
@@ -181,8 +173,8 @@ func buildUninstallActions() []uninstallAction {
 
 	// 配置与日志目录
 	actions = append(actions, uninstallAction{
-		desc:  "配置与日志目录（" + userStateDesc() + "）",
-		probe: func() (bool, string) { return userStateExists(), "存在" },
+		desc:  fmt.Sprintf(i18n.Uninstall.State, userStateDesc()),
+		probe: func() (bool, string) { return userStateExists(), i18n.Uninstall.Exists },
 		run: func() (string, bool, error) {
 			d, err := removeUserState()
 			return d, false, err
@@ -191,8 +183,8 @@ func buildUninstallActions() []uninstallAction {
 
 	// 二进制本身（最后）
 	actions = append(actions, uninstallAction{
-		desc:  "二进制 " + currentExeDesc(),
-		probe: func() (bool, string) { return currentExeDesc() != "", "存在" },
+		desc:  fmt.Sprintf(i18n.Uninstall.Binary, currentExeDesc()),
+		probe: func() (bool, string) { return currentExeDesc() != "", i18n.Uninstall.Exists },
 		run: func() (string, bool, error) {
 			d, err := removeSelfBinary()
 			return d, false, err
@@ -303,7 +295,7 @@ func userStateDesc() string {
 	if runtime.GOOS == "windows" {
 		desc := exeDirDesc()
 		if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
-			desc += "，锁目录 " + filepath.Join(cacheDir, "serialhub") + `\`
+			desc += fmt.Sprintf(i18n.Uninstall.LockDir, filepath.Join(cacheDir, "serialhub")+`\`)
 		}
 		return desc
 	}
@@ -318,7 +310,7 @@ func exeDirDesc() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Dir(exe) + " 下 config.toml 与 logs/"
+	return fmt.Sprintf(i18n.Uninstall.ConfigAndLogs, filepath.Dir(exe))
 }
 
 func currentExeDesc() string {
@@ -357,7 +349,7 @@ func removeUserState() (string, error) {
 	if runtime.GOOS == "windows" {
 		exe, err := os.Executable()
 		if err != nil {
-			return "", fmt.Errorf("无法定位二进制目录：%w", err)
+			return "", fmt.Errorf(i18n.Uninstall.LocateDir, err)
 		}
 		dir := filepath.Dir(exe)
 		cfgPath := filepath.Join(dir, "config.toml")
@@ -367,53 +359,53 @@ func removeUserState() (string, error) {
 		// 检查失败如实报错，避免把删不掉的目标当作不存在静默跳过。
 		cfgEx, err := pathExists(cfgPath)
 		if err != nil {
-			return "", fmt.Errorf("检查 %s 失败：%w", cfgPath, err)
+			return "", fmt.Errorf(i18n.Uninstall.CheckFailed, cfgPath, err)
 		}
 		logsEx, err := pathExists(logsDir)
 		if err != nil {
-			return "", fmt.Errorf("检查 %s 失败：%w", logsDir, err)
+			return "", fmt.Errorf(i18n.Uninstall.CheckFailed, logsDir, err)
 		}
 		if cfgEx {
 			if err := os.Remove(cfgPath); err != nil && !os.IsNotExist(err) {
-				return "", fmt.Errorf("删除 %s 失败：%w", cfgPath, err)
+				return "", fmt.Errorf(i18n.Uninstall.RemoveFailed, cfgPath, err)
 			}
 		}
 		if logsEx {
 			if err := os.RemoveAll(logsDir); err != nil {
-				return "", fmt.Errorf("删除 %s 失败：%w", logsDir, err)
+				return "", fmt.Errorf(i18n.Uninstall.RemoveFailed, logsDir, err)
 			}
 		}
-		desc := "无配置与日志文件，跳过"
+		desc := i18n.Uninstall.NoFiles
 		if cfgEx || logsEx {
-			desc = "已删除 " + dir + " 下 config.toml 与 logs/"
+			desc = fmt.Sprintf(i18n.Uninstall.RemovedFiles, dir)
 		}
 		// 锁目录固定在用户本地数据目录（与 exe 位置无关），一并清理
 		if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
 			lockDir := filepath.Join(cacheDir, "serialhub")
 			if ex, err := pathExists(lockDir); err == nil && ex {
 				if err := os.RemoveAll(lockDir); err != nil {
-					return desc, fmt.Errorf("删除 %s 失败：%w", lockDir, err)
+					return desc, fmt.Errorf(i18n.Uninstall.RemoveFailed, lockDir, err)
 				}
-				desc += "，及锁目录 " + lockDir
+				desc += fmt.Sprintf(i18n.Uninstall.LockDir, lockDir)
 			}
 		}
 		return desc, nil
 	}
 	base := xdgConfigDir()
 	if base == "" {
-		return "无法定位用户配置目录，跳过", nil
+		return i18n.Uninstall.NoConfigDir, nil
 	}
 	dir := filepath.Join(base, "serialhub")
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
-			return dir + " 不存在，跳过", nil
+			return fmt.Sprintf(i18n.Uninstall.NotFound, dir), nil
 		}
-		return "", fmt.Errorf("检查 %s 失败：%w", dir, err)
+		return "", fmt.Errorf(i18n.Uninstall.CheckFailed, dir, err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		return "", fmt.Errorf("删除 %s 失败：%w", dir, err)
+		return "", fmt.Errorf(i18n.Uninstall.RemoveFailed, dir, err)
 	}
-	return "已删除 " + dir + "/（配置与日志）", nil
+	return fmt.Sprintf(i18n.Uninstall.RemovedState, dir), nil
 }
 
 // pathExists 报告路径是否存在，并区分「不存在」与「检查失败」：
@@ -437,18 +429,18 @@ func pathExists(path string) (bool, error) {
 func removeSelfBinary() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("无法定位自身：%w", err)
+		return "", fmt.Errorf(i18n.Uninstall.LocateSelf, err)
 	}
 	if rmErr := os.Remove(exe); rmErr == nil {
-		return "已删除二进制 " + exe, nil
+		return fmt.Sprintf(i18n.Uninstall.RemovedBinary, exe), nil
 	} else if !os.IsNotExist(rmErr) && runtime.GOOS != "windows" {
-		return "", fmt.Errorf("删除 %s 失败：%w（请手动删除）", exe, rmErr)
+		return "", fmt.Errorf(i18n.Uninstall.ManualRemove, exe, rmErr)
 	}
 	if runtime.GOOS == "windows" {
 		del := exec.Command("cmd", "/c", fmt.Sprintf("ping -n 3 127.0.0.1 >nul & del /f %q", exe))
 		if err := del.Start(); err == nil {
-			return "已安排延迟删除二进制 " + exe + "（进程退出后生效）", nil
+			return fmt.Sprintf(i18n.Uninstall.DelayedBinary, exe), nil
 		}
 	}
-	return "", fmt.Errorf("二进制删除失败（请手动删除 %s）", exe)
+	return "", fmt.Errorf(i18n.Uninstall.BinaryFailed, exe)
 }

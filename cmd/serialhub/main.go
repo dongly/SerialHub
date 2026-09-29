@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/version"
 )
@@ -36,22 +37,22 @@ var (
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "serialhub",
-		Short: "SerialHub - 串口与网络连接的双向桥接器",
-		Long:  "SerialHub 将 MCU 串口数据同时转发到 WebSocket（人工监视）和 MCP（AI 工具程序化访问）。",
+		Short: i18n.CLI.RootShort,
+		Long:  i18n.CLI.RootLong,
 		RunE:  runServe,
 		Args:  cobra.NoArgs,
 	}
 
-	rootCmd.PersistentFlags().StringVarP(&serialPort, "serial-port", "p", "", "串口名（如 COM9 或 /dev/ttyUSB0）")
-	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, "波特率")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
-	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, "启用调试模式")
-	rootCmd.Flags().BoolVar(&logDataMode, "log-data", false, "输出数据内容日志（500ms 时间窗聚合、单条截断 512 字节；可用 SERIALHUB_LOG_DATA=1，--log-data=false 显式关闭）")
-	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", config.DefaultHTTPPort, "MCP HTTP 服务端口")
-	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", "监听地址")
-	rootCmd.Flags().BoolVar(&minimized, "minimized", false, "由脚本启动，窗口最小化")
-	rootCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "跳过自动打开浏览器")
-	rootCmd.Flags().BoolVar(&stdioMode, "stdio", false, "以 stdio 模式运行（MCP 客户端本地拉起）")
+	rootCmd.PersistentFlags().StringVarP(&serialPort, "serial-port", "p", "", i18n.CLI.FlagSerialPort)
+	rootCmd.PersistentFlags().IntVarP(&baudRate, "baud-rate", "b", 115200, i18n.CLI.FlagBaudRate)
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", i18n.CLI.FlagConfig)
+	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "D", false, i18n.CLI.FlagDebug)
+	rootCmd.Flags().BoolVar(&logDataMode, "log-data", false, i18n.CLI.FlagLogData)
+	rootCmd.Flags().IntVarP(&mcpPort, "mcp-port", "m", config.DefaultHTTPPort, i18n.CLI.FlagMCPPort)
+	rootCmd.Flags().StringVar(&host, "host", "127.0.0.1", i18n.CLI.FlagHost)
+	rootCmd.Flags().BoolVar(&minimized, "minimized", false, i18n.CLI.FlagMinimized)
+	rootCmd.Flags().BoolVar(&noBrowser, "no-browser", false, i18n.CLI.FlagNoBrowser)
+	rootCmd.Flags().BoolVar(&stdioMode, "stdio", false, i18n.CLI.FlagStdio)
 	logDataFlag = rootCmd.Flags().Lookup("log-data")
 
 	rootCmd.Version = appVersion

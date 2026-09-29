@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/mcpsetup"
 )
 
@@ -24,20 +25,16 @@ var (
 func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "为 MCP 客户端自动配置 SerialHub 接入",
-		Long: "交互式向导：选择 MCP 客户端（OpenCode / Claude Code / Cursor / Windsurf / " +
-			"VS Code / Codex）→ 接入模式（stdio 或 HTTP，默认 stdio 本地模式，客户端自动拉起）→ 写入层级（项目级/用户级），\n" +
-			"然后合并写入该客户端的配置文件（不动其他服务条目；已有 serialhub 条目时交互模式会确认，-y 直接更新，可借此切换接入模式；\n" +
-			"Codex 与 Claude 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI 行为）。\n" +
-			"非交互用法：serialhub setup --client cursor -y（如需 HTTP：serialhub setup --client cursor --mode http -y）",
-		RunE: runSetup,
-		Args: cobra.NoArgs,
+		Short: i18n.CLI.SetupShort,
+		Long:  i18n.CLI.SetupLong,
+		RunE:  runSetup,
+		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&setupClient, "client", "", "客户端 ID: opencode/claude/cursor/windsurf/vscode/codex")
-	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), "HTTP 端点（仅 --mode http 时生效）")
-	cmd.Flags().StringVar(&setupMode, "mode", "stdio", "接入模式: stdio | http（默认 stdio 本地模式）")
-	cmd.Flags().StringVar(&setupScope, "scope", "project", "写入层级: project | user（codex 仅 user）")
-	cmd.Flags().BoolVarP(&setupAssumeYes, "yes", "y", false, "非交互：确认全部默认选择")
+	cmd.Flags().StringVar(&setupClient, "client", "", i18n.CLI.SetupClient)
+	cmd.Flags().StringVar(&setupURL, "url", mcpsetup.DefaultURL(), i18n.CLI.SetupURL)
+	cmd.Flags().StringVar(&setupMode, "mode", "stdio", i18n.CLI.SetupMode)
+	cmd.Flags().StringVar(&setupScope, "scope", "project", i18n.CLI.SetupScope)
+	cmd.Flags().BoolVarP(&setupAssumeYes, "yes", "y", false, i18n.CLI.SetupYes)
 	return cmd
 }
 
@@ -59,14 +56,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	// 1. 客户端
 	client := setupClient
 	if client == "" {
-		fmt.Println("选择 MCP 客户端:")
+		fmt.Println(i18n.CLI.ChooseClient)
 		for i, c := range mcpsetup.Clients {
 			fmt.Printf("  %d) %s\n", i+1, c.Name)
 		}
-		pick := ask("请输入编号 [1]: ", "1")
+		pick := ask(i18n.CLI.ChooseNumber, "1")
 		n, err := strconv.Atoi(pick)
 		if err != nil || n < 1 || n > len(mcpsetup.Clients) {
-			return fmt.Errorf("无效编号: %s", pick)
+			return fmt.Errorf(i18n.CLI.InvalidNumber, pick)
 		}
 		client = mcpsetup.Clients[n-1].ID
 	}
@@ -78,17 +75,17 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	// 2. 模式：交互向导且未显式指定 --mode 时询问；-y 或显式指定时直接采用 flag 值
 	mode := mcpsetup.Mode(setupMode)
 	if !cmd.Flags().Changed("mode") && !setupAssumeYes {
-		pick := ask("接入模式: 1) stdio（推荐，客户端自动拉起） 2) HTTP [1]: ", "1")
+		pick := ask(i18n.CLI.ChooseMode, "1")
 		switch pick {
 		case "", "1":
 			mode = mcpsetup.ModeStdio
 		case "2":
 			mode = mcpsetup.ModeHTTP
 		default:
-			return fmt.Errorf("无效选项 %q（可选 1/2）", pick)
+			return fmt.Errorf(i18n.CLI.InvalidChoice, pick)
 		}
 	} else if mode != mcpsetup.ModeHTTP && mode != mcpsetup.ModeStdio {
-		return fmt.Errorf("无效模式 %q（可选 http/stdio）", setupMode)
+		return fmt.Errorf(i18n.CLI.InvalidMode, setupMode)
 	}
 
 	// 3. 层级（Codex 仅用户级）
@@ -96,7 +93,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if def.OnlyUser {
 		scope = mcpsetup.ScopeUser
 	} else if scope != mcpsetup.ScopeProject && scope != mcpsetup.ScopeUser {
-		return fmt.Errorf("无效层级 %q（可选 project/user）", setupScope)
+		return fmt.Errorf(i18n.CLI.InvalidScope, setupScope)
 	}
 
 	opts := mcpsetup.Options{
@@ -108,14 +105,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			if setupAssumeYes {
 				return true
 			}
-			ans := ask(fmt.Sprintf("%s 中已有 serialhub 条目，覆盖更新? (y/N): ", path), "n")
+			ans := ask(fmt.Sprintf(i18n.CLI.ConfirmOverwrite, path), "n")
 			return strings.EqualFold(ans, "y") || strings.EqualFold(ans, "yes")
 		},
 	}
 
 	target, err := mcpsetup.Install(opts)
 	if err == mcpsetup.ErrEntryExists {
-		fmt.Println("已存在 serialhub 条目，按选择跳过，未做修改。")
+		fmt.Println(i18n.CLI.EntrySkipped)
 		return nil
 	}
 	if err != nil {
@@ -128,10 +125,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	} else {
 		modeDesc = "stdio (serialhub --stdio)"
 	}
-	fmt.Printf("[SerialHub] 已为 %s 写入接入配置（%s，%s 级）\n  目标: %s\n",
+	fmt.Printf(i18n.CLI.SetupDone,
 		def.Name, modeDesc, scope, target)
 	if scope == mcpsetup.ScopeProject && !def.OnlyCLI {
-		fmt.Println("  提示: 项目级配置文件可提交到版本库与团队共享。")
+		fmt.Println(i18n.CLI.SetupHint)
 	}
 	return nil
 }

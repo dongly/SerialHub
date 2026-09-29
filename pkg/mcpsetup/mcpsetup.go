@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/config"
 )
 
@@ -34,7 +35,7 @@ const (
 )
 
 // ErrEntryExists 表示目标配置中已有 serialhub 条目，调用方需决定是否覆盖。
-var ErrEntryExists = errors.New("目标配置中已存在 serialhub 条目")
+var ErrEntryExists = errors.New(i18n.MCPSetupInstall.EntryExists)
 
 // Options 一次接入配置的全部参数。
 type Options struct {
@@ -74,7 +75,7 @@ func Find(id string) (Client, error) {
 			return c, nil
 		}
 	}
-	return Client{}, fmt.Errorf("未知客户端 %q（可选：%s）", id, clientIDs())
+	return Client{}, fmt.Errorf(i18n.MCPSetupInstall.UnknownClient, id, clientIDs())
 }
 
 func clientIDs() string {
@@ -123,10 +124,10 @@ func Install(opts Options) (string, error) {
 		return installClaudeUserCLI(opts)
 	}
 	if opts.Scope == ScopeProject && !c.Project {
-		return "", fmt.Errorf("%s 不支持项目级配置", c.Name)
+		return "", fmt.Errorf(i18n.MCPSetupInstall.UnsupportedProject, c.Name)
 	}
 	if opts.Scope == ScopeUser && !c.User {
-		return "", fmt.Errorf("%s 不支持用户级配置", c.Name)
+		return "", fmt.Errorf(i18n.MCPSetupInstall.UnsupportedUser, c.Name)
 	}
 
 	path, key, entry, err := target(opts)
@@ -173,7 +174,7 @@ func configTarget(client string, scope Scope) (path, topKey string, err error) {
 	case "vscode":
 		topKey, path = "servers", filepath.Join(".vscode", "mcp.json")
 	default:
-		return "", "", fmt.Errorf("客户端 %s 无文件配置面", client)
+		return "", "", fmt.Errorf(i18n.MCPSetupInstall.NoFileTarget, client)
 	}
 	return path, topKey, nil
 }
@@ -226,7 +227,7 @@ func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(str
 	root := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, &root); err != nil {
-			return fmt.Errorf("解析 %s 失败（不是有效 JSON）：%w", path, err)
+			return fmt.Errorf(i18n.MCPSetupInstall.InvalidJSON, path, err)
 		}
 	}
 	cur := root
@@ -292,7 +293,7 @@ func removeLegacyOpenCodeFlat(path string) {
 func installCodexCLI(opts Options) (string, error) {
 	bin, err := exec.LookPath("codex")
 	if err != nil {
-		return "", fmt.Errorf("未找到 codex 命令，请先安装 Codex CLI；手动配置：~/.codex/config.toml 中添加 [mcp_servers.serialhub]")
+		return "", errors.New(i18n.MCPSetupInstall.MissingCodex)
 	}
 	args := []string{"mcp", "add", "serialhub"}
 	if opts.Mode == ModeStdio {
@@ -303,16 +304,16 @@ func installCodexCLI(opts Options) (string, error) {
 	cmd := exec.Command(bin, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("codex mcp add 失败：%v\n%s", err, out)
+		return "", fmt.Errorf(i18n.MCPSetupInstall.CodexFailed, err, out)
 	}
-	return "~/.codex/config.toml（经 codex mcp add 写入）", nil
+	return i18n.MCPSetupInstall.CodexAdded, nil
 }
 
 // installClaudeUserCLI 通过 claude 官方 CLI 写入用户级（~/.claude.json）。
 func installClaudeUserCLI(opts Options) (string, error) {
 	bin, err := exec.LookPath("claude")
 	if err != nil {
-		return "", fmt.Errorf("未找到 claude 命令，请先安装 Claude Code；或改用项目级 .mcp.json")
+		return "", errors.New(i18n.MCPSetupInstall.MissingClaude)
 	}
 	var cmd *exec.Cmd
 	if opts.Mode == ModeStdio {
@@ -322,7 +323,7 @@ func installClaudeUserCLI(opts Options) (string, error) {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("claude mcp add 失败：%v\n%s", err, out)
+		return "", fmt.Errorf(i18n.MCPSetupInstall.ClaudeFailed, err, out)
 	}
-	return "~/.claude.json（经 claude mcp add 写入）", nil
+	return i18n.MCPSetupInstall.ClaudeAdded, nil
 }

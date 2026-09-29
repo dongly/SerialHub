@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -90,6 +90,8 @@
             background-color: #555;
             cursor: not-allowed;
         }
+        #language-btn { background-color: #555; }
+        #language-btn:hover { background-color: #666; }
         #status-indicator {
             width: 10px;
             height: 10px;
@@ -168,11 +170,11 @@
 <body>
     <div id="control-panel">
         <span id="status-indicator" class="disconnected"></span>
-        <label>串口:</label>
+        <label data-i18n="portLabel">Port:</label>
         <select id="port-select">
-            <option value="">-- 刷新列表 --</option>
+            <option value="" data-i18n="refreshPlaceholder">-- Refresh list --</option>
         </select>
-        <label>波特率:</label>
+        <label data-i18n="baudLabel">Baud rate:</label>
         <select id="baud-rate">
             <option value="9600">9600</option>
             <option value="19200">19200</option>
@@ -183,35 +185,59 @@
             <option value="460800">460800</option>
             <option value="921600">921600</option>
         </select>
-        <label>数据位:</label>
+        <label data-i18n="dataBitsLabel">Data bits:</label>
         <select id="data-bits">
             <option value="5">5</option>
             <option value="6">6</option>
             <option value="7">7</option>
             <option value="8" selected>8</option>
         </select>
-        <label>校验位:</label>
+        <label data-i18n="parityLabel">Parity:</label>
         <select id="parity">
             <option value="none" selected>none</option>
             <option value="even">even</option>
             <option value="odd">odd</option>
         </select>
-        <label>停止位:</label>
+        <label data-i18n="stopBitsLabel">Stop bits:</label>
         <select id="stop-bits">
             <option value="1" selected>1</option>
             <option value="2">2</option>
         </select>
-        <button id="connect-btn" class="connect">连接</button>
-        <button id="disconnect-btn" class="disconnect" disabled>断开</button>
-        <button id="refresh-btn" class="refresh">刷新</button>
-        <button id="exit-btn" class="exit">退出</button>
+        <button id="connect-btn" class="connect" data-i18n="connect">Connect</button>
+        <button id="disconnect-btn" class="disconnect" data-i18n="disconnect" disabled>Disconnect</button>
+        <button id="refresh-btn" class="refresh" data-i18n="refresh">Refresh</button>
+        <button id="exit-btn" class="exit" data-i18n="exit">Exit</button>
+        <button id="language-btn" type="button" aria-label="Switch language">中文</button>
         <div id="version-info"><span class="side-badge" id="side-badge"></span><span class="app-name">SerialHub</span> <span class="version" id="app-version"></span></div>
     </div>
     <div id="terminal-container"></div>
     <script src="/static/xterm.min.js"></script>
     <script src="/static/xterm-addon-fit.min.js"></script>
+    <script src="/static/i18n.js"></script>
     <script>
         (function() {
+            const translations = window.serialHubTranslations;
+            let language;
+            try { language = localStorage.getItem('serialhub-language'); } catch (_) { /* private browsing */ }
+            if (language !== 'zh' && language !== 'en') {
+                language = /^zh\b/i.test(navigator.language || '') ? 'zh' : 'en';
+            }
+            const t = key => translations[language][key];
+            let sideLabel = '';
+            function applyLanguage() {
+                document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+                document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+                document.getElementById('language-btn').textContent = language === 'zh' ? 'English' : '中文';
+                document.getElementById('language-btn').setAttribute('aria-label', t('switchLanguage'));
+                document.getElementById('port-select').options[0].textContent = t('selectPlaceholder');
+                document.title = t('terminalTitle') + (sideLabel ? ' — ' + sideLabel : '');
+            }
+            document.getElementById('language-btn').onclick = function() {
+                language = language === 'zh' ? 'en' : 'zh';
+                try { localStorage.setItem('serialhub-language', language); } catch (_) { /* private browsing */ }
+                applyLanguage();
+            };
+            applyLanguage();
             const terminalContainer = document.getElementById('terminal-container');
             const terminal = new Terminal({
                 cursorBlink: true,
@@ -305,8 +331,9 @@
                     var detail = data.sideDetail || '';
                     var badge = document.getElementById('side-badge');
                     if (side) {
-                        badge.textContent = detail ? side + '·' + detail : side;
-                        document.title = 'SerialHub Terminal — ' + (detail ? side + '·' + detail : side);
+                        sideLabel = detail ? side + '·' + detail : side;
+                        badge.textContent = sideLabel;
+                        applyLanguage();
                     } else {
                         badge.textContent = '?';
                         badge.className = 'side-badge unknown';
@@ -345,7 +372,7 @@
             }
 
             ws.onopen = function() {
-                terminal.writeln('\x1b[32m[SerialHub] Terminal Connected\x1b[0m');
+                terminal.writeln('\x1b[32m[SerialHub] ' + t('terminalConnected') + '\x1b[0m');
                 sendCommand('get_ports');
                 sendCommand('get_status');
             };
@@ -386,26 +413,37 @@
                     case 'status':
                         updateConnectionStatus(msg.data.connected);
                         if (msg.data.connected && msg.data.port) {
-                            terminal.writeln('\x1b[32m[SerialHub] 串口已连接: ' + msg.data.port + '\x1b[0m');
+                            terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data.port + '\x1b[0m');
                             // 自动选择已连接的串口
                             selectPortFromStatus(msg.data.port);
                         }
                         break;
                     case 'connected':
                         updateConnectionStatus(true);
-                        terminal.writeln('\x1b[32m[SerialHub] 串口已连接: ' + msg.data + '\x1b[0m');
+                        terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data + '\x1b[0m');
                         break;
                     case 'disconnected':
                         updateConnectionStatus(false);
-                        terminal.writeln('\x1b[33m[SerialHub] 串口已断开\x1b[0m');
+                        terminal.writeln('\x1b[33m[SerialHub] ' + t('disconnectedPort') + '\x1b[0m');
                         break;
                     case 'shutting_down':
-                        terminal.writeln('\x1b[33m[SerialHub] 服务端已确认，正在关闭…（连接即将断开）\x1b[0m');
+                        terminal.writeln('\x1b[33m[SerialHub] ' + t('shuttingDown') + '\x1b[0m');
                         exitBtn.disabled = true;
                         break;
                     case 'error':
-                        terminal.writeln('\x1b[31m[SerialHub] 错误: ' + msg.data + '\x1b[0m');
+                        terminal.writeln('\x1b[31m[SerialHub] ' + t('error') +
+                            (msg.data && typeof msg.data === 'object' && msg.data.code ?
+                                (t(msg.data.code) || t('serialError')) : msg.data) + '\x1b[0m');
                         statusIndicator.className = 'error';
+                        break;
+                    case 'serial_event':
+                        if (msg.data && msg.data.code === 'serialConnected') {
+                            terminal.writeln('\x1b[32m[SerialHub] ' + t('serialConnected') + msg.data.port + '\x1b[0m');
+                        } else if (msg.data && msg.data.code === 'serialDisconnected') {
+                            terminal.writeln('\x1b[33m[SerialHub] ' + t('serialDisconnected') + '\x1b[0m');
+                        } else if (msg.data && msg.data.code === 'serialError') {
+                            terminal.writeln('\x1b[31m[SerialHub] ' + t('serialError') + '\x1b[0m');
+                        }
                         break;
                     case 'serial_message':
                         terminal.write(msg.data);
@@ -414,7 +452,7 @@
             }
 
             function updatePortList(ports) {
-                portSelect.innerHTML = '<option value="">-- 选择串口 --</option>';
+                portSelect.replaceChildren(new Option(t('selectPlaceholder'), ''));
                 ports.forEach(function(port) {
                     const option = document.createElement('option');
                     option.value = port;
@@ -426,9 +464,9 @@
             // 在终端写一行串口列表提示（刷新与页面加载时都会触发）
             function announcePorts(ports) {
                 if (ports.length > 0) {
-                    terminal.writeln('\x1b[36m[SerialHub] 找到 ' + ports.length + ' 个串口: ' + ports.join(', ') + '\x1b[0m');
+                    terminal.writeln('\x1b[36m[SerialHub] ' + t('portsFound')(ports.length) + ports.join(', ') + '\x1b[0m');
                 } else {
-                    terminal.writeln('\x1b[33m[SerialHub] 找到 0 个串口: 请检查设备物理连接；WSL 下请确认 usbipd attach 是否生效\x1b[0m');
+                    terminal.writeln('\x1b[33m[SerialHub] ' + t('noPorts') + '\x1b[0m');
                 }
             }
 
@@ -448,12 +486,12 @@
             }
 
             ws.onerror = function(error) {
-                terminal.writeln('\x1b[31m[SerialHub] WebSocket Error\x1b[0m');
+                terminal.writeln('\x1b[31m[SerialHub] ' + t('wsError') + '\x1b[0m');
                 statusIndicator.className = 'error';
             };
 
             ws.onclose = function() {
-                terminal.writeln('\x1b[31m[SerialHub] Connection Closed\x1b[0m');
+                terminal.writeln('\x1b[31m[SerialHub] ' + t('connectionClosed') + '\x1b[0m');
                 updateConnectionStatus(false);
             };
 
@@ -468,36 +506,36 @@
             connectBtn.onclick = function() {
                 const port = portSelect.value;
                 if (!port) {
-                    terminal.writeln('\x1b[31m[SerialHub] 请先选择串口\x1b[0m');
+                    terminal.writeln('\x1b[31m[SerialHub] ' + t('choosePort') + '\x1b[0m');
                     return;
                 }
                 const baudRate = parseInt(baudRateSelect.value);
                 const dataBits = parseInt(dataBitsSelect.value);
                 const parity = paritySelect.value;
                 const stopBits = parseInt(stopBitsSelect.value);
-                terminal.writeln('\x1b[36m[SerialHub] 正在连接串口: ' + port + '@' + baudRate + '...\x1b[0m');
+                terminal.writeln('\x1b[36m[SerialHub] ' + t('connecting') + port + '@' + baudRate + '...\x1b[0m');
                 sendCommand('connect', { port: port, baudRate: baudRate, dataBits: dataBits, parity: parity, stopBits: stopBits });
             };
 
             disconnectBtn.onclick = function() {
-                terminal.writeln('\x1b[36m[SerialHub] 正在断开串口...\x1b[0m');
+                terminal.writeln('\x1b[36m[SerialHub] ' + t('disconnecting') + '\x1b[0m');
                 sendCommand('disconnect');
             };
 
             refreshBtn.onclick = function() {
-                terminal.writeln('\x1b[36m[SerialHub] 刷新串口列表...\x1b[0m');
+                terminal.writeln('\x1b[36m[SerialHub] ' + t('refreshing') + '\x1b[0m');
                 sendCommand('get_ports');
             };
 
             exitBtn.onclick = function() {
-                if (confirm('确定关闭 SerialHub 服务？\n所有连接（本页与其他客户端）都将断开。')) {
+                if (confirm(t('confirmExit'))) {
                     if (sendCommand('shutdown')) {
                         // 发送成功才禁用并提示；shutting_down 响应属尽力送达
                         // （广播仅入队，进程退出时可能丢失），故不依赖响应
                         exitBtn.disabled = true;
-                        terminal.writeln('\x1b[33m[SerialHub] 已发送关闭请求，正在退出服务...\x1b[0m');
+                        terminal.writeln('\x1b[33m[SerialHub] ' + t('requestedExit') + '\x1b[0m');
                     } else {
-                        terminal.writeln('\x1b[31m[SerialHub] 连接未就绪，关闭请求未发送\x1b[0m');
+                        terminal.writeln('\x1b[31m[SerialHub] ' + t('notSent') + '\x1b[0m');
                     }
                 }
             };

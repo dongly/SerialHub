@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/dongly/serialhub/internal/i18n"
 )
 
 // UninstallOptions 一次移除接入配置的参数。
@@ -34,13 +36,13 @@ func UninstallFrom(opts UninstallOptions) (string, bool, bool, error) {
 		return uninstallClaudeUserCLI()
 	}
 	if opts.Scope == ScopeProject && !c.Project {
-		return "", false, false, fmt.Errorf("%s 不支持项目级配置", c.Name)
+		return "", false, false, fmt.Errorf(i18n.MCPSetupRemoval.NoProject, c.Name)
 	}
 	if opts.Scope == ScopeUser && !c.User {
-		return "", false, false, fmt.Errorf("%s 不支持用户级配置", c.Name)
+		return "", false, false, fmt.Errorf(i18n.MCPSetupRemoval.NoUser, c.Name)
 	}
 	if opts.Scope != ScopeProject && opts.Scope != ScopeUser {
-		return "", false, false, fmt.Errorf("无效层级 %q（可选 project/user）", opts.Scope)
+		return "", false, false, fmt.Errorf(i18n.MCPSetupRemoval.BadScope, opts.Scope)
 	}
 
 	path, topKey, err := configTarget(c.ID, opts.Scope)
@@ -53,9 +55,9 @@ func UninstallFrom(opts UninstallOptions) (string, bool, bool, error) {
 	}
 	abs, _ := filepath.Abs(path)
 	if removed {
-		return fmt.Sprintf("已从 %s 移除 serialhub 条目", abs), true, false, nil
+		return fmt.Sprintf(i18n.MCPSetupRemoval.Removed, abs), true, false, nil
 	}
-	return fmt.Sprintf("%s 中无 serialhub 条目，跳过", abs), false, false, nil
+	return fmt.Sprintf(i18n.MCPSetupRemoval.Absent, abs), false, false, nil
 }
 
 // EntryExists 探测某客户端的接入配置面是否存在（配置文件存在即视为待检查）。
@@ -89,14 +91,14 @@ func uninstallJSON(path, topKey, name string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("读取 %s 失败：%w", path, err)
+		return false, fmt.Errorf(i18n.MCPSetupRemoval.Read, path, err)
 	}
 	if len(raw) == 0 {
 		return false, nil
 	}
 	root := map[string]any{}
 	if err := json.Unmarshal(raw, &root); err != nil {
-		return false, fmt.Errorf("解析 %s 失败（不是有效 JSON）：%w", path, err)
+		return false, fmt.Errorf(i18n.MCPSetupRemoval.Parse, path, err)
 	}
 	parts := strings.Split(topKey, ".")
 	cur := root
@@ -157,7 +159,7 @@ func writeFileAtomic(path string, orig, data []byte) error {
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".serialhub-uninstall-*")
 	if err != nil {
-		return fmt.Errorf("创建临时文件失败：%w", err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.CreateTemp, err)
 	}
 	tmpName := tmp.Name()
 	ok := false
@@ -168,25 +170,25 @@ func writeFileAtomic(path string, orig, data []byte) error {
 	}()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("写入临时文件失败：%w", err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.WriteTemp, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("关闭临时文件失败：%w", err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.CloseTemp, err)
 	}
 	if err := os.Chmod(tmpName, mode); err != nil {
-		return fmt.Errorf("设置临时文件权限失败：%w", err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.ChmodTemp, err)
 	}
 	// 冲突检测尽量靠近提交点：临时文件已就绪，rename 前重读比较。
 	// 重读失败（权限变化等）同样中止写回，交由调用方处理。
 	cur, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("提交前重读 %s 失败（疑似被外部修改或权限变化）：%w", path, err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.Reread, path, err)
 	}
 	if !bytes.Equal(cur, orig) {
-		return fmt.Errorf("%s 在卸载过程中被其他程序修改，为避免覆盖新改动已中止；请重跑卸载", path)
+		return fmt.Errorf(i18n.MCPSetupRemoval.Modified, path)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("替换 %s 失败：%w", path, err)
+		return fmt.Errorf(i18n.MCPSetupRemoval.Replace, path, err)
 	}
 	ok = true
 	return nil
@@ -197,34 +199,34 @@ func writeFileAtomic(path string, orig, data []byte) error {
 func uninstallCodexCLI() (desc string, removed, manual bool, err error) {
 	bin, err := exec.LookPath("codex")
 	if err != nil {
-		return "未找到 codex 命令；请手动编辑 ~/.codex/config.toml 删除 [mcp_servers.serialhub] 段", false, true, nil
+		return i18n.MCPSetupRemoval.NoCodex, false, true, nil
 	}
 	has, listErr := cliHasServer(bin, "mcp")
 	if listErr == nil && !has {
-		return "~/.codex/config.toml 中无 serialhub 条目，跳过", false, false, nil
+		return i18n.MCPSetupRemoval.CodexAbsent, false, false, nil
 	}
 	out, err := cliRunWithTimeout(10*time.Second, bin, "mcp", "remove", "serialhub")
 	if err != nil {
-		return "", false, false, fmt.Errorf("codex mcp remove 失败：%v\n%s", err, out)
+		return "", false, false, fmt.Errorf(i18n.MCPSetupRemoval.CodexFailed, err, out)
 	}
-	return "~/.codex/config.toml（经 codex mcp remove 移除）", true, false, nil
+	return i18n.MCPSetupRemoval.CodexRemoved, true, false, nil
 }
 
 // uninstallClaudeUserCLI 经 claude 官方 CLI 移除用户级条目（~/.claude.json）。
 func uninstallClaudeUserCLI() (desc string, removed, manual bool, err error) {
 	bin, err := exec.LookPath("claude")
 	if err != nil {
-		return "未找到 claude 命令；请运行 claude mcp remove serialhub --scope user 或改用项目级卸载", false, true, nil
+		return i18n.MCPSetupRemoval.NoClaude, false, true, nil
 	}
 	has, listErr := cliHasServer(bin, "mcp")
 	if listErr == nil && !has {
-		return "~/.claude.json 中无 serialhub 条目，跳过", false, false, nil
+		return i18n.MCPSetupRemoval.ClaudeAbsent, false, false, nil
 	}
 	out, err := cliRunWithTimeout(10*time.Second, bin, "mcp", "remove", "serialhub", "--scope", "user")
 	if err != nil {
-		return "", false, false, fmt.Errorf("claude mcp remove 失败：%v\n%s", err, out)
+		return "", false, false, fmt.Errorf(i18n.MCPSetupRemoval.ClaudeFailed, err, out)
 	}
-	return "~/.claude.json（经 claude mcp remove --scope user 移除）", true, false, nil
+	return i18n.MCPSetupRemoval.ClaudeRemoved, true, false, nil
 }
 
 // serialhubWord 匹配作为独立单词出现的 serialhub（前后是非单词字符或边界），
