@@ -765,3 +765,68 @@ func TestRunStdioConnection_RejectsToolsListWithoutState(t *testing.T) {
 		t.Fatal("未恢复握手状态时 tools/list 应被拒绝")
 	}
 }
+
+// TestRunStdioConnection_ResendsUndeliveredResponse 原地接管时必须先把旧代理
+// 没写出去的下行响应补发给客户端（客户端仍在等这条请求的响应）。
+func TestRunStdioConnection_ResendsUndeliveredResponse(t *testing.T) {
+	srv, err := NewMCPServer(newTestSerialManager(t), buffer.NewDataBuffer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.RegisterTools(); err != nil {
+		t.Fatal(err)
+	}
+	undelivered, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":42,"result":{"tools":[]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	serverTransport, clientTransport := mcpsdk.NewInMemoryTransports()
+	serverConn, err := serverTransport.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- srv.RunStdioConnection(ctx, &StdioHandoff{
+			Conn: serverConn,
+			State: &mcpsdk.ServerSessionState{
+				InitializeParams:  &mcpsdk.InitializeParams{ProtocolVersion: "2025-06-18"},
+				InitializedParams: &mcpsdk.InitializedParams{},
+			},
+			Undelivered: undelivered,
+		})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-serveDone:
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	clientConn, err := clientTransport.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readCtx, readCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer readCancel()
+	msg, err := clientConn.Read(readCtx)
+	if err != nil {
+		t.Fatalf("读取补发响应失败: %v", err)
+	}
+	resp, ok := msg.(*jsonrpc.Response)
+	if !ok {
+		t.Fatalf("期望补发 Response, 实际 %T", msg)
+	}
+	raw, err := jsonrpc.EncodeMessage(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":42`) {
+		t.Fatalf("补发的应是 id=42 那条响应, 实际 %s", raw)
+	}
+}

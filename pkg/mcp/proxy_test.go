@@ -431,3 +431,104 @@ func TestResolveProxyExit_PrefersClientClose(t *testing.T) {
 		t.Fatalf("stdio 正常结束应原样透传，实际 reason=%v err=%v", reason, err)
 	}
 }
+
+// blockingWriteConn 内嵌 stubConn，只覆写 Write：阻塞到 ctx 取消后返回错误。
+// 用于模拟「对端接受了连接却不去读消息」造成的写阻塞。
+type blockingWriteConn struct{ *stubConn }
+
+func newBlockingWriteConn() *blockingWriteConn {
+	return &blockingWriteConn{stubConn: newStubConn()}
+}
+
+func (c *blockingWriteConn) Write(ctx context.Context, _ jsonrpc.Message) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// withMasterConn 只替换主实例侧传输（stdio 侧由调用方经 handoff.Conn 提供），
+// 并在测试结束时还原。
+func withMasterConn(t *testing.T, conn mcpsdk.Connection) {
+	t.Helper()
+	orig := masterTransportFactory
+	masterTransportFactory = func(string) mcpsdk.Transport {
+		return &stubTransport{conn: conn}
+	}
+	t.Cleanup(func() { masterTransportFactory = orig })
+}
+
+// TestRunStdioProxy_PendingReplayIsProbeProtected 交回消息的重放必须在探活
+// （及超时）约束之内：旧实现在探活启动前用无超时 ctx 同步重放，主实例若接受
+// 连接却不读请求，代理会永久卡住——既不有界重试也不正常退出。
+func TestRunStdioProxy_PendingReplayIsProbeProtected(t *testing.T) {
+	origInterval, origFailures := masterProbeInterval, masterProbeFailures
+	masterProbeInterval, masterProbeFailures = 60*time.Millisecond, 2
+	t.Cleanup(func() {
+		masterProbeInterval, masterProbeFailures = origInterval, origFailures
+	})
+
+	withMasterConn(t, newBlockingWriteConn())
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	url := ts.URL
+	ts.Close() // 主实例失联，探活应在 60ms×2 内判定
+
+	req, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := &StdioHandoff{Conn: newStubConn(), Pending: req}
+
+	select {
+	case r := <-startProxyAsync(context.Background(), url, handoff):
+		if r.reason != ProxyMasterLost {
+			t.Fatalf("reason = %q, 期望 masterLost", r.reason)
+		}
+		if r.handoff == nil || r.handoff.Conn == nil {
+			t.Fatal("masterLost 必须交出连接供接管")
+		}
+		if r.handoff.Pending == nil {
+			t.Fatal("重放未成功时必须保留 pending，交后续阶段继续携带")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("重放阻塞未受探活/超时约束：代理永久卡住")
+	}
+}
+
+// TestRunStdioProxy_KeepsUndeliveredResponse 从主实例读到但未写回客户端的下行
+// 响应必须留住并在接管后补发：否则客户端会一直等这条请求的响应（如 initialize）。
+func TestRunStdioProxy_KeepsUndeliveredResponse(t *testing.T) {
+	origInterval, origFailures := masterProbeInterval, masterProbeFailures
+	masterProbeInterval, masterProbeFailures = 60*time.Millisecond, 2
+	t.Cleanup(func() {
+		masterProbeInterval, masterProbeFailures = origInterval, origFailures
+	})
+
+	resp, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":9,"result":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withMasterConn(t, &emitOnceConn{stubConn: newStubConn(), msg: resp})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	url := ts.URL
+	ts.Close()
+
+	// stdio 侧写阻塞到取消：客户端仍在线（Read 阻塞），只是这条响应没出去。
+	handoff := &StdioHandoff{Conn: newBlockingWriteConn()}
+
+	select {
+	case r := <-startProxyAsync(context.Background(), url, handoff):
+		if r.reason != ProxyMasterLost {
+			t.Fatalf("reason = %q, 期望 masterLost", r.reason)
+		}
+		if r.handoff == nil || r.handoff.Undelivered == nil {
+			t.Fatal("必须保留未写回客户端的下行响应以供补发")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("代理未在有限时间内退出")
+	}
+}

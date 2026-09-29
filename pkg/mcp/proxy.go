@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -46,12 +45,15 @@ type proxyResult struct {
 }
 
 // StdioHandoff 是代理切换身份时移交给下一阶段的完整 stdio 状态。
-// Pending 是旧代理已完整读出、但尚未成功转发的一条消息；接管为主或
+// Pending 是旧代理已完整读出、但尚未成功转发的一条上行消息；接管为主或
 // 重新连接新主时必须先处理它，避免请求在身份切换窗口丢失。
+// Undelivered 是旧代理已从主实例读出、但尚未写回客户端的下行响应；
+// 接管后需优先补发，否则客户端会一直等那次请求的回复。
 type StdioHandoff struct {
-	Conn    mcpsdk.Connection
-	State   *mcpsdk.ServerSessionState
-	Pending jsonrpc.Message
+	Conn        mcpsdk.Connection
+	State       *mcpsdk.ServerSessionState
+	Pending     jsonrpc.Message
+	Undelivered jsonrpc.Message
 }
 
 type sessionStateTracker struct {
@@ -104,6 +106,10 @@ func (t *sessionStateTracker) snapshot() *mcpsdk.ServerSessionState {
 var (
 	masterProbeInterval = 2 * time.Second
 	masterProbeFailures = 2
+
+	// pendingReplayTimeout 限制「把残留请求交给主实例」的最长等待：
+	// 主实例可能接受 HTTP 连接却一直不读请求，无超时会拖住代理退出与接管。
+	pendingReplayTimeout = 5 * time.Second
 )
 
 // stdioTransportFactory / masterTransportFactory 构造两侧传输；
@@ -116,10 +122,12 @@ var (
 )
 
 // stdioGone 判定 stdio 端是否被 MCP 客户端真正关闭：客户端关闭 stdin（EOF）、
-// 管道已关闭，或写回时收到 broken pipe（Linux 为 syscall.EPIPE；Windows 由 os
-// 包映射为 io.ErrClosedPipe）。不含代理自身取消——那是内部收尾，不是客户端离开。
+// 管道对象已关闭（io.ErrClosedPipe），或写回时收到 broken pipe（平台差异由
+// isBrokenPipe 在 pipe_unix.go / pipe_windows.go 中处理：Linux 为 EPIPE，
+// Windows 为 ERROR_PIPE_NOT_AVAILABLE / ERROR_BROKEN_PIPE）。
+// 不含代理自身取消——那是内部收尾，不是客户端离开。
 func stdioGone(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE)
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || isBrokenPipe(err)
 }
 
 // stdioChannelClosed 判定 stdio 侧错误是否属正常退出（无需作为错误上报）：
@@ -150,10 +158,12 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	var stdioConn mcpsdk.Connection
 	tracker := newSessionStateTracker(nil)
 	var pending jsonrpc.Message
+	var undelivered jsonrpc.Message
 	if handoff != nil {
 		stdioConn = handoff.Conn
 		tracker = newSessionStateTracker(handoff.State)
 		pending = handoff.Pending
+		undelivered = handoff.Undelivered
 	}
 
 	if stdioConn == nil {
@@ -169,17 +179,8 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	clientConn, err := client.Connect(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, i18n.ServeErrors.MasterUnreachableHint, endpoint)
-		return ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyMasterConnectFailed, err), &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: pending}
+		return ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyMasterConnectFailed, err), &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: pending, Undelivered: undelivered}
 	}
-	if pending != nil {
-		if err := clientConn.Write(ctx, pending); err != nil {
-			_ = clientConn.Close()
-			return ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyForwardFailed, err), &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: pending}
-		}
-		tracker.record(pending)
-		pending = nil
-	}
-
 	logrus.Infof("[SerialHub] stdio 代理模式：转发到 %s", endpoint)
 
 	// innerCtx 控制转发与探活 goroutine：判定失联后立即停止转发，但不关闭
@@ -240,6 +241,27 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	forwarders.Add(1)
 	go func() {
 		defer forwarders.Done()
+		// 先补交上一阶段残留的上行消息。放在本协程内、受 innerCtx 与
+		// pendingReplayTimeout 约束：新主若接受 HTTP 连接却一直不读请求，
+		// 探活判定失联或超时会解除阻塞并上报失联，交由上层有界重试，
+		// 而不是在无探活、无客户端关闭监控的情况下永久卡死。
+		pendingMu.Lock()
+		replay := pending
+		pendingMu.Unlock()
+		if replay != nil {
+			writeCtx, writeCancel := context.WithTimeout(innerCtx, pendingReplayTimeout)
+			err := clientConn.Write(writeCtx, replay)
+			writeCancel()
+			if err != nil {
+				// pending 保持不变，交接后仍由下一阶段处理
+				errCh <- proxyResult{ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyForwardFailed, err)}
+				return
+			}
+			tracker.record(replay)
+			pendingMu.Lock()
+			pending = nil
+			pendingMu.Unlock()
+		}
 		for {
 			msg, err := stdioConn.Read(innerCtx)
 			if err != nil {
@@ -279,6 +301,15 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 				// 同上：客户端侧通道已结束属正常退出。
 				if stdioGone(err) {
 					clientGone.Store(true)
+				} else if innerCtx.Err() != nil {
+					// 代理自身取消导致这条响应没写出去：客户端仍在等它，
+					// 留住并交接后补发（只留响应，服务端发起的请求/通知
+					// 的 ID 空间与新主服务不匹配，补发反而造成错乱）。
+					if _, ok := msg.(*jsonrpc.Response); ok {
+						pendingMu.Lock()
+						undelivered = msg
+						pendingMu.Unlock()
+					}
 				}
 				if stdioChannelClosed(innerCtx, err) {
 					errCh <- proxyResult{ProxyStdioClosed, nil}
@@ -301,9 +332,9 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 		logrus.Infof("[SerialHub] stdio 代理退出（%s）: %v", reason, err)
 		if reason == ProxyMasterLost {
 			pendingMu.Lock()
-			deferred := pending
+			deferred, unsent := pending, undelivered
 			pendingMu.Unlock()
-			return reason, err, &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: deferred}
+			return reason, err, &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: deferred, Undelivered: unsent}
 		}
 		return reason, err, nil
 	case <-ctx.Done():

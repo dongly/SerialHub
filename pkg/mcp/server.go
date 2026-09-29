@@ -353,6 +353,13 @@ func (s *MCPServer) RunStdioConnection(ctx context.Context, handoff *StdioHandof
 	if err != nil {
 		return err
 	}
+	// 补发上一阶段没来得及写回客户端的响应（如 initialize 结果）：
+	// 客户端仍在等这条请求的回复，新会话自己不会再产生它。
+	if handoff.Undelivered != nil {
+		if err := conn.Write(ctx, handoff.Undelivered); err != nil {
+			logrus.Warnf("[SerialHub] 补发未送达的下行响应失败: %v", err)
+		}
+	}
 	closed := make(chan error, 1)
 	go func() { closed <- ss.Wait() }()
 	select {
