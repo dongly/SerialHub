@@ -194,17 +194,12 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 	var svcs *runningServices
 	var startupErr error
 
-	sm.SetEventHandler(createEventHandler(sm, trayMgr, wsSrv))
-
 	trayMgr.SetOnReady(func() {
 		_, cancel := context.WithCancel(context.Background())
 		cancelFunc = cancel
 
 		autoConnectSerial(sm, cfg)
 
-		// 注意用 = 而非 :=：把服务器赋给外层 wsSrv，避免闭包局部变量
-		// 遮蔽——事件 handler（上面 SetEventHandler 注册的闭包）捕获的是
-		// 外层 wsSrv，遮蔽会让 serial_event 广播永远发到 nil 服务器上。
 		var err error
 		wsSrv, err = web.NewWebSocketServer(host, mcpPort, func() string {
 			if sm.IsConnected() {
@@ -218,6 +213,11 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 			trayMgr.Quit() // 服务启动失败：退出托盘（而非保留占锁的空壳实例）
 			return
 		}
+
+		// 事件 handler 必须在 wsSrv 创建成功后注册：createEventHandler 按
+		// 值接收 wsSrv，早于此处注册会把 nil 拷进闭包，serial_event 广播
+		// 将永远发不到任何 WebSocket 客户端。
+		sm.SetEventHandler(createEventHandler(sm, trayMgr, wsSrv))
 
 		// --no-browser（脚本静默启动）不自动打开浏览器
 		svcs = startServices(sm, wsSrv, buf, !noBrowser)
