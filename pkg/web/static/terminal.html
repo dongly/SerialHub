@@ -419,12 +419,12 @@
                         }
                         break;
                     case 'connected':
+                        // 终端提示统一由 serial_event 广播渲染（所有客户端一份），
+                        // 这里只更新界面状态，避免发起命令的客户端出现双行。
                         updateConnectionStatus(true);
-                        terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data + '\x1b[0m');
                         break;
                     case 'disconnected':
                         updateConnectionStatus(false);
-                        terminal.writeln('\x1b[33m[SerialHub] ' + t('disconnectedPort') + '\x1b[0m');
                         break;
                     case 'shutting_down':
                         terminal.writeln('\x1b[33m[SerialHub] ' + t('shuttingDown') + '\x1b[0m');
