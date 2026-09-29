@@ -642,6 +642,14 @@ func (t *TrayManager) UpdateSerialStatus() {
 	// 连接状态未变（下面的去重命中）也必须刷新，否则菜单仍显示旧端口。
 	if t.mSerial != nil {
 		t.mSerial.SetTitle(st.Title)
+		// SetTooltip 依赖 systray.Run 建立的全局内部状态，就绪前/退出竞态下
+		// 会 panic；与 UpdateState 的 SetIcon 同样用 recover 兜底（SetTitle
+		// 仅输出错误日志，不 panic）。
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("[SerialHub] UpdateSerialStatus panic: %v", r)
+			}
+		}()
 		systray.SetTooltip(st.Tooltip)
 	}
 
