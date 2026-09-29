@@ -212,6 +212,16 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 		w.Write(data)
 	})
 
+	// 根路径跳转到终端页，省去手输 /terminal；
+	// 其余未注册路径保持 404（"/" 是兜底模式，需精确匹配放行）。
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/terminal", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if s.wsServer != nil {
 			s.wsServer.HandleWebSocket(w, r)
