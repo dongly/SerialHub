@@ -342,11 +342,12 @@ func TestRunStdioProxy_KeepsPendingMessage(t *testing.T) {
 	}
 }
 
-// emitOnceConn 主实例侧替身：首次 Read 返回预置消息（模拟主实例主动推送），
-// 之后阻塞；Write 恒成功。用于构造「向 stdio 写回时客户端已断开」的场景。
+// emitOnceConn 主实例侧替身：内嵌 stubConn，只覆写 Read——首次返回预置消息
+// （模拟主实例主动推送），之后委托底层阻塞到取消/关闭。用于构造
+// 「向 stdio 写回时客户端已断开」的场景。
 type emitOnceConn struct {
-	msg  jsonrpc.Message
-	done chan struct{}
+	*stubConn
+	msg jsonrpc.Message
 }
 
 func (c *emitOnceConn) Read(ctx context.Context) (jsonrpc.Message, error) {
@@ -355,26 +356,8 @@ func (c *emitOnceConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 		c.msg = nil
 		return m, nil
 	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-c.done:
-		return nil, errors.New("连接已关闭")
-	}
+	return c.stubConn.Read(ctx)
 }
-
-func (c *emitOnceConn) Write(context.Context, jsonrpc.Message) error { return nil }
-
-func (c *emitOnceConn) Close() error {
-	select {
-	case <-c.done:
-	default:
-		close(c.done)
-	}
-	return nil
-}
-
-func (c *emitOnceConn) SessionID() string { return "" }
 
 // TestRunStdioProxy_BrokenPipeIsNormalExit 用真实 OS 管道验证：客户端关闭读端后
 // 写回得到系统级 broken pipe（Linux 为 syscall.EPIPE），必须判定为正常退出——
@@ -402,7 +385,7 @@ func TestRunStdioProxy_BrokenPipeIsNormalExit(t *testing.T) {
 		return &mcpsdk.IOTransport{Reader: pipeR, Writer: pwd}
 	}
 	masterTransportFactory = func(string) mcpsdk.Transport {
-		return &stubTransport{conn: &emitOnceConn{msg: msg, done: make(chan struct{})}}
+		return &stubTransport{conn: &emitOnceConn{stubConn: newStubConn(), msg: msg}}
 	}
 	t.Cleanup(func() {
 		_ = pipeR.Close()
