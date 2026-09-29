@@ -194,6 +194,21 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	}
 	logrus.Infof("[SerialHub] stdio 代理模式：转发到 %s", endpoint)
 
+	// 上轮交回、尚未写回客户端的下行响应先补发：与 Pending 重放对称。
+	// 用入参 ctx 加 pendingReplayTimeout 约束（探活此刻尚未启动）；写失败
+	// 说明这个主实例不可用，归入失联交上层有界重试，undelivered 原样保留
+	// 在交接物里。
+	if undelivered != nil {
+		writeCtx, writeCancel := context.WithTimeout(ctx, pendingReplayTimeout)
+		err := clientConn.Write(writeCtx, undelivered)
+		writeCancel()
+		if err != nil {
+			_ = clientConn.Close()
+			return ProxyMasterLost, snapshotHandoff(), fmt.Errorf(i18n.ServeErrors.ProxyForwardFailed, err)
+		}
+		undelivered = nil
+	}
+
 	// innerCtx 控制转发与探活 goroutine：判定失联后立即停止转发，但不关闭
 	// stdioConn——它的底层 reader goroutine 正是接管方要复用的（关了会断
 	// os.Stdout 写端，且再无 reader 消费 stdin）。

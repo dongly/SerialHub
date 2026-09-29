@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -526,5 +527,71 @@ func TestRunStdioProxy_KeepsUndeliveredResponse(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("代理未在有限时间内退出")
+	}
+}
+
+// recordingConn 记录写入的消息（主实例侧替身）：用于断言 Undelivered 补发。
+type recordingConn struct {
+	*stubConn
+
+	mu  sync.Mutex
+	got []jsonrpc.Message
+}
+
+func (c *recordingConn) Write(_ context.Context, m jsonrpc.Message) error {
+	c.mu.Lock()
+	c.got = append(c.got, m)
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *recordingConn) messages() []jsonrpc.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]jsonrpc.Message(nil), c.got...)
+}
+
+// TestRunStdioProxy_ResendsUndeliveredWhenReProxying 接管撞上他进程抢先成主
+// 而退回代理模式时，上轮未写回客户端的下行响应必须在新一轮连接建立后立即
+// 补发（否则客户端该请求会悬挂至自身超时）。
+func TestRunStdioProxy_ResendsUndeliveredWhenReProxying(t *testing.T) {
+	master := &recordingConn{stubConn: newStubConn()}
+	orig := masterTransportFactory
+	masterTransportFactory = func(string) mcpsdk.Transport {
+		return &stubTransport{conn: master}
+	}
+	t.Cleanup(func() { masterTransportFactory = orig })
+
+	resp, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":11,"result":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := &StdioHandoff{Conn: newStubConn(), Undelivered: resp}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	url := ts.URL
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 主实例健康 → 代理不退出；给补发留出时间窗口后检查主实例收到的消息。
+	select {
+	case r := <-startProxyAsync(ctx, url, handoff):
+		t.Fatalf("主实例健康时代理不应退出, 实际 reason=%q err=%v", r.reason, r.err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	got := master.messages()
+	if len(got) == 0 {
+		t.Fatal("未观察到任何补发消息")
+	}
+	raw, err := jsonrpc.EncodeMessage(got[len(got)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"id":11`) {
+		t.Fatalf("补发的应是 id=11 的下行响应, 实际 %s", raw)
 	}
 }

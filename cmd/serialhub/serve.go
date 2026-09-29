@@ -477,13 +477,18 @@ func runStdio(cfg *config.Config) error {
 			}
 			return nil
 		}
-		// WaitReady 型失联（主仍持锁、HTTP 未就绪）不算接管尝试：它只是
-		// 慢启动，让循环重探；但连续重探设独立上限，防主挂死在持锁状态时
-		// 代理无限自旋（MCP 客户端会一直挂着）。
-		if live := instance.Read(); live != nil && live.Port > 0 {
-			waitReadyWaits++
-			if waitReadyWaits > maxWaitReadyWaits {
-				return errMasterMetadataUnavailable
+		// 主实例失联后分诊。锁仍被持有时有两种情况，都不耗接管预算：
+		// ① 元数据健康（Port>0）：主只是慢启动，重探并设独立上限，防主
+		//    挂死在持锁状态时代理无限自旋（MCP 客户端会一直挂着）；
+		// ② 元数据退化（Port<=0，如锁文件被清）：同样「没死透」，交由
+		//    下一轮重探——只有锁真正空了才计入接管尝试。
+		live := instance.Read()
+		if live != nil {
+			if live.Port > 0 {
+				waitReadyWaits++
+				if waitReadyWaits > maxWaitReadyWaits {
+					return errMasterMetadataUnavailable
+				}
 			}
 			time.Sleep(takeoverBackoff)
 			reused = conn
