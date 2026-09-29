@@ -336,16 +336,28 @@ var WebEvent = struct {
 var ServeErrors = struct {
 	MetadataUnavailable, ListenFailed, PortsOccupied, LockFailed, SelectPortFailed string
 	MasterStartFailed, WebSocketFailed, HTTPStartFailed, MasterNotReady            string
-	TakeoverGiveUp                                                                 string
+	TakeoverGiveUp, ProxyStdioInitFailed, ProxyMasterConnectFailed                 string
+	ProxyHealthFailed, ProxyHealthStatus, ProxyStdioReadEnded                      string
+	ProxyForwardFailed, ProxyMasterReadEnded, ProxyStdioWriteFailed                string
+	MasterUnreachableHint                                                          string
 }{
-	MetadataUnavailable: T("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务", "a master instance is running but its metadata is not readable yet; retry shortly"),
-	ListenFailed:        T("监听 %s 失败: %w", "failed to listen on %s: %w"),
-	PortsOccupied:       T("端口 %d~%d 均被占用: %w", "ports %d–%d are all in use: %w"),
-	LockFailed:          T("获取单实例锁失败：%w", "failed to acquire instance lock: %w"),
-	SelectPortFailed:    T("选择监听端口失败: %w", "failed to select listen port: %w"),
-	MasterStartFailed:   T("主服务启动失败", "failed to start main service"),
-	WebSocketFailed:     T("创建 WebSocket 服务失败: %w", "failed to create WebSocket service: %w"),
-	HTTPStartFailed:     T("主服务启动失败（%s 监听失败或初始化异常）", "failed to start main service (listen or initialization failed at %s)"),
-	MasterNotReady:      T("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", "master %s is running but its HTTP service is not ready; retry shortly"),
-	TakeoverGiveUp:      T("主实例失联后的接管尝试已达上限（%d 次），放弃", "takeover attempts after master loss reached the limit (%d), giving up"),
+	MetadataUnavailable:      T("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务", "a master instance is running but its metadata is not readable yet; retry shortly"),
+	ListenFailed:             T("监听 %s 失败: %w", "failed to listen on %s: %w"),
+	PortsOccupied:            T("端口 %d~%d 均被占用: %w", "ports %d–%d are all in use: %w"),
+	LockFailed:               T("获取单实例锁失败：%w", "failed to acquire instance lock: %w"),
+	SelectPortFailed:         T("选择监听端口失败: %w", "failed to select listen port: %w"),
+	MasterStartFailed:        T("主服务启动失败", "failed to start main service"),
+	WebSocketFailed:          T("创建 WebSocket 服务失败: %w", "failed to create WebSocket service: %w"),
+	HTTPStartFailed:          T("主服务启动失败（%s 监听失败或初始化异常）", "failed to start main service (listen or initialization failed at %s)"),
+	MasterNotReady:           T("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", "master %s is running but its HTTP service is not ready; retry shortly"),
+	TakeoverGiveUp:           T("主实例失联后的接管尝试已达上限（%d 次），放弃", "takeover attempts after master loss reached the limit (%d), giving up"),
+	ProxyStdioInitFailed:     T("stdio 传输初始化失败: %w", "failed to initialize stdio transport: %w"),
+	ProxyMasterConnectFailed: T("连接主实例失败: %w", "failed to connect to master: %w"),
+	ProxyHealthFailed:        T("主实例健康探测连续失败: %w", "master health probe failed repeatedly: %w"),
+	ProxyHealthStatus:        T("主实例健康探测连续返回异常状态: %s", "master health probe repeatedly returned an unhealthy status: %s"),
+	ProxyStdioReadEnded:      T("stdio 读取结束: %w", "stdio read ended: %w"),
+	ProxyForwardFailed:       T("转发到主实例失败: %w", "failed to forward to master: %w"),
+	ProxyMasterReadEnded:     T("主实例读取结束: %w", "master read ended: %w"),
+	ProxyStdioWriteFailed:    T("写回 stdio 失败: %w", "failed to write back to stdio: %w"),
+	MasterUnreachableHint:    T("SerialHub 主实例不可达（%s）。\n若主实例使用非默认端口，请改用 remote 模式直连其 URL。\n", "SerialHub master is unreachable (%s).\nIf it uses a non-default port, connect to its URL in remote mode.\n"),
 }

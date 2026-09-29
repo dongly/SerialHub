@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/dongly/serialhub/internal/buffer"
 	"github.com/dongly/serialhub/internal/instance"
@@ -325,11 +326,43 @@ type reuseTransport struct{ conn mcpsdk.Connection }
 
 func (t reuseTransport) Connect(context.Context) (mcpsdk.Connection, error) { return t.conn, nil }
 
+type pendingConnection struct {
+	mcpsdk.Connection
+	mu      sync.Mutex
+	pending jsonrpc.Message
+}
+
+func (c *pendingConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
+	c.mu.Lock()
+	if c.pending != nil {
+		msg := c.pending
+		c.pending = nil
+		c.mu.Unlock()
+		return msg, nil
+	}
+	c.mu.Unlock()
+	return c.Connection.Read(ctx)
+}
+
 // RunStdioConnection 在既有 stdio 连接上运行服务（代理原地接管场景）：
 // 复用代理建立的同一 reader goroutine，避免二次连接 stdin 产生两个
 // reader 争抢字节流。
-func (s *MCPServer) RunStdioConnection(ctx context.Context, conn mcpsdk.Connection) error {
-	return s.mcpServer.Run(ctx, reuseTransport{conn: conn})
+func (s *MCPServer) RunStdioConnection(ctx context.Context, handoff *StdioHandoff) error {
+	conn := mcpsdk.Connection(&pendingConnection{Connection: handoff.Conn, pending: handoff.Pending})
+	ss, err := s.mcpServer.Connect(ctx, reuseTransport{conn: conn}, &mcpsdk.ServerSessionOptions{State: handoff.State})
+	if err != nil {
+		return err
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- ss.Wait() }()
+	select {
+	case <-ctx.Done():
+		_ = ss.Close()
+		<-closed
+		return ctx.Err()
+	case err := <-closed:
+		return err
+	}
 }
 
 // Stop stops the MCP server

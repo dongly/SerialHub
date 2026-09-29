@@ -2,12 +2,16 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/dongly/serialhub/internal/i18n"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
 )
@@ -36,6 +40,61 @@ type proxyResult struct {
 	err    error
 }
 
+// StdioHandoff 是代理切换身份时移交给下一阶段的完整 stdio 状态。
+// Pending 是旧代理已完整读出、但尚未成功转发的一条消息；接管为主或
+// 重新连接新主时必须先处理它，避免请求在身份切换窗口丢失。
+type StdioHandoff struct {
+	Conn    mcpsdk.Connection
+	State   *mcpsdk.ServerSessionState
+	Pending jsonrpc.Message
+}
+
+type sessionStateTracker struct {
+	mu    sync.Mutex
+	state mcpsdk.ServerSessionState
+}
+
+func newSessionStateTracker(state *mcpsdk.ServerSessionState) *sessionStateTracker {
+	t := &sessionStateTracker{}
+	if state != nil {
+		t.state = *state
+	}
+	return t
+}
+
+func (t *sessionStateTracker) record(msg jsonrpc.Message) {
+	req, ok := msg.(*jsonrpc.Request)
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch req.Method {
+	case "initialize":
+		var params mcpsdk.InitializeParams
+		if json.Unmarshal(req.Params, &params) == nil {
+			t.state.InitializeParams = &params
+		}
+	case "notifications/initialized":
+		var params mcpsdk.InitializedParams
+		if len(req.Params) == 0 || json.Unmarshal(req.Params, &params) == nil {
+			t.state.InitializedParams = &params
+		}
+	case "logging/setLevel":
+		var params mcpsdk.SetLoggingLevelParams
+		if json.Unmarshal(req.Params, &params) == nil {
+			t.state.LogLevel = params.Level
+		}
+	}
+}
+
+func (t *sessionStateTracker) snapshot() *mcpsdk.ServerSessionState {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	state := t.state
+	return &state
+}
+
 // 探活节奏与判定阈值；包级变量便于测试缩短周期。
 var (
 	masterProbeInterval = 2 * time.Second
@@ -58,14 +117,22 @@ var (
 //
 // MasterLost 时返回的连接仍在存续（未关闭）：调用方可原地接管为主实例，
 // 继续使用同一 reader goroutine；其余退出原因返回 nil 连接。
-func RunStdioProxy(ctx context.Context, masterURL string, stdioConn mcpsdk.Connection) (ProxyExitReason, error, mcpsdk.Connection) {
+func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff) (ProxyExitReason, error, *StdioHandoff) {
 	endpoint := masterURL + "/mcp"
+	var stdioConn mcpsdk.Connection
+	tracker := newSessionStateTracker(nil)
+	var pending jsonrpc.Message
+	if handoff != nil {
+		stdioConn = handoff.Conn
+		tracker = newSessionStateTracker(handoff.State)
+		pending = handoff.Pending
+	}
 
 	if stdioConn == nil {
 		stdio := stdioTransportFactory()
 		conn, err := stdio.Connect(ctx)
 		if err != nil {
-			return ProxyStdioClosed, fmt.Errorf("stdio 传输初始化失败: %w", err), nil
+			return ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioInitFailed, err), nil
 		}
 		stdioConn = conn
 	}
@@ -73,8 +140,16 @@ func RunStdioProxy(ctx context.Context, masterURL string, stdioConn mcpsdk.Conne
 	client := masterTransportFactory(endpoint)
 	clientConn, err := client.Connect(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "SerialHub 主实例不可达（%s）。\n若主实例使用非默认端口，请改用 remote 模式直连其 URL。\n", endpoint)
-		return ProxyMasterLost, fmt.Errorf("连接主实例失败: %w", err), stdioConn
+		fmt.Fprintf(os.Stderr, i18n.ServeErrors.MasterUnreachableHint, endpoint)
+		return ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyMasterConnectFailed, err), &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: pending}
+	}
+	if pending != nil {
+		if err := clientConn.Write(ctx, pending); err != nil {
+			_ = clientConn.Close()
+			return ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyForwardFailed, err), &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: pending}
+		}
+		tracker.record(pending)
+		pending = nil
 	}
 
 	logrus.Infof("[SerialHub] stdio 代理模式：转发到 %s", endpoint)
@@ -88,6 +163,8 @@ func RunStdioProxy(ctx context.Context, masterURL string, stdioConn mcpsdk.Conne
 	// 双向拷贝 MCP 消息，任一侧结束即退出。
 	// stdio 侧错误＝客户端关闭；主实例侧错误＝主失联（可接管）。
 	errCh := make(chan proxyResult, 4)
+	var forwarders sync.WaitGroup
+	var pendingMu sync.Mutex
 
 	// Streamable 非流式短连接在空闲时没有活跃 TCP 连接：主实例退出后
 	// clientConn.Read 会一直阻塞等数据，感知不到失联。定期探测主实例
@@ -112,38 +189,54 @@ func RunStdioProxy(ctx context.Context, masterURL string, stdioConn mcpsdk.Conne
 					}
 				}
 				failures++
-				logrus.Debugf("[SerialHub] 主实例健康探测失败（%d/%d）: %v", failures, masterProbeFailures, err)
+				status := ""
+				if resp != nil {
+					status = resp.Status
+				}
+				logrus.Debugf("[SerialHub] 主实例健康探测失败（%d/%d）: err=%v status=%s", failures, masterProbeFailures, err, status)
 				if failures >= masterProbeFailures {
-					errCh <- proxyResult{ProxyMasterLost, fmt.Errorf("主实例健康探测连续失败: %v", err)}
+					if err != nil {
+						errCh <- proxyResult{ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyHealthFailed, err)}
+					} else {
+						errCh <- proxyResult{ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyHealthStatus, status)}
+					}
 					return
 				}
 			}
 		}
 	}()
 
+	forwarders.Add(1)
 	go func() {
+		defer forwarders.Done()
 		for {
 			msg, err := stdioConn.Read(innerCtx)
 			if err != nil {
-				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf("stdio 读结束: %w", err)}
+				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioReadEnded, err)}
 				return
 			}
 			if err := clientConn.Write(innerCtx, msg); err != nil {
-				errCh <- proxyResult{ProxyMasterLost, fmt.Errorf("转发到主实例失败: %w", err)}
+				pendingMu.Lock()
+				pending = msg
+				pendingMu.Unlock()
+				errCh <- proxyResult{ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyForwardFailed, err)}
 				return
 			}
+			tracker.record(msg)
 		}
 	}()
 
+	forwarders.Add(1)
 	go func() {
+		defer forwarders.Done()
 		for {
 			msg, err := clientConn.Read(innerCtx)
 			if err != nil {
-				errCh <- proxyResult{ProxyMasterLost, fmt.Errorf("主实例读结束: %w", err)}
+				errCh <- proxyResult{ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.ProxyMasterReadEnded, err)}
 				return
 			}
 			if err := stdioConn.Write(innerCtx, msg); err != nil {
-				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf("写回 stdio 失败: %w", err)}
+				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioWriteFailed, err)}
 				return
 			}
 		}
@@ -154,15 +247,19 @@ func RunStdioProxy(ctx context.Context, masterURL string, stdioConn mcpsdk.Conne
 		logrus.Infof("[SerialHub] stdio 代理退出（%s）: %v", r.reason, r.err)
 		innerCancel()
 		_ = clientConn.Close()
+		forwarders.Wait()
 		if r.reason == ProxyMasterLost {
-			// 交出仍在存续的 stdio 连接：调用方原地接管后复用同一 reader
-			return r.reason, r.err, stdioConn
+			pendingMu.Lock()
+			deferred := pending
+			pendingMu.Unlock()
+			return r.reason, r.err, &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: deferred}
 		}
 		return r.reason, r.err, nil
 	case <-ctx.Done():
 		logrus.Info("[SerialHub] stdio 代理退出：上下文取消")
 		innerCancel()
 		_ = clientConn.Close()
+		forwarders.Wait()
 		return ProxyStdioClosed, nil, nil
 	}
 }

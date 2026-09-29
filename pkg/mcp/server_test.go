@@ -675,3 +675,93 @@ func TestToolHandlers(t *testing.T) {
 		}
 	})
 }
+
+// runStdioConnectionToolsListProbe 建立一对内存传输，用给定握手状态启动
+// RunStdioConnection，然后不经 initialize 直接发一条 tools/list，
+// 返回响应（用于断言状态恢复是否生效）。
+func runStdioConnectionToolsListProbe(t *testing.T, state *mcpsdk.ServerSessionState) *jsonrpc.Response {
+	t.Helper()
+	srv, err := NewMCPServer(newTestSerialManager(t), buffer.NewDataBuffer())
+	if err != nil {
+		t.Fatalf("创建 MCP 服务失败: %v", err)
+	}
+	if err := srv.RegisterTools(); err != nil {
+		t.Fatalf("注册工具失败: %v", err)
+	}
+
+	serverTransport, clientTransport := mcpsdk.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverConn, err := serverTransport.Connect(ctx)
+	if err != nil {
+		t.Fatalf("建立服务端连接失败: %v", err)
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- srv.RunStdioConnection(ctx, &StdioHandoff{Conn: serverConn, State: state})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-serveDone:
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	clientConn, err := clientTransport.Connect(ctx)
+	if err != nil {
+		t.Fatalf("建立客户端连接失败: %v", err)
+	}
+	req, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	if err != nil {
+		t.Fatalf("构造 tools/list 请求失败: %v", err)
+	}
+	if err := clientConn.Write(ctx, req); err != nil {
+		t.Fatalf("发送 tools/list 失败: %v", err)
+	}
+	readCtx, readCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer readCancel()
+	msg, err := clientConn.Read(readCtx)
+	if err != nil {
+		t.Fatalf("读取 tools/list 响应失败: %v", err)
+	}
+	resp, ok := msg.(*jsonrpc.Response)
+	if !ok {
+		t.Fatalf("期望 Response, 实际 %T", msg)
+	}
+	return resp
+}
+
+// TestRunStdioConnection_RestoresSessionState：原地接管必须复用代理捕获的
+// 握手状态——客户端已在旧主上完成 initialize，接管后不会重发 initialize；
+// 若新会话状态为空，tools/list 会被 SDK 以「未完成初始化」拒绝。
+func TestRunStdioConnection_RestoresSessionState(t *testing.T) {
+	resp := runStdioConnectionToolsListProbe(t, &mcpsdk.ServerSessionState{
+		InitializeParams:  &mcpsdk.InitializeParams{ProtocolVersion: "2025-06-18"},
+		InitializedParams: &mcpsdk.InitializedParams{},
+	})
+	if resp.Error != nil {
+		t.Fatalf("恢复握手状态后 tools/list 不应报错，实际: %v", resp.Error)
+	}
+	var result struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("解析 tools/list 结果失败: %v", err)
+	}
+	if len(result.Tools) == 0 {
+		t.Fatal("tools/list 应返回已注册工具")
+	}
+}
+
+// TestRunStdioConnection_RejectsToolsListWithoutState：反向对照——不恢复
+// 握手状态时 tools/list 必被拒绝，证明上一测试确实覆盖了状态恢复路径。
+func TestRunStdioConnection_RejectsToolsListWithoutState(t *testing.T) {
+	resp := runStdioConnectionToolsListProbe(t, nil)
+	if resp.Error == nil {
+		t.Fatal("未恢复握手状态时 tools/list 应被拒绝")
+	}
+}
