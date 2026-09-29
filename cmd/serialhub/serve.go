@@ -413,8 +413,13 @@ func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
 }
 
 // maxStdioTakeovers 限制单进程内「代理失联→原地接管」的最大尝试次数，
-// 防止主实例反复快速崩溃导致的病态循环。
+// 防止主实例反复快速崩溃导致的病态循环。语义＝最多允许这么多次真实的
+// 接管尝试（第 6 次失联才放弃）。
 const maxStdioTakeovers = 5
+
+// maxWaitReadyWaits 限制「主仍持锁但 HTTP 未就绪」的连续重探次数：慢启动
+// 不该消耗接管预算，但主若永久持锁不就绪，代理也不能无界自旋。
+const maxWaitReadyWaits = 3
 
 // takeoverBackoff 是判定主失联后、原地接管前的退避；包级变量便于测试注入。
 var takeoverBackoff = 500 * time.Millisecond
@@ -434,6 +439,7 @@ func runStdio(cfg *config.Config) error {
 	var reused *mcp.StdioHandoff
 	var lastMaster *instance.LockInfo // 最近一次代理的主：接管时继承其端口
 	takeovers := 0
+	waitReadyWaits := 0
 	for {
 		info := instance.Read()
 		if info == nil {
@@ -471,15 +477,22 @@ func runStdio(cfg *config.Config) error {
 			}
 			return nil
 		}
-		// WaitReady 型失联（主仍持锁、HTTP 未就绪）不算接管尝试：
-		// 它只是慢启动，让循环重探；只有锁真正空了才计数接管。
+		// WaitReady 型失联（主仍持锁、HTTP 未就绪）不算接管尝试：它只是
+		// 慢启动，让循环重探；但连续重探设独立上限，防主挂死在持锁状态时
+		// 代理无限自旋（MCP 客户端会一直挂着）。
 		if live := instance.Read(); live != nil && live.Port > 0 {
+			waitReadyWaits++
+			if waitReadyWaits > maxWaitReadyWaits {
+				return errMasterMetadataUnavailable
+			}
 			time.Sleep(takeoverBackoff)
 			reused = conn
 			continue
 		}
+		// 锁已空：此前的等待属合法慢启动，重置其计数；接管尝试按上限计数。
+		waitReadyWaits = 0
 		takeovers++
-		if takeovers >= maxStdioTakeovers {
+		if takeovers > maxStdioTakeovers {
 			return fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, maxStdioTakeovers)
 		}
 		logrus.Infof("[SerialHub] 主实例已失联（%v），原地升级为主实例", err)

@@ -75,6 +75,8 @@ func (t *sessionStateTracker) record(msg jsonrpc.Message) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// go-sdk v1.4.1 未导出这些 method 名常量（protocol.go:1604/1618），
+	// 故按字面量匹配；不要改成 SDK 引用（并不存在）。
 	switch req.Method {
 	case "initialize":
 		var params mcpsdk.InitializeParams
@@ -200,6 +202,7 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 
 	// 双向拷贝 MCP 消息，任一侧结束即退出。
 	// stdio 侧错误＝客户端关闭；主实例侧错误＝主失联（可接管）。
+	// 容量 4：三个发送方（探活 + 双向转发）最坏并发 3 条，余 1 格防收尾阻塞。
 	errCh := make(chan proxyResult, 4)
 	var forwarders sync.WaitGroup
 
@@ -274,7 +277,8 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 			msg, err := stdioConn.Read(innerCtx)
 			if err != nil {
 				// 客户端关闭 stdin（EOF）或代理自身取消属正常退出，
-				// 不作为错误上报；仅真实读异常保留错误链。
+				// 不作为错误上报；带错误仅限非正常关闭的读异常（如 EIO），
+				// 保留错误链以利排障。
 				if stdioGone(err) {
 					clientGone.Store(true)
 				}

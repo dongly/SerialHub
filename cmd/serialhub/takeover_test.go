@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +19,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/dongly/serialhub/internal/instance"
+	"github.com/dongly/serialhub/internal/testutil"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcp"
 )
@@ -41,12 +42,6 @@ func (s *syncBuffer) String() string {
 	defer s.mu.Unlock()
 	return s.b.String()
 }
-
-// nopWriteCloser 让 *os.File 满足 MCP IOTransport 的 io.WriteCloser 需求：
-// SDK 关闭传输时不得真正关闭子进程 stdin 管道（由测试收尾负责）。
-type nopWriteCloser struct{ io.Writer }
-
-func (nopWriteCloser) Close() error { return nil }
 
 // TestStdioTakeoverChild 是端到端接管测试的子进程入口：由父进程经
 // exec(测试二进制, -test.run=^TestStdioTakeoverChild$) 拉起，env
@@ -209,7 +204,7 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "takeover-e2e", Version: "0.0.0"}, nil)
 	session, err := client.Connect(ctx, &mcpsdk.IOTransport{
 		Reader: proxyOut,
-		Writer: nopWriteCloser{proxyIn},
+		Writer: testutil.NopWriteCloser{Writer: proxyIn},
 	}, nil)
 	if err != nil {
 		t.Fatalf("经代理初始化 MCP 会话失败: %v\n代理输出:\n%s", err, stderrB.String())
@@ -283,4 +278,36 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	// 8) 清理：接管进程即代理进程本身，终止并回收即可
 	_ = proxyCmd.Process.Kill()
 	_ = proxyCmd.Wait()
+}
+
+// TestRunStdio_WaitReadyHasBoundedRetries 主实例持锁但 HTTP 永久不就绪（挂死）时，
+// 代理必须有限次重探后放弃：这类「慢启动」不消耗接管预算，若无独立上限，
+// 代理会每轮 WaitReady+退避无限自旋，MCP 客户端永久挂起。
+func TestRunStdio_WaitReadyHasBoundedRetries(t *testing.T) {
+	// 隔离单实例锁目录：POSIX 走 XDG_CONFIG_HOME，Windows 走 %LOCALAPPDATA%
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	// 本进程自持锁并写入 Port>0 的元数据：模拟「有活主但 HTTP 起不来」
+	if _, err := instance.Acquire("127.0.0.1", 5599); err != nil {
+		t.Fatalf("自持实例锁失败: %v", err)
+	}
+	t.Cleanup(instance.Release)
+
+	origWait, origBackoff := waitForMasterReady, takeoverBackoff
+	waitForMasterReady = func(instance.LockInfo, time.Duration) bool { return false }
+	takeoverBackoff = time.Millisecond
+	t.Cleanup(func() { waitForMasterReady, takeoverBackoff = origWait, origBackoff })
+
+	done := make(chan error, 1)
+	go func() { done <- runStdio(config.GetDefault()) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errMasterMetadataUnavailable) {
+			t.Fatalf("应返回「主实例元数据不可用」, 实际 %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("慢启动等待未设上限：代理在持锁不就绪的主实例前无界自旋")
+	}
 }

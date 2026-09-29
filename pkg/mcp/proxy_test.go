@@ -16,6 +16,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/dongly/serialhub/internal/i18n"
+	"github.com/dongly/serialhub/internal/testutil"
 )
 
 // stubConn 模拟一条对端无响应的 MCP 连接：Read 阻塞到 ctx 取消或
@@ -53,11 +54,6 @@ func (tr *stubTransport) Connect(context.Context) (mcpsdk.Connection, error) {
 	return tr.conn, nil
 }
 
-// nopWriteCloser 让 io.Discard 满足 IOTransport.Writer 的 io.WriteCloser。
-type nopWriteCloser struct{ io.Writer }
-
-func (nopWriteCloser) Close() error { return nil }
-
 // injectStubTransports 把两侧传输替换为测试替身：stdio 侧读一条永不
 // 关闭的管道（模拟 MCP 客户端保持连接），主实例侧返回 stubConn。
 // 返回写端，调用方 Close 它即可模拟 MCP 客户端断开。
@@ -73,7 +69,7 @@ func injectStubTransportsWith(t *testing.T, masterConn mcpsdk.Connection) *io.Pi
 	origStdio, origMaster := stdioTransportFactory, masterTransportFactory
 	pr, pw := io.Pipe()
 	stdioTransportFactory = func() mcpsdk.Transport {
-		return &mcpsdk.IOTransport{Reader: pr, Writer: nopWriteCloser{io.Discard}}
+		return &mcpsdk.IOTransport{Reader: pr, Writer: testutil.NopWriteCloser{Writer: io.Discard}}
 	}
 	masterTransportFactory = func(string) mcpsdk.Transport {
 		return &stubTransport{conn: masterConn}
