@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/google/uuid"
@@ -40,9 +41,7 @@ func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (
 		host: host,
 		port: port,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
+			CheckOrigin: checkOrigin,
 		},
 		clients:  make(map[string]*WebSocketClient),
 		dataChan: make(chan []byte, 256),
@@ -57,6 +56,26 @@ func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (
 	}
 
 	return s, nil
+}
+
+// checkOrigin 校验 WebSocket 升级请求的来源主机与端口：
+//   - 无 Origin 头（非浏览器客户端：脚本、测试、MCP 客户端）放行；
+//   - 浏览器请求要求 Origin 为合法绝对地址（scheme://host[:port]）且
+//     host:port 与请求 Host 字面相等，防止第三方网页跨站连接本服务
+//     发送 shutdown 等控制命令（CSRF）。
+//
+// 注意：这是来源校验而非鉴权——不校验 scheme 的具体取值（页面 http 与
+// WS ws 天然不同）、不防 DNS rebinding；如需更强边界需另加认证。
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	return u.Host == r.Host
 }
 
 // DataChan 返回数据通道，用于接收客户端发送的数据。

@@ -128,6 +128,9 @@ Windows 上 `serialhub` 默认启动系统托盘图标，启动后自动隐藏�
 http://localhost:5050/terminal
 ```
 
+终端页右上角有「退出」按钮：确认后远程关闭 SerialHub 服务（与 Ctrl+C 同样的优雅停机，所有连接断开）。
+注意：以 `--host 0.0.0.0` 暴露到局域网时，任何能打开终端页的人都可以关闭服务。
+
 ## 4. AI 工具配置
 
 SerialHub 是标准 MCP 服务器，OpenCode / Claude Code / Cursor / Windsurf / VS Code

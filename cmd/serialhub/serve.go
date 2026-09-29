@@ -30,6 +30,20 @@ import (
 // （主实例刚持锁、写元数据完成之前的短暂窗口）。
 var errMasterMetadataUnavailable = errors.New("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务")
 
+// webShutdown 由 Web 终端「退出」按钮触发（shutdown 命令），
+// 语义等价于收到 SIGINT：各主循环感知后统一走 gracefulShutdown。
+// MCP 工具不提供关闭能力（高危操作仅限人工在 Web 终端确认后执行）。
+// 容量 1：主循环尚未开始等待时（启动窗口内）的首次请求也不会丢失。
+var webShutdown = make(chan struct{}, 1)
+
+// requestWebShutdown 非阻塞地发起停机请求；重复触发（多个页面同时点击）被忽略。
+func requestWebShutdown() {
+	select {
+	case webShutdown <- struct{}{}:
+	default:
+	}
+}
+
 // runServe 入口分流：--stdio → stdio 模式（lock 发现有主则代理）；
 // 否则主实例。
 func runServe(cmd *cobra.Command, args []string) error {
@@ -214,6 +228,13 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		}
 	})
 
+	// Web 终端「退出」按钮：退出托盘主循环（systray.Run 返回后走统一停机路径）。
+	// goroutine 与进程同生命周期，无需单独回收。
+	go func() {
+		<-webShutdown
+		trayMgr.Quit()
+	}()
+
 	trayMgr.Run(context.Background())
 
 	// 「正在关闭」通知由 gracefulShutdown 的停机 goroutine 输出（控制线程不同步写日志）
@@ -343,7 +364,10 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	select {
+	case <-sigChan:
+	case <-webShutdown: // Web 终端「退出」按钮
+	}
 
 	// 「正在关闭」通知由 gracefulShutdown 的停机 goroutine 输出（控制线程不同步写日志）
 	gracefulShutdown(sm, svcs)
@@ -413,7 +437,10 @@ func runStdio(cfg *config.Config) error {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sigChan)
-		<-sigChan
+		select {
+		case <-sigChan:
+		case <-webShutdown: // Web 终端「退出」按钮
+		}
 		cancel()
 	}()
 
@@ -516,7 +543,7 @@ func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *bu
 	if err != nil {
 		logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)
 	} else {
-		bridgeSrv.SetCommandHandler(createCommandHandler(sm))
+		bridgeSrv.SetCommandHandler(createCommandHandler(sm, requestWebShutdown))
 		bridgeSrv.Start()
 		svcs.bridge = bridgeSrv
 		logrus.Info("[SerialHub] 数据桥接已启动")

@@ -80,6 +80,12 @@
         #control-panel button.refresh:hover {
             background-color: #1976d2;
         }
+        #control-panel button.exit {
+            background-color: #ff9800;
+        }
+        #control-panel button.exit:hover {
+            background-color: #f57c00;
+        }
         #control-panel button:disabled {
             background-color: #555;
             cursor: not-allowed;
@@ -198,6 +204,7 @@
         <button id="connect-btn" class="connect">连接</button>
         <button id="disconnect-btn" class="disconnect" disabled>断开</button>
         <button id="refresh-btn" class="refresh">刷新</button>
+        <button id="exit-btn" class="exit">退出</button>
         <div id="version-info"><span class="side-badge" id="side-badge"></span><span class="app-name">SerialHub</span> <span class="version" id="app-version"></span></div>
     </div>
     <div id="terminal-container"></div>
@@ -274,6 +281,7 @@
             const connectBtn = document.getElementById('connect-btn');
             const disconnectBtn = document.getElementById('disconnect-btn');
             const refreshBtn = document.getElementById('refresh-btn');
+            const exitBtn = document.getElementById('exit-btn');
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host + '/ws';
@@ -331,7 +339,9 @@
             function sendCommand(type, data) {
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: type, data: data }));
+                    return true;
                 }
+                return false;
             }
 
             ws.onopen = function() {
@@ -388,6 +398,10 @@
                     case 'disconnected':
                         updateConnectionStatus(false);
                         terminal.writeln('\x1b[33m[SerialHub] 串口已断开\x1b[0m');
+                        break;
+                    case 'shutting_down':
+                        terminal.writeln('\x1b[33m[SerialHub] 服务端已确认，正在关闭…（连接即将断开）\x1b[0m');
+                        exitBtn.disabled = true;
                         break;
                     case 'error':
                         terminal.writeln('\x1b[31m[SerialHub] 错误: ' + msg.data + '\x1b[0m');
@@ -473,6 +487,19 @@
             refreshBtn.onclick = function() {
                 terminal.writeln('\x1b[36m[SerialHub] 刷新串口列表...\x1b[0m');
                 sendCommand('get_ports');
+            };
+
+            exitBtn.onclick = function() {
+                if (confirm('确定关闭 SerialHub 服务？\n所有连接（本页与其他客户端）都将断开。')) {
+                    if (sendCommand('shutdown')) {
+                        // 发送成功才禁用并提示；shutting_down 响应属尽力送达
+                        // （广播仅入队，进程退出时可能丢失），故不依赖响应
+                        exitBtn.disabled = true;
+                        terminal.writeln('\x1b[33m[SerialHub] 已发送关闭请求，正在退出服务...\x1b[0m');
+                    } else {
+                        terminal.writeln('\x1b[31m[SerialHub] 连接未就绪，关闭请求未发送\x1b[0m');
+                    }
+                }
             };
 
             window.addEventListener('resize', function() {

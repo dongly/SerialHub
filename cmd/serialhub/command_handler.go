@@ -6,7 +6,10 @@ import (
 	"github.com/dongly/serialhub/pkg/serial"
 )
 
-func createCommandHandler(sm *serial.SerialManager) func(cmd []byte) []byte {
+// createCommandHandler 构造 Web 终端命令处理函数。
+// requestShutdown 由 Web 终端「退出」按钮触发（shutdown 命令），
+// 语义等价于收到 SIGINT；为 nil 时 shutdown 命令不可用。
+func createCommandHandler(sm *serial.SerialManager, requestShutdown func()) func(cmd []byte) []byte {
 	return func(cmd []byte) []byte {
 		var msg map[string]interface{}
 		if err := json.Unmarshal(cmd, &msg); err != nil {
@@ -44,6 +47,17 @@ func createCommandHandler(sm *serial.SerialManager) func(cmd []byte) []byte {
 				return jsonResponse("error", err.Error())
 			}
 			return jsonResponse("disconnected", nil)
+
+		case "shutdown":
+			// Web 终端「退出」按钮：返回响应（尽力送达——广播仅入队，
+			// 队列满或进程退出时可能丢失，前端点击后立即给出反馈兜底），
+			// 停机由 requestShutdown 非阻塞触发，主循环收到 webShutdown
+			// 后统一走 gracefulShutdown（与 Ctrl-C 同路径：bridge→HTTP→串口、释放锁）。
+			if requestShutdown == nil {
+				return jsonResponse("error", "本实例不支持远程退出")
+			}
+			requestShutdown()
+			return jsonResponse("shutting_down", nil)
 
 		default:
 			return nil
