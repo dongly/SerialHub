@@ -55,20 +55,24 @@ curl -X POST http://127.0.0.1:5050/mcp \
 | `serial_read` | 从串口读取数据（阻塞式） | 无 |
 | `serial_clear` | 清空 read 缓冲区（丢弃未消费数据） | 无 |
 
-`serial_list` 返回结构（`ports` 数组，每项含 `name`/`origin`/`side`/`port`）：
+`serial_list` 返回结构（顶层 `side`/`sideDetail` 为本实例所在系统与具体来源；`ports` 数组每项含 `name`/`origin`/`side`/`port`）：
 
 ```json
 {
   "message": "找到 2 个串口",
+  "side": "wsl",
+  "sideDetail": "Ubuntu",
   "ports": [
-    {"name": "/dev/ttyUSB1", "origin": "local", "side": "wsl", "port": "/dev/ttyUSB1"},
-    {"name": "windows:COM3", "origin": "federated", "side": "windows", "port": "COM3"}
+    {"name": "/dev/ttyUSB0", "origin": "local", "side": "wsl", "port": "/dev/ttyUSB0"},
+    {"name": "/dev/ttyUSB1", "origin": "local", "side": "wsl", "port": "/dev/ttyUSB1"}
   ]
 }
 ```
 
-- `origin`: 恒为 `local`（本实例直连端口，`name` 为裸名；字段为兼容旧客户端保留）
-- `side`: 端口所在侧（`windows` / `wsl`）
+- 顶层 `side`：本实例所在系统（`windows` / `wsl` / `linux` / `darwin`），Windows/WSL 双实例并存时用于区分来源；`serial_status` 的返回同样带该字段
+- 顶层 `sideDetail`：更具体的来源——WSL 为发行版名（如 `Ubuntu`），其他平台为主机名（如 `DONG21`），区分多发行版/多主机；`serial_status` 同样带
+- 条目 `origin`: 恒为 `local`（本实例直连端口，`name` 为裸名；字段为兼容旧客户端保留）
+- 条目 `side`：端口所在侧（实例直连本地端口，与顶层一致）
 
 ### 参数详解
 
@@ -302,7 +306,7 @@ stdio 方式把 `type` 换成 `"stdio"`，用 `"command": "serialhub", "args": [
 
 同一用户配置/安装目录同时只允许一个主实例，由 OS 文件锁保证：
 
-- **lock 位置**：与配置文件同目录——Linux/macOS 为 `~/.config/serialhub/instance.lock`（XDG），Windows 为 exe 同目录。
+- **lock 位置**：Linux/macOS 为 `~/.config/serialhub/instance.lock`（XDG，与配置同目录）；Windows 固定为 `%LOCALAPPDATA%\serialhub\instance.lock`（用户级，与 exe 位置无关——任意位置/多副本的 Windows 实例共享同一把锁）。
 - **内容**：JSON，记录主实例的 `pid`、`port`、`host`、`started_at`。
 - **互斥**：主实例持有文件锁直至退出；已有持有者时再启动不报错，转 stdio 透明代理挂起（尽力展示地址；`serialhub upgrade` 等命令不受影响）。文件本身不删除。
 - **stdio 发现**：`serialhub --stdio` 读 lock 的 OS 锁状态及地址（非端口扫描）——有活主则透明代理到该实例，无主则自成主实例。
@@ -320,6 +324,12 @@ $ serialhub --stdio
 ```
 
 > Windows 与 WSL 是两套独立的用户目录/exe 目录，各自持有一份 lock——两侧各跑一个实例互不冲突，串口各自独立（跨侧访问请用局域网地址）。
+
+### 跨系统端口冲突与 side 标识
+
+NAT 模式的 WSL2 开启 localhost 转发时，一侧实例先启动会由 `wslrelay` 预占另一侧的同端口号，导致对侧实例 bind 失败。SerialHub 的处理：**端口被占时自动 +1 递增重试（最多 10 个）**，成功后日志提示实际端口并更新 lock；`config.toml` 仍记录请求的端口（迁移仅本次运行期生效）。
+
+区分两个实例（Web 终端标题栏徽标、`/health`、`serial_list` 顶层、`serial_status`）均带 `side` 字段：`windows` / `wsl` / `linux` / `darwin`。
 
 ---
 

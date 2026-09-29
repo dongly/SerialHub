@@ -32,7 +32,7 @@ func newUninstallCmd() *cobra.Command {
 		Long: "卸载 SerialHub：\n" +
 			"  1. 移除各 MCP 客户端中的 serialhub 条目（OpenCode/Claude/Cursor/Windsurf/VS Code/Codex，\n" +
 			"     含当前目录的项目级配置；Codex 与 Claude 用户级经官方 CLI 移除，遵循该 CLI 行为）\n" +
-			"  2. 删除配置与日志目录（Linux/macOS: ~/.config/serialhub/；Windows: exe 同目录 config.toml 与 logs/）\n" +
+			"  2. 删除配置与日志目录（Linux/macOS: ~/.config/serialhub/；Windows: exe 同目录 config.toml 与 logs/ + 锁目录 %LOCALAPPDATA%\\serialhub\\）\n" +
 			"  3. 删除二进制本身（Windows 下经延迟删除命令）\n" +
 			"默认先列出将清理的项（dry-run），确认后执行；全程幂等，不存在的项自动跳过。\n" +
 			"运行实例检测覆盖默认端口与用户配置文件的地址端口（含 Windows exe 同目录配置）；\n" +
@@ -298,10 +298,14 @@ func serialhubRunningAt(base string) bool {
 	return (h.Service == "serialhub" && isRole) || (h.Service == "" && isRole)
 }
 
-// userStateDesc 描述用户状态目录位置（配置+日志），显示实际路径。
+// userStateDesc 描述用户状态目录位置（配置+日志+Windows 锁目录），显示实际路径。
 func userStateDesc() string {
 	if runtime.GOOS == "windows" {
-		return exeDirDesc()
+		desc := exeDirDesc()
+		if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
+			desc += "，锁目录 " + filepath.Join(cacheDir, "serialhub") + `\`
+		}
+		return desc
 	}
 	if base := xdgConfigDir(); base != "" {
 		return filepath.Join(base, "serialhub") + "/"
@@ -347,7 +351,8 @@ func userStateExists() bool {
 }
 
 // removeUserState 删除配置与日志（Linux/macOS 删整个用户配置目录下的 serialhub/；
-// Windows 删 exe 同目录 config.toml 与 logs/，不动其他文件）。
+// Windows 删 exe 同目录 config.toml 与 logs/，以及固定位置的锁目录
+// %LOCALAPPDATA%\serialhub\，不动其他文件）。
 func removeUserState() (string, error) {
 	if runtime.GOOS == "windows" {
 		exe, err := os.Executable()
@@ -368,9 +373,6 @@ func removeUserState() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("检查 %s 失败：%w", logsDir, err)
 		}
-		if !cfgEx && !logsEx {
-			return "无配置与日志文件，跳过", nil
-		}
 		if cfgEx {
 			if err := os.Remove(cfgPath); err != nil && !os.IsNotExist(err) {
 				return "", fmt.Errorf("删除 %s 失败：%w", cfgPath, err)
@@ -381,7 +383,21 @@ func removeUserState() (string, error) {
 				return "", fmt.Errorf("删除 %s 失败：%w", logsDir, err)
 			}
 		}
-		return "已删除 " + dir + " 下 config.toml 与 logs/", nil
+		desc := "无配置与日志文件，跳过"
+		if cfgEx || logsEx {
+			desc = "已删除 " + dir + " 下 config.toml 与 logs/"
+		}
+		// 锁目录固定在用户本地数据目录（与 exe 位置无关），一并清理
+		if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
+			lockDir := filepath.Join(cacheDir, "serialhub")
+			if ex, err := pathExists(lockDir); err == nil && ex {
+				if err := os.RemoveAll(lockDir); err != nil {
+					return desc, fmt.Errorf("删除 %s 失败：%w", lockDir, err)
+				}
+				desc += "，及锁目录 " + lockDir
+			}
+		}
+		return desc, nil
 	}
 	base := xdgConfigDir()
 	if base == "" {

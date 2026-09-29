@@ -13,7 +13,7 @@ SerialHub bridges a single MCU serial port to both humans and AI:
 - **Humans**: an xterm.js Web terminal in the browser for live viewing and input (opens automatically on startup; on WSL it opens the Windows host browser)
 - **AI**: a native MCP server (Streamable HTTP + stdio) exposing 7 tools — `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - Both channels share **the same serial connection and data buffer** — humans and AI see the same bytes
-- **Single-instance lock**: one master instance per user-config/install directory (OS file lock); a duplicate launch transparently proxies to the running instance instead of failing
+- **Single-instance lock**: one master instance per scope (Windows: one lock per user at `%LOCALAPPDATA%\serialhub\`; Linux/macOS: per user-config directory) enforced by an OS file lock; a duplicate launch transparently proxies to the running instance instead of failing; if the port is occupied (e.g. Windows/WSL localhost-forwarding conflict) it auto-increments
 - A single Go binary (frontend embedded); supports Windows (system tray) / Linux / macOS; everything configurable via TOML or CLI flags, data logging on demand (`--log-data`)
 
 ## Architecture
@@ -105,7 +105,7 @@ serialhub -D                                 # debug mode
 | `--data-bits <bits>` | `-d` | Data bits (5/6/7/8) | 8 |
 | `--parity <type>` | - | Parity (none/even/odd) | none |
 | `--stop-bits <bits>` | `-s` | Stop bits (1/2) | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP service port | 5050 |
+| `--mcp-port <port>` | `-m` | MCP HTTP service port (auto-increments by 1 when occupied, up to 10 tries) | 5050 |
 | `--host <host>` | - | Listen address | 127.0.0.1 |
 | `--config <path>` | `-c` | Config file path | - |
 | `--debug` | `-D` | Enable debug mode | false |

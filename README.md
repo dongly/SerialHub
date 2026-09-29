@@ -13,7 +13,7 @@ SerialHub 把 MCU 串口同时桥接给人和 AI：
 - **人**：浏览器里的 xterm.js Web 终端，实时查看与输入（启动后自动打开浏览器，WSL 下也能弹出 Windows 宿主浏览器）
 - **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
 - 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
-- **单实例互斥**：每个用户配置/安装目录只允许一个主实例（OS 文件锁）；重复启动自动转 stdio 代理到已运行实例，不报错
+- **单实例互斥**：同一作用域（Windows 每用户一把锁；Linux/macOS 每个用户配置目录）只允许一个主实例（OS 文件锁）；重复启动自动转 stdio 代理到已运行实例，不报错；端口被占（如 Windows/WSL 双侧同端口转发冲突）时自动 +1 迁移
 - 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS；所有参数均可通过 TOML 或命令行配置，数据流可按需记录（`--log-data`）
 
 ## 系统架构
@@ -102,7 +102,7 @@ serialhub -D                                 # 调试模式
 | `--data-bits <bits>` | `-d` | 数据位（5/6/7/8） | 8 |
 | `--parity <type>` | - | 校验位（none/even/odd） | none |
 | `--stop-bits <bits>` | `-s` | 停止位（1/2） | 1 |
-| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口 | 5050 |
+| `--mcp-port <port>` | `-m` | MCP HTTP 服务端口（被占时自动 +1 递增，最多试 10 个） | 5050 |
 | `--host <host>` | - | 监听地址 | 127.0.0.1 |
 | `--config <path>` | `-c` | 配置文件路径 | - |
 | `--debug` | `-D` | 启用调试模式 | false |

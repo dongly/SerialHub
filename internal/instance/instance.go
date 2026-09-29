@@ -66,12 +66,50 @@ func IsWSL() bool {
 	return false
 }
 
-// LocalSide 返回本实例所在侧标识（windows/wsl）。
+// LocalSide 返回本实例所在系统侧标识（windows/wsl/linux/darwin），
+// 供 serial_list 与 /health 展示；浏览器同时连 Windows 与 WSL 两个实例时
+// 靠它区分数据来源。
 func LocalSide() string {
+	if runtime.GOOS == "windows" {
+		return "windows"
+	}
 	if IsWSL() {
 		return "wsl"
 	}
-	return "windows"
+	return runtime.GOOS
+}
+
+// SideDetail 返回比 LocalSide 更具体的来源标识：
+// WSL 为发行版名（WSL_DISTRO_NAME，如 Ubuntu），其他平台为主机名。
+// 供 Web 终端徽标与 /health 展示，区分多发行版 / 多主机场景。
+func SideDetail() string {
+	if IsWSL() {
+		if d := os.Getenv("WSL_DISTRO_NAME"); d != "" {
+			return d
+		}
+	}
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
+	}
+	return ""
+}
+
+// UpdatePort 更新 lock 元数据中的监听端口（端口被占用自动迁移后调用）。
+// 仅本进程持锁时生效；未持锁时为幂等空操作。
+func UpdatePort(port int) {
+	lockMu.Lock()
+	defer lockMu.Unlock()
+	if lockFile == nil || port <= 0 || port > 65535 {
+		return
+	}
+	info := readInfoOrEmpty(lockFile)
+	info.PID = os.Getpid()
+	info.Port = port
+	b, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = writeInfo(lockFile, append(b, '\n'))
 }
 
 // lockFile 是本进程持有的 lock 文件句柄；持锁期间必须保持引用
@@ -83,8 +121,11 @@ var lockMu sync.Mutex
 var lockPathOverride string
 
 // lockPath 返回 lock 文件路径：Linux/macOS 用用户配置目录（与配置文件
-// 同目录），Windows 用可执行文件同目录——两处均与 config.toml 同级，
-// 卸载时随配置一起清理。
+// 同目录）；Windows 固定在用户本地数据目录 %LOCALAPPDATA%\serialhub\
+// （os.UserCacheDir），与 exe 所在目录无关——任意位置/多副本安装的
+// Windows 实例共享同一把锁，避免按安装目录分片互斥；不用 Roaming
+// (%APPDATA%)，锁文件不应跨机漫游。用户目录不可得时返回空串，
+// 由 Acquire 报「获取单实例锁失败」（未发布过旧位置，不做 exe 目录兼容）。
 func lockPath() string {
 	if lockPathOverride != "" {
 		return lockPathOverride
@@ -93,12 +134,13 @@ func lockPath() string {
 		if base := xdgConfigDir(); base != "" {
 			return filepath.Join(base, "serialhub", "instance.lock")
 		}
-	}
-	exe, err := os.Executable()
-	if err != nil {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(exe), "instance.lock")
+	dir, err := os.UserCacheDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "serialhub", "instance.lock")
 }
 
 // xdgConfigDir 解析 XDG 用户配置基目录：XDG_CONFIG_HOME（绝对路径）优先，

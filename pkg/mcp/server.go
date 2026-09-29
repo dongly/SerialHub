@@ -190,8 +190,11 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		// service 字段标识产品（供 uninstall 等工具识别身份）；role 字段供实例发现区分主从
-		w.Write([]byte(`{"status":"ok","service":"serialhub","role":"master"}`))
+		// service 标识产品（供 uninstall 等工具识别身份）；role 供实例发现区分主从；
+		// side 标识所在系统（wsl/windows/linux）供 Web 终端等客户端区分实例来源；
+		// sideDetail 为更具体来源（WSL 发行版名 / 主机名），如 Ubuntu、DONG21
+		fmt.Fprintf(w, `{"status":"ok","service":"serialhub","role":"master","side":%q,"sideDetail":%q}`,
+			instance.LocalSide(), instance.SideDetail())
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -366,7 +369,7 @@ func (s *MCPServer) handleSerialList(ctx context.Context, req *mcpsdk.CallToolRe
 	return s.toolResultToMCPResult(tools.ToolResult{
 		Success: true,
 		Message: fmt.Sprintf("找到 %d 个串口", len(ports)),
-		Data:    map[string]any{"ports": ports},
+		Data:    map[string]any{"ports": ports, "side": side, "sideDetail": instance.SideDetail()},
 	})
 }
 
@@ -411,6 +414,13 @@ func (s *MCPServer) handleSerialClear(ctx context.Context, req *mcpsdk.CallToolR
 
 func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 	result := tools.ExecuteSerialStatus(s.serialManager)
+	// 附加实例所在系统（wsl/windows/...）与具体来源（发行版/主机名）：
+	// Windows/WSL 双实例并存时 AI 客户端靠它区分当前连接的是哪个实例
+	// （与 serial_list 顶层一致）
+	if m, ok := result.Data.(map[string]any); ok {
+		m["side"] = instance.LocalSide()
+		m["sideDetail"] = instance.SideDetail()
+	}
 	return s.toolResultToMCPResult(result)
 }
 

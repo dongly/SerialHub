@@ -143,6 +143,20 @@
         #version-info .version {
             color: #888;
         }
+        #version-info .side-badge {
+            display: inline-block;
+            margin-right: 6px;
+            padding: 1px 6px;
+            border: 1px solid #4a9eff;
+            border-radius: 3px;
+            color: #4a9eff;
+            font-size: 10px;
+            line-height: 14px;
+        }
+        #version-info .side-badge.unknown {
+            border-color: #666;
+            color: #888;
+        }
     </style>
 </head>
 <body>
@@ -184,7 +198,7 @@
         <button id="connect-btn" class="connect">连接</button>
         <button id="disconnect-btn" class="disconnect" disabled>断开</button>
         <button id="refresh-btn" class="refresh">刷新</button>
-        <div id="version-info"><span class="app-name">SerialHub</span> <span class="version" id="app-version"></span></div>
+        <div id="version-info"><span class="side-badge" id="side-badge"></span><span class="app-name">SerialHub</span> <span class="version" id="app-version"></span></div>
     </div>
     <div id="terminal-container"></div>
     <script src="/static/xterm.min.js"></script>
@@ -272,6 +286,22 @@
                 .then(function(data) {
                     if (data.version) {
                         document.getElementById('app-version').textContent = 'v' + data.version;
+                    }
+                });
+            // 实例所在系统徽标：Windows/WSL 双实例并存时区分数据来源；
+            // sideDetail 为更具体来源（WSL 发行版名 / 主机名，如 Ubuntu、DONG21）
+            fetch('/health')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var side = (data.side || '').toUpperCase();
+                    var detail = data.sideDetail || '';
+                    var badge = document.getElementById('side-badge');
+                    if (side) {
+                        badge.textContent = detail ? side + '·' + detail : side;
+                        document.title = 'SerialHub Terminal — ' + (detail ? side + '·' + detail : side);
+                    } else {
+                        badge.textContent = '?';
+                        badge.className = 'side-badge unknown';
                     }
                 });
 

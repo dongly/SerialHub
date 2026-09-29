@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/instance"
 	"github.com/dongly/serialhub/pkg/mcp/tools"
 	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -253,9 +254,25 @@ func TestStartHTTPServer_HealthEndpoint(t *testing.T) {
 		t.Fatalf("读取响应体失败: %v", err)
 	}
 
-	expected := `{"status":"ok","service":"serialhub","role":"master"}`
-	if strings.TrimSpace(string(body)) != expected {
-		t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
+	// JSON 解析断言（含 side/sideDetail 字段；Windows/WSL 双实例并存时客户端靠它区分）
+	var health struct {
+		Status     string `json:"status"`
+		Service    string `json:"service"`
+		Role       string `json:"role"`
+		Side       string `json:"side"`
+		SideDetail string `json:"sideDetail"`
+	}
+	if err := json.Unmarshal(body, &health); err != nil {
+		t.Fatalf("解析 health 响应失败: %v（响应: %s）", err, string(body))
+	}
+	if health.Status != "ok" || health.Service != "serialhub" || health.Role != "master" {
+		t.Errorf("health 字段异常: %+v", health)
+	}
+	if health.Side != instance.LocalSide() {
+		t.Errorf("side 预期 %q，实际 %q", instance.LocalSide(), health.Side)
+	}
+	if health.SideDetail != instance.SideDetail() {
+		t.Errorf("sideDetail 预期 %q，实际 %q", instance.SideDetail(), health.SideDetail)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -535,9 +552,24 @@ func TestStreamableHTTPHandler(t *testing.T) {
 			t.Fatalf("读取响应体失败: %v", err)
 		}
 
-		expected := `{"status":"ok","service":"serialhub","role":"master"}`
-		if strings.TrimSpace(string(body)) != expected {
-			t.Errorf("预期响应 '%s'，实际: '%s'", expected, string(body))
+		var health struct {
+			Status     string `json:"status"`
+			Service    string `json:"service"`
+			Role       string `json:"role"`
+			Side       string `json:"side"`
+			SideDetail string `json:"sideDetail"`
+		}
+		if err := json.Unmarshal(body, &health); err != nil {
+			t.Fatalf("解析 health 响应失败: %v（响应: %s）", err, string(body))
+		}
+		if health.Status != "ok" || health.Service != "serialhub" || health.Role != "master" {
+			t.Errorf("health 字段异常: %+v", health)
+		}
+		if health.Side != instance.LocalSide() {
+			t.Errorf("side 预期 %q，实际 %q", instance.LocalSide(), health.Side)
+		}
+		if health.SideDetail != instance.SideDetail() {
+			t.Errorf("sideDetail 预期 %q，实际 %q", instance.SideDetail(), health.SideDetail)
 		}
 	})
 }

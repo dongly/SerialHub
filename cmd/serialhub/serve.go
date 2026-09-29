@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -51,6 +53,33 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return runMaster(cfg)
 }
 
+// maxPortFallback 是端口被占用时自动 +1 迁移的尝试上限。
+const maxPortFallback = 10
+
+// resolveListenPort 预检并解析实际监听端口：请求端口被占
+// （EADDRINUSE，典型如 WSL/Windows 双侧同端口时对侧实例的 localhost
+// 转发占位）时自动 +1 递增，最多尝试 maxPortFallback 个。
+// 仅探测端口占用；预检与真实 bind 之间的短暂窗口由启动失败兜底
+// （下一轮启动会继续向后迁移）。非占用类错误（如地址不可用）原样返回。
+func resolveListenPort(host string, startPort int) (int, error) {
+	var firstErr error
+	for i := 0; i <= maxPortFallback; i++ {
+		port := startPort + i
+		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err == nil {
+			_ = ln.Close()
+			return port, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		if !isAddrInUse(err) {
+			return 0, fmt.Errorf("监听 %s 失败: %w", net.JoinHostPort(host, strconv.Itoa(port)), err)
+		}
+	}
+	return 0, fmt.Errorf("端口 %d~%d 均被占用: %w", startPort, startPort+maxPortFallback, firstErr)
+}
+
 // newSerialManagerFromConfig 构造串口管理器（初始化失败回退默认配置）。
 func newSerialManagerFromConfig(cfg *config.Config) *serial.SerialManager {
 	serialCfg := configToSerialConfig(&cfg.Serial)
@@ -83,7 +112,22 @@ func runMaster(cfg *config.Config) error {
 	}
 	defer instance.Release()
 
-	// 成为主实例后才回写配置（含 CLI 参数合并结果）；重复启动的代理实例不落盘
+	// 端口占用自动迁移：Windows/WSL 双侧同用默认端口时，后启动一侧的
+	// 端口会被对侧实例的 localhost 转发（wslrelay）或其他程序占用；
+	// 逐个 +1 试探（最多 10 个），保证双侧都能独立成主实例。
+	actualPort, err := resolveListenPort(host, mcpPort)
+	if err != nil {
+		return fmt.Errorf("选择监听端口失败: %w", err)
+	}
+	if actualPort != mcpPort {
+		logrus.Infof("[SerialHub] 端口 %d 已被占用（可能为对侧系统实例的 localhost 转发或其他程序），自动改用 %d", mcpPort, actualPort)
+		mcpPort = actualPort
+		instance.UpdatePort(actualPort)
+	}
+
+	// 成为主实例后才回写配置（含 CLI 参数合并结果）；重复启动的代理实例不落盘。
+	// 注意：磁盘始终记录请求端口（cfg.MCP.HTTPPort 未被 actualPort 覆盖）——
+	// 端口迁移是本次运行期的适配，不改变用户的端口意图
 	persistConfig(cfg)
 
 	sm := newSerialManagerFromConfig(cfg)

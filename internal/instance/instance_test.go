@@ -224,3 +224,58 @@ func TestWaitForInfo(t *testing.T) {
 		t.Fatalf("持锁后应读到元数据: %+v", got)
 	}
 }
+
+// TestUpdatePort 验证端口迁移后 lock 元数据同步（端口被占自动 +1 的场景）。
+// TestSideDetail 验证细粒度来源标识：WSL 下返回发行版名，
+// 非 WSL 平台返回主机名（不断言具体值，只验证行为一致且不 panic）。
+func TestSideDetail(t *testing.T) {
+	if IsWSL() {
+		t.Setenv("WSL_DISTRO_NAME", "TestDistro")
+		if got := SideDetail(); got != "TestDistro" {
+			t.Errorf("WSL 下 SideDetail 预期 TestDistro，实际 %q", got)
+		}
+	} else {
+		h, _ := os.Hostname()
+		if got := SideDetail(); got != h {
+			t.Errorf("非 WSL 下 SideDetail 预期 hostname %q，实际 %q", h, got)
+		}
+	}
+}
+
+func TestUpdatePort(t *testing.T) {
+	_ = testLockPath(t)
+
+	if _, err := Acquire("127.0.0.1", 5099); err != nil {
+		t.Fatalf("Acquire 失败: %v", err)
+	}
+	defer Release()
+
+	UpdatePort(5100)
+	info := Read()
+	if info == nil || info.Port != 5100 {
+		t.Fatalf("UpdatePort 后 Read 预期 port=5100，实际 %+v", info)
+	}
+	if info.Host != "127.0.0.1" || info.PID != os.Getpid() {
+		t.Errorf("UpdatePort 不应改动 host/pid: %+v", info)
+	}
+
+	// 越界端口忽略，元数据不变
+	UpdatePort(70000)
+	if info = Read(); info == nil || info.Port != 5100 {
+		t.Fatalf("越界 UpdatePort 后 port 应保持 5100，实际 %+v", info)
+	}
+}
+
+// TestUpdatePort_未持锁时幂等空操作。
+func TestUpdatePort_未持锁时幂等空操作(t *testing.T) {
+	path := testLockPath(t)
+	Release() // 确保未持锁
+	UpdatePort(5100)
+	if _, err := os.Stat(path); err == nil {
+		// 文件可能因 testLockPath 创建？未 Acquire 不写内容，文件不存在是正常路径
+	}
+	// 未持锁时不 panic、不影响后续 Acquire
+	if _, err := Acquire("127.0.0.1", 5099); err != nil {
+		t.Fatalf("UpdatePort 后 Acquire 失败: %v", err)
+	}
+}

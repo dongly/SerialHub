@@ -72,7 +72,7 @@ if($e){"PARSE ERRORS: $($e.Count)"}else{"ParseFile OK"}'
 
 按序验证，全部可在 WSL 内经 pwsh.exe 完成：
 
-1. 独立目录起实例 → `instance.lock` 生成于 exe 同目录，`Get-Content -Raw` 可读（内容 pid/port/host/started_at）。
+1. 独立目录起实例 → `instance.lock` 生成于 `%LOCALAPPDATA%\serialhub\`（与 exe 位置无关），`Get-Content -Raw` 可读（内容 pid/port/host/started_at）。
 2. 同目录第二实例（不同端口）→ 检测到主实例后以代理模式运行（stdin/stdout 透明代理挂起），不再报错退出。
 3. 两实例并发启动 → 恰一个持锁成为主，另一个转代理模式。
 4. `Stop-Process -Force` 后残留 lock → 新进程接管并覆盖元数据。

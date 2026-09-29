@@ -66,11 +66,14 @@ Write-Host "[SerialHub] 实例状态自检 ($(Get-Date -Format 'yyyy-MM-dd HH:mm
 Write-Host ""
 
 # ---- lock 文件检查 ----
-# lock 位置：Windows=exe 同目录；Linux/macOS=用户配置目录（与实例实际写法一致）
+# lock 位置：Windows 固定在 %LOCALAPPDATA%\serialhub\；Linux/macOS=用户配置目录
+# （与实例实际写法一致；未发布过旧位置，无需兼容 exe 同目录）
 $onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 if ($onWindows) {
-    # Windows 每个安装目录各一份 lock：逐一检查候选目录，取首个存在者
-    $lockCandidates = @($exeDirs | ForEach-Object { Join-Path $_ 'instance.lock' })
+    $lockCandidates = @()
+    if ($env:LOCALAPPDATA) {
+        $lockCandidates += Join-Path (Join-Path $env:LOCALAPPDATA 'serialhub') 'instance.lock'
+    }
 } else {
     $xdg = $env:XDG_CONFIG_HOME
     if (-not $xdg -or -not [System.IO.Path]::IsPathRooted($xdg)) {

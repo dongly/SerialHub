@@ -63,7 +63,7 @@ serialhub -p COM7 -D         # 直接启动
 **DataBuffer** (`internal/buffer/`)：线程安全环形缓冲区，默认 64KB，溢出时丢弃旧数据。
 MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
-**单实例 lock** (`internal/instance/`)：每个配置/安装目录各一份 `instance.lock`（Linux XDG 用户目录 / Windows exe 同目录）；OS 锁判定所有权，JSON 记录 pid/port/host 供发现，文件常驻，进程退出释放锁；`IsWSL`/`LocalSide` 提供 side 标识。
+**单实例 lock** (`internal/instance/`)：`instance.lock`（Linux XDG 用户目录 / Windows 固定 `%LOCALAPPDATA%\serialhub\`，与 exe 位置无关）；OS 锁判定所有权，JSON 记录 pid/port/host 供发现，文件常驻，进程退出释放锁；`IsWSL`/`LocalSide`/`SideDetail` 提供 side 标识（系统侧 + 发行版/主机名细粒度）。
 
 ## CLI 参数
 
@@ -71,7 +71,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 |------|------|--------|------|
 | `--serial-port` | `-p` | `""` | 串口名（COM9 或 /dev/ttyUSB0），空则不自动连接 |
 | `--baud-rate` | `-b` | 115200 | 波特率 |
-| `--mcp-port` | `-m` | 5050 | HTTP 服务端口（MCP + WebSocket + Web 终端共用） |
+| `--mcp-port` | `-m` | 5050 | HTTP 服务端口（MCP + WebSocket + Web 终端共用；被占时自动 +1 最多试 10 个） |
 | `--host` | — | 127.0.0.1 | 监听地址 |
 | `--config` | `-c` | — | TOML 配置文件路径 |
 | `--debug` | `-D` | false | 调试模式 |
@@ -87,7 +87,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 ### `serialhub upgrade` / `serialhub uninstall`
 
 - `upgrade`：查 GitHub Releases 最新 tag → 下载 `serialhub-<ver>-<os>-<arch>.tar.gz/.zip` → sha256 校验 → 同目录临时文件原子替换自身（Windows 先改 `.old` 再延迟删除）；配置与日志保留。发布由 `.github/workflows/release.yml` 自动完成（push tag 触发）。`SERIALHUB_GITHUB_API` 可覆盖 API 基址；代理遵从 `HTTPS_PROXY`。
-- `uninstall`：默认 dry-run 列清单确认后执行（`-y` 跳过）；依次移除 6 客户端 MCP 条目（文件合并逆操作：只删 serialhub 键、空容器连容器删；Codex/Claude 用户级经官方 CLI `mcp remove`）→ 删配置日志目录（Linux/macOS `~/.config/serialhub/`，Windows exe 同目录）→ 自删二进制（Windows 延迟删除）。卸载前探 `/health`，有运行实例则拒绝；全程幂等；`-c` 指定的自定义配置不在清理范围。
+- `uninstall`：默认 dry-run 列清单确认后执行（`-y` 跳过）；依次移除 6 客户端 MCP 条目（文件合并逆操作：只删 serialhub 键、空容器连容器删；Codex/Claude 用户级经官方 CLI `mcp remove`）→ 删配置日志目录（Linux/macOS `~/.config/serialhub/`；Windows exe 同目录 config/logs + 锁目录 `%LOCALAPPDATA%\serialhub\`）→ 自删二进制（Windows 延迟删除）。卸载前探 `/health`，有运行实例则拒绝；全程幂等；`-c` 指定的自定义配置不在清理范围。
 
 配置文件格式见 `config.example.toml`。查找顺序（未指定 `-c`）：Linux/macOS 为 `./config.toml`（CWD）> `~/.config/serialhub/config.toml`（XDG_CONFIG_HOME），exe 同目录旧配置首次启动自动迁移（移动）过去；Windows 保持 exe 同目录。日志目录默认跟随用户配置目录（Linux/macOS）。
 
