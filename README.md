@@ -37,7 +37,19 @@ flowchart TB
 
 ### 方式一：预编译包（推荐）
 
-从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台压缩包（Windows `.zip` / Linux `.tar.gz`，包内有顶层版本目录）：
+**一键安装**（自动查最新版、下载并校验，可用 `SERIALHUB_GITHUB_API` 指定加速基址）：
+
+```bash
+# Linux（装到 ~/.local/bin）
+curl -fsSL https://raw.githubusercontent.com/dongly/serialhub/main/install.sh | bash
+```
+
+```powershell
+# Windows（装到 %LOCALAPPDATA%\Programs\serialhub 并加入用户 PATH）
+irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
+```
+
+或从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 手动下载对应平台压缩包（Windows `.zip` / Linux `.tar.gz`，包内有顶层版本目录）：
 
 **Linux**：
 

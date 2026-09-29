@@ -37,7 +37,19 @@ flowchart TB
 
 ### Option 1: Prebuilt archive (recommended)
 
-Download the archive for your platform from
+**One-line install** (finds the latest release, downloads and verifies; set `SERIALHUB_GITHUB_API` to use a mirror):
+
+```bash
+# Linux (installs to ~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/dongly/serialhub/main/install.sh | bash
+```
+
+```powershell
+# Windows (installs to %LOCALAPPDATA%\Programs\serialhub and adds to user PATH)
+irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
+```
+
+Or download the archive for your platform manually from
 [GitHub Releases](https://github.com/dongly/serialhub/releases) (Windows `.zip` / Linux `.tar.gz`; the archive contains a top-level version directory).
 
 **Linux**:

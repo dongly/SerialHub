@@ -2,7 +2,19 @@
 
 ## 1. 下载与安装
 
-从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的版本：
+**一键安装**（推荐，自动查最新版并校验）：
+
+```bash
+# Linux
+curl -fsSL https://raw.githubusercontent.com/dongly/serialhub/main/install.sh | bash
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
+```
+
+或从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 手动下载对应平台的版本：
 
 - **Windows**: `serialhub-x.x.x-windows-amd64.zip`
 - **Linux**: `serialhub-x.x.x-linux-amd64.tar.gz`
