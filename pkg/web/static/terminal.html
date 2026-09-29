@@ -437,11 +437,12 @@
                         statusIndicator.className = 'error';
                         break;
                     case 'serial_event':
+                        // 服务端只发语言无关的事件码，未知码按通用串口错误处理。
                         if (msg.data && msg.data.code === 'serialConnected') {
-                            terminal.writeln('\x1b[32m[SerialHub] ' + t('serialConnected') + msg.data.port + '\x1b[0m');
+                            terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data.port + '\x1b[0m');
                         } else if (msg.data && msg.data.code === 'serialDisconnected') {
-                            terminal.writeln('\x1b[33m[SerialHub] ' + t('serialDisconnected') + '\x1b[0m');
-                        } else if (msg.data && msg.data.code === 'serialError') {
+                            terminal.writeln('\x1b[33m[SerialHub] ' + t('disconnectedPort') + '\x1b[0m');
+                        } else {
                             terminal.writeln('\x1b[31m[SerialHub] ' + t('serialError') + '\x1b[0m');
                         }
                         break;

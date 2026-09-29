@@ -1,12 +1,12 @@
-// SerialHub terminal UI messages. Server-to-terminal notifications remain English;
-// only the UI and client-generated feedback are localized here.
+// SerialHub terminal UI messages. The server sends language-neutral event codes
+// (see internal/i18n WebEvent) plus raw serial data; this page renders both in
+// the language the user picked, so every user-visible string lives here.
 window.serialHubTranslations = {
     en: {
         portLabel: 'Port:', refreshPlaceholder: '-- Refresh list --', selectPlaceholder: '-- Select port --',
         baudLabel: 'Baud rate:', dataBitsLabel: 'Data bits:', parityLabel: 'Parity:', stopBitsLabel: 'Stop bits:',
         connect: 'Connect', disconnect: 'Disconnect', refresh: 'Refresh', exit: 'Exit',
         switchLanguage: 'Switch language', terminalTitle: 'SerialHub Terminal',
-        serialConnected: 'Serial port connected: ', serialDisconnected: 'Serial port disconnected',
         listPortsFailed: 'Failed to list serial ports; see service logs',
         disconnectFailed: 'Failed to disconnect serial port; see service logs',
         shutdownUnsupported: 'Remote shutdown is not supported on this instance',
@@ -29,7 +29,6 @@ window.serialHubTranslations = {
         baudLabel: '波特率:', dataBitsLabel: '数据位:', parityLabel: '校验位:', stopBitsLabel: '停止位:',
         connect: '连接', disconnect: '断开', refresh: '刷新', exit: '退出',
         switchLanguage: '切换语言', terminalTitle: 'SerialHub 终端',
-        serialConnected: '串口已连接: ', serialDisconnected: '串口已断开',
         listPortsFailed: '获取串口列表失败，请查看服务日志',
         disconnectFailed: '断开串口失败，请查看服务日志',
         shutdownUnsupported: '此实例不支持远程关闭',

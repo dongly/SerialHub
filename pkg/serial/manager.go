@@ -48,8 +48,10 @@ const (
 
 // Event 表示串口状态事件
 type Event struct {
-	Type    EventType
-	Port    string
+	Type EventType
+	Port string
+	// Message 是诊断文本（中文），只供日志与测试使用，不随 SERIALHUB_LANG
+	// 切换；面向 Web 终端的提示走语言无关的事件码（见 webSerialEvent）。
 	Message string
 }
 
@@ -603,17 +605,18 @@ func (sm *SerialManager) handleUnexpectedDisconnect(port Port, cause error) {
 		}
 	}()
 
-	reason := i18n.Serial.EventConnClosedEOF
+	// 诊断文本只进 logrus 与 errChan，保持中文，不随 SERIALHUB_LANG 切换
+	reason := "连接已关闭 (EOF)"
 	evType := EventDisconnected
 	if cause != io.EOF {
-		reason = fmt.Sprintf(i18n.Serial.EventReadError, cause)
+		reason = fmt.Sprintf("读取错误: %v", cause)
 		evType = EventError
 	}
 	logrus.Warnf("[SerialHub] 串口 %s 意外断开: %s", portName, reason)
 
 	// 非阻塞投递诊断错误：errChan 无持续消费方时不能卡住断开处理
 	//（否则事件广播与自动重连都被背压阻塞）
-	errMsg := fmt.Errorf(i18n.Serial.EventPortError, portName, reason)
+	errMsg := fmt.Errorf("串口 %s %s", portName, reason)
 	select {
 	case sm.errChan <- errMsg:
 	default:
@@ -623,7 +626,7 @@ func (sm *SerialManager) handleUnexpectedDisconnect(port Port, cause error) {
 	sm.emitEvent(Event{
 		Type:    evType,
 		Port:    portName,
-		Message: reason + i18n.Serial.EventWillReconnect,
+		Message: reason + "，将自动重连",
 	})
 
 	if sm.ctx.Err() == nil {
@@ -703,7 +706,7 @@ func (sm *SerialManager) reconnectLoop(portName, vid, pid string, gen uint64) {
 	sm.emitEvent(Event{
 		Type:    EventError,
 		Port:    portName,
-		Message: i18n.Serial.EventReconnectFailed,
+		Message: "自动重连失败：端口未恢复，请手动重连",
 	})
 }
 

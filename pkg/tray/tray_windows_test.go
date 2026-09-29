@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -669,6 +670,23 @@ func TestSetBaudRate_MultipleUpdates(t *testing.T) {
 	testutil.AssertEqual(t, 115200, tm.config.Serial.BaudRate)
 	tm.setBaudRate(230400)
 	testutil.AssertEqual(t, 230400, tm.config.Serial.BaudRate)
+}
+
+// TestStopBitsLabel 停止位显示文案：1.5 保留小数、其余取整，且能与菜单标题模板
+// 正确拼装（回归：该模板曾用 %.0f，传入字符串标签时显示为 %!f(string=1)）。
+func TestStopBitsLabel(t *testing.T) {
+	for _, tc := range []struct {
+		bits float64
+		want string
+	}{{1, "1"}, {1.5, "1.5"}, {2, "2"}} {
+		if got := stopBitsLabel(tc.bits); got != tc.want {
+			t.Errorf("stopBitsLabel(%v) = %q, 期望 %q", tc.bits, got, tc.want)
+		}
+		title := fmt.Sprintf(i18n.Tray.StopBitsMenu, stopBitsLabel(tc.bits))
+		if strings.Contains(title, "%!") {
+			t.Errorf("停止位标题格式错误: %q", title)
+		}
+	}
 }
 
 func TestSetStopBits_UpdateWhenConnected(t *testing.T) {

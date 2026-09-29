@@ -481,6 +481,7 @@ func proxyToMaster(info instance.LockInfo) error {
 		return fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL())
 	}
 	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
+	logrus.Infof("[SerialHub] Web 终端地址: %s/terminal", info.URL())
 	return mcp.RunStdioProxy(context.Background(), info.URL())
 }
 

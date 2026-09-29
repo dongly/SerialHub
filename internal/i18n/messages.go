@@ -4,7 +4,9 @@ package i18n
 // 按使用方分组为结构体，调用点引用具名字段（如 i18n.Serial.NotConnected），
 // 避免双语文案散落各处。logrus 日志（进文件排障）不在此列，保持中文。
 
-// Serial 是 pkg/serial 的用户可见消息（错误与事件文本）。
+// Serial 是 pkg/serial 的用户可见错误消息。
+// 事件诊断文本（断开原因、重连结果）只进 logrus、errChan 与 Event.Message，
+// 保持中文，不在此列，也不随 SERIALHUB_LANG 切换。
 var Serial = struct {
 	ConfigNil            string // 配置不能为空（Connect/UpdateConfig）
 	PortEmpty            string // 端口不能为空
@@ -24,11 +26,6 @@ var Serial = struct {
 	InvalidDataBits      string // 无效的数据位: %d（支持 5/6/7/8）
 	InvalidParity        string // 无效的校验位: %s（支持 none/even/odd）
 	InvalidStopBits      string // 无效的停止位: %v（支持 1/1.5/2）
-	EventConnClosedEOF   string // 连接已关闭 (EOF)
-	EventReadError       string // 读取错误: %v
-	EventPortError       string // 串口 %s %s（errChan 诊断 fmt 模板）
-	EventWillReconnect   string // ，将自动重连（拼接后缀）
-	EventReconnectFailed string // 自动重连失败：端口未恢复，请手动重连
 }{
 	ConfigNil:            T("配置不能为空", "config must not be nil"),
 	PortEmpty:            T("端口不能为空", "port must not be empty"),
@@ -48,11 +45,6 @@ var Serial = struct {
 	InvalidDataBits:      T("无效的数据位: %d（支持 5/6/7/8）", "invalid data bits: %d (supported: 5/6/7/8)"),
 	InvalidParity:        T("无效的校验位: %s（支持 none/even/odd）", "invalid parity: %s (supported: none/even/odd)"),
 	InvalidStopBits:      T("无效的停止位: %v（支持 1/1.5/2）", "invalid stop bits: %v (supported: 1/1.5/2)"),
-	EventConnClosedEOF:   T("连接已关闭 (EOF)", "connection closed (EOF)"),
-	EventReadError:       T("读取错误: %v", "read error: %v"),
-	EventPortError:       T("串口 %s %s", "serial port %s %s"),
-	EventWillReconnect:   T("，将自动重连", ", will auto-reconnect"),
-	EventReconnectFailed: T("自动重连失败：端口未恢复，请手动重连", "auto-reconnect failed: port not recovered, please reconnect manually"),
 }
 
 // Tray 是 Windows 系统托盘的菜单 UI 文本（pkg/tray）。
@@ -68,7 +60,7 @@ var Tray = struct {
 	BaudRateItem                                                   string // 波特率 %d
 	DataBitsMenu                                                   string // 数据位: %d ▶
 	DataBitsItem                                                   string // 数据位 %d
-	StopBitsMenu                                                   string // 停止位: %.0f ▶
+	StopBitsMenu                                                   string // 停止位: %s ▶
 	StopBitsItem                                                   string // 停止位 %s
 	ParityMenu                                                     string // 校验位: %s ▶
 	ParityItem                                                     string // 校验位 %s
@@ -102,7 +94,7 @@ var Tray = struct {
 	BaudRateItem:        T("波特率 %d", "Baud rate %d"),
 	DataBitsMenu:        T("数据位: %d ▶", "Data Bits: %d ▶"),
 	DataBitsItem:        T("数据位 %d", "Data bits %d"),
-	StopBitsMenu:        T("停止位: %.0f ▶", "Stop Bits: %.0f ▶"),
+	StopBitsMenu:        T("停止位: %s ▶", "Stop Bits: %s ▶"),
 	StopBitsItem:        T("停止位 %s", "Stop bits %s"),
 	ParityMenu:          T("校验位: %s ▶", "Parity: %s ▶"),
 	ParityItem:          T("校验位 %s", "Parity %s"),

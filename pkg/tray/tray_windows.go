@@ -168,12 +168,9 @@ func (t *TrayManager) createMenu() {
 		t.mDataBitsItems[bits] = item
 	}
 
-	t.mStopBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.StopBitsMenu, float64(t.config.Serial.StopBits)), i18n.Tray.StopBitsTip)
+	t.mStopBits = t.mSerialConfig.AddSubMenuItem(fmt.Sprintf(i18n.Tray.StopBitsMenu, stopBitsLabel(t.config.Serial.StopBits)), i18n.Tray.StopBitsTip)
 	for _, bits := range stopBitsList {
-		label := fmt.Sprintf("%.0f", bits)
-		if bits == 1.5 {
-			label = "1.5"
-		}
+		label := stopBitsLabel(bits)
 		if bits == t.config.Serial.StopBits {
 			label = "✓ " + label
 		}
@@ -414,6 +411,15 @@ func (t *TrayManager) setDataBits(bits int) {
 	logrus.Infof("[SerialHub] 设置数据位: %d", bits)
 }
 
+// stopBitsLabel 返回停止位的显示文案：1.5 保留一位小数，其余取整。
+// 菜单标题、子项与配置概览共用，避免各自格式化导致文案不一致。
+func stopBitsLabel(bits float64) string {
+	if bits == 1.5 {
+		return "1.5"
+	}
+	return fmt.Sprintf("%.0f", bits)
+}
+
 func (t *TrayManager) setStopBits(bits float64) {
 	wasConnected := t.serial.IsConnected()
 	if wasConnected {
@@ -437,10 +443,7 @@ func (t *TrayManager) setStopBits(bits float64) {
 
 	t.config.Serial.StopBits = bits
 	t.syncSerialConfig()
-	label := fmt.Sprintf("%.0f", bits)
-	if bits == 1.5 {
-		label = "1.5"
-	}
+	label := stopBitsLabel(bits)
 	t.mStopBits.SetTitle(fmt.Sprintf(i18n.Tray.StopBitsMenu, label))
 	t.updateConfigDisplay()
 	t.notifyConfigChangedAndReconnect()
@@ -525,10 +528,7 @@ func (t *TrayManager) getConfigSummary() string {
 	} else if parity == "odd" {
 		parity = "O"
 	}
-	stopBits := fmt.Sprintf("%.0f", t.config.Serial.StopBits)
-	if t.config.Serial.StopBits == 1.5 {
-		stopBits = "1.5"
-	}
+	stopBits := stopBitsLabel(t.config.Serial.StopBits)
 	port := t.config.Serial.Port
 	if port == "" {
 		port = i18n.Tray.PortNotSelected
