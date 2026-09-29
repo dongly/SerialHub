@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,7 +63,7 @@ func TestStdioTakeoverChild(t *testing.T) {
 	configPath = "" // stdio 主模式不落盘（persistConfig 对空路径 no-op）
 	if foreground {
 		// 前台模式（runMaster 路径）：锁被占 → 转透明代理；
-		// 主实例死亡时返回健康探测错误（由父测试断言非零退出与错误内容）。
+		// 主实例死亡后原地接管为主（父测试断言同 PID、同端口接管）。
 		if err := runMaster(config.GetDefault()); err != nil {
 			fmt.Fprintf(os.Stderr, "[SerialHub] [foreground-child] 退出: %v\n", err)
 			os.Exit(1)
@@ -323,12 +322,11 @@ func TestRunStdio_WaitReadyHasBoundedRetries(t *testing.T) {
 	}
 }
 
-// TestForegroundProxy_ExitsWithErrorWhenMasterDies：前台模式（runMaster）
-// 下第二实例发现活主后转透明代理；主实例死亡时，前台代理经 /health 探活
-// 判定失联并以非零退出报告健康探测失败——这是用户实测观察到的行为
-// （masterLost → Error: 主实例健康探测连续失败: ... connection refused），
-// 本测试把它锁定为契约（平台中性断言：dial tcp + /health）。
-func TestForegroundProxy_ExitsWithErrorWhenMasterDies(t *testing.T) {
+// TestForegroundProxy_PromotesAfterMasterExit：前台模式（runMaster）下第二
+// 实例发现活主后转透明代理；主实例死亡时，前台代理经 /health 探活判定失联
+// 后在**同一进程内原地升级为主实例**（继承死主端口），原端口恢复服务——
+// 与 --stdio 模式的接管语义一致（区别：前台代理的 stdio 是终端，无交接物）。
+func TestForegroundProxy_PromotesAfterMasterExit(t *testing.T) {
 	tmp := t.TempDir()
 	freePort := func() int {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -395,34 +393,36 @@ func TestForegroundProxy_ExitsWithErrorWhenMasterDies(t *testing.T) {
 	defer proxyCmd.Process.Kill()
 	time.Sleep(1500 * time.Millisecond) // 等其进入转发状态
 
-	// 3) 杀主实例：前台代理应经探活 2×2s 判定失联并以非零退出
+	// 3) 杀主实例：前台代理应经探活 2×2s 判定失联并原地接管成主，
+	//    原端口恢复服务（真实节奏 2s×2 + 退避 0.5s + 启动，~10s 内应完成）
 	if err := masterCmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = masterCmd.Wait()
-
-	done := make(chan error, 1)
-	go func() { done <- proxyCmd.Wait() }()
-	select {
-	case err := <-done:
-		exitErr, ok := err.(*exec.ExitError)
-		if !ok {
-			t.Fatalf("前台代理应非零退出, 实际 %v", err)
-		}
-		if code := exitErr.ExitCode(); code == 0 {
-			t.Fatalf("前台代理退出码应为非零, 实际 %d", code)
-		}
-		out := stderrProxy.String()
-		// 平台/语言无关断言：Linux 底层文案为「connect: connection refused」，
-		// Windows 为「connectex: ...actively refused it.」，两平台都含
-		// 「dial tcp」；/health 为探活目标 URL（i18n 本地化的只是外层描述）。
-		if !strings.Contains(out, "dial tcp") {
-			t.Fatalf("退出原因应含健康探测的底层网络错误(dial tcp):\n%s", out)
-		}
-		if !strings.Contains(out, "/health") {
-			t.Fatalf("退出原因应指向 /health 探测:\n%s", out)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("前台代理在主实例死亡后 20s 内未退出:\n" + stderrProxy.String())
+	if !waitHealth(20 * time.Second) {
+		t.Fatalf("主实例死亡后前台代理未接管, 原端口未恢复:\n%s", stderrProxy.String())
 	}
+
+	// 4) 接管者必须是前台代理进程本身（同 pid 原地升级），且端口继承死主
+	lockData, err := os.ReadFile(filepath.Join(tmp, "serialhub", "instance.lock"))
+	if err != nil {
+		t.Fatalf("读取接管后的实例锁失败: %v", err)
+	}
+	var lock struct {
+		Pid  int `json:"pid"`
+		Port int `json:"port"`
+	}
+	if err := json.Unmarshal(lockData, &lock); err != nil {
+		t.Fatalf("解析实例锁失败: %v\n锁内容: %s", err, lockData)
+	}
+	if lock.Pid != proxyCmd.Process.Pid {
+		t.Fatalf("接管后主 pid = %d, 期望前台代理进程 %d（原地升级应同 pid）", lock.Pid, proxyCmd.Process.Pid)
+	}
+	if lock.Port != masterPort {
+		t.Fatalf("接管端口 = %d, 期望继承死主端口 %d", lock.Port, masterPort)
+	}
+
+	// 5) 清理：接管进程即前台代理本身，终止并回收即可
+	_ = proxyCmd.Process.Kill()
+	_ = proxyCmd.Wait()
 }

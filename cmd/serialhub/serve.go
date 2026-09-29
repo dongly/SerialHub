@@ -110,25 +110,60 @@ func newSerialManagerFromConfig(cfg *config.Config) *serial.SerialManager {
 // runMaster 主实例：完整服务面（HTTP/MCP/xterm web/本侧串口）。
 func runMaster(cfg *config.Config) error {
 	// 单实例 lock：已有活主（含 tray/前台/另一终端误启动）时不报错，
-	// 与 --stdio 的发现行为一致——本进程转 stdio 透明代理挂起。
-	info, err := instance.Acquire(host, mcpPort)
-	if err != nil {
-		if errors.Is(err, instance.ErrActive) {
-			logrus.Infof("[SerialHub] 检测到主实例 %s（pid %d），本进程以代理模式运行（Ctrl+C 退出）", info.URL(), info.PID)
-			if info.Port > 0 {
-				_, _, perr := proxyToMaster(info, nil)
-				return perr
-			}
-			// 活主但元数据尚未写完：有界等待其可读
-			if live := instance.WaitForInfo(10 * time.Second); live != nil {
-				_, _, perr := proxyToMaster(*live, nil)
-				return perr
-			}
-			return errMasterMetadataUnavailable
+	// 与 --stdio 的发现行为一致——本进程转 stdio 透明代理挂起；
+	// 主实例退出后原地接管（同 PID 竞锁成主），语义与 --stdio 模式一致。
+	// 前台代理的 stdio 是终端而非 MCP 客户端：重试轮次间复用交回的连接
+	// （避免重连产生第二个终端 reader 争抢输入），最终接管成主后丢弃
+	// （服务面不读终端输入），并以无托盘、不开浏览器的形态运行。
+	tookOver := false
+	var reused *mcp.StdioHandoff
+	var budget takeoverBudget
+	port := mcpPort // 记住当前主的端口：失联接管时继承（clients 已连在那里）
+	for {
+		info, err := instance.Acquire(host, port)
+		if err == nil {
+			break // 竞得锁：成为主实例（首次启动或接管）
 		}
-		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
+		if !errors.Is(err, instance.ErrActive) {
+			return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
+		}
+		if info.Port <= 0 {
+			// 活主但元数据尚未写完：有界等待其可读
+			live := instance.WaitForInfo(10 * time.Second)
+			if live == nil {
+				return errMasterMetadataUnavailable
+			}
+			info = *live
+		}
+		logrus.Infof("[SerialHub] 检测到主实例 %s（pid %d），本进程以代理模式运行（Ctrl+C 退出）", info.URL(), info.PID)
+		port = info.Port
+		reason, handoff, perr := proxyToMaster(info, reused)
+		if reason != mcp.ProxyMasterLost {
+			if perr != nil {
+				return perr
+			}
+			return nil
+		}
+		// 失联分诊与计数与 runStdio 共用一套（takeoverBudget.classify）。
+		retry, giveUp := budget.classify()
+		if giveUp != nil {
+			return giveUp
+		}
+		if retry {
+			time.Sleep(takeoverBackoff)
+			reused = handoff // 复用同一 stdio 连接，避免重连产生第二个终端 reader
+			continue
+		}
+		logrus.Infof("[SerialHub] 主实例已失联（%v），本进程原地升级为主实例", perr)
+		tookOver = true
+		reused = handoff // 与 runStdio 对称：退避后被抢占回代理时复用本轮交接物
+		// 小退避：等旧主端口与锁完全释放，降低竞态窗口
+		time.Sleep(takeoverBackoff)
 	}
 	defer instance.Release()
+
+	// 接管继承死主端口；首次成主时 port==mcpPort，行为不变
+	mcpPort = port
 
 	// 端口占用自动迁移：Windows/WSL 双侧同用默认端口时，后启动一侧的
 	// 端口会被对侧实例的 localhost 转发（wslrelay）或其他程序占用；
@@ -151,14 +186,18 @@ func runMaster(cfg *config.Config) error {
 	sm := newSerialManagerFromConfig(cfg)
 	buf := buffer.NewDataBuffer()
 
-	enableTray := runtime.GOOS == "windows"
+	// 接管路径不重初始化托盘：接管者是被拉起的第二实例，
+	// 服务面与 stdio 接管保持一致（无托盘、无浏览器）。
+	enableTray := runtime.GOOS == "windows" && !tookOver
 	logrus.Debugf("[SerialHub] 托盘检查: GOOS=%s, enableTray=%v", runtime.GOOS, enableTray)
 
 	if enableTray {
 		return runWithTray(cfg, sm, buf)
 	}
-	// --no-browser 跳过自动打开浏览器；--minimized 仅控制窗口最小化，不再抑制浏览器
-	return runWithoutTray(cfg, sm, buf, !noBrowser)
+	// --no-browser 跳过自动打开浏览器；--minimized 仅控制窗口最小化，不再抑制浏览器。
+	// 接管路径不开浏览器（服务面无交互，与 stdio 接管语义一致）。
+	autoOpenBrowser := !noBrowser && !tookOver
+	return runWithoutTray(cfg, sm, buf, autoOpenBrowser)
 }
 
 // autoConnectSerial 启动时自动连接配置中记录的串口（上次使用/连接的端口）。
@@ -428,6 +467,37 @@ var takeoverBackoff = 500 * time.Millisecond
 // （验证「持有 stdio 连接时重试期间主再次失联」的分类行为）。
 var waitForMasterReady = instance.WaitReady
 
+// takeoverBudget 聚合「失联→接管」循环的两组计数，runMaster/runStdio 共用。
+type takeoverBudget struct {
+	takeovers      int // 真失联（锁空）后的接管尝试次数
+	waitReadyWaits int // 主持锁但 HTTP 未就绪的连续重探次数
+}
+
+// classify 对一次主失联做分诊。锁仍被持有时有两种情况，都不耗接管预算：
+// 元数据健康（Port>0）＝主只是慢启动，重探并计入 waitReadyWaits（设独立
+// 上限，防主挂死在持锁状态时代理无限自旋）；元数据退化（Port<=0，如锁
+// 文件被清）同样「没死透」，交由下一轮重探。只有锁真正空了才计入接管
+// 尝试 takeovers（超上限返回放弃错误）。
+// 返回：retry=true 回代理重探；giveUp 非 nil 预算耗尽；两者零值＝放行接管。
+func (b *takeoverBudget) classify() (retry bool, giveUp error) {
+	live := instance.Read()
+	if live != nil {
+		if live.Port > 0 {
+			b.waitReadyWaits++
+			if b.waitReadyWaits > maxWaitReadyWaits {
+				return false, errMasterMetadataUnavailable
+			}
+		}
+		return true, nil
+	}
+	b.waitReadyWaits = 0
+	b.takeovers++
+	if b.takeovers > maxStdioTakeovers {
+		return false, fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, maxStdioTakeovers)
+	}
+	return false, nil
+}
+
 // runStdio stdio 模式：发现主实例则作透明代理（RunStdioProxy）；
 // 否则本进程成为主实例（完整服务面，但不弹浏览器、无托盘），
 // 随 stdio 连接断开而整体退出（MCP local 惯例：客户端管理进程生命周期）。
@@ -438,8 +508,7 @@ var waitForMasterReady = instance.WaitReady
 func runStdio(cfg *config.Config) error {
 	var reused *mcp.StdioHandoff
 	var lastMaster *instance.LockInfo // 最近一次代理的主：接管时继承其端口
-	takeovers := 0
-	waitReadyWaits := 0
+	var budget takeoverBudget
 	for {
 		info := instance.Read()
 		if info == nil {
@@ -477,28 +546,15 @@ func runStdio(cfg *config.Config) error {
 			}
 			return nil
 		}
-		// 主实例失联后分诊。锁仍被持有时有两种情况，都不耗接管预算：
-		// ① 元数据健康（Port>0）：主只是慢启动，重探并设独立上限，防主
-		//    挂死在持锁状态时代理无限自旋（MCP 客户端会一直挂着）；
-		// ② 元数据退化（Port<=0，如锁文件被清）：同样「没死透」，交由
-		//    下一轮重探——只有锁真正空了才计入接管尝试。
-		live := instance.Read()
-		if live != nil {
-			if live.Port > 0 {
-				waitReadyWaits++
-				if waitReadyWaits > maxWaitReadyWaits {
-					return errMasterMetadataUnavailable
-				}
-			}
+		// 失联分诊与计数见 takeoverBudget.classify（与前台模式共用一套）。
+		retry, giveUp := budget.classify()
+		if giveUp != nil {
+			return giveUp
+		}
+		if retry {
 			time.Sleep(takeoverBackoff)
 			reused = conn
 			continue
-		}
-		// 锁已空：此前的等待属合法慢启动，重置其计数；接管尝试按上限计数。
-		waitReadyWaits = 0
-		takeovers++
-		if takeovers > maxStdioTakeovers {
-			return fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, maxStdioTakeovers)
 		}
 		logrus.Infof("[SerialHub] 主实例已失联（%v），原地升级为主实例", err)
 		// 小退避：等旧主端口与锁完全释放，降低竞态窗口
