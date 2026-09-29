@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -113,11 +115,27 @@ var (
 	}
 )
 
-// stdioChannelClosed 判定错误是否表示与 MCP 客户端的 stdio 通道已结束：
-// 客户端关闭 stdin（EOF）、管道已关闭，或代理自身已取消。这些情况属正常
-// 退出，不应作为错误上报。
+// stdioGone 判定 stdio 端是否被 MCP 客户端真正关闭：客户端关闭 stdin（EOF）、
+// 管道已关闭，或写回时收到 broken pipe（Linux 为 syscall.EPIPE；Windows 由 os
+// 包映射为 io.ErrClosedPipe）。不含代理自身取消——那是内部收尾，不是客户端离开。
+func stdioGone(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, syscall.EPIPE)
+}
+
+// stdioChannelClosed 判定 stdio 侧错误是否属正常退出（无需作为错误上报）：
+// 客户端已关闭，或代理自身已取消。
 func stdioChannelClosed(ctx context.Context, err error) bool {
-	return ctx.Err() != nil || errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe)
+	return stdioGone(err) || ctx.Err() != nil
+}
+
+// resolveProxyExit 决定代理最终的退出语义：客户端已关闭 stdio 时，即使
+// 「主失联」的结果先到，也必须按正常退出处理——客户端已经不在了，此时
+// 接管成一个没有客户端的主实例毫无意义，还会白占端口与串口。
+func resolveProxyExit(r proxyResult, clientGone bool) (ProxyExitReason, error) {
+	if clientGone {
+		return ProxyStdioClosed, nil
+	}
+	return r.reason, r.err
 }
 
 // RunStdioProxy 以 stdio 透明代理模式运行，返回退出原因、错误与 stdio 连接。
@@ -176,6 +194,9 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	var forwarders sync.WaitGroup
 	var pendingMu sync.Mutex
 
+	// clientGone 记录 MCP 客户端是否已真正关闭 stdio（与主失联并发时优先正常退出）。
+	var clientGone atomic.Bool
+
 	// Streamable 非流式短连接在空闲时没有活跃 TCP 连接：主实例退出后
 	// clientConn.Read 会一直阻塞等数据，感知不到失联。定期探测主实例
 	// /health，连续失败即判定失联（上层据此接管为主）。
@@ -224,6 +245,9 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 			if err != nil {
 				// 客户端关闭 stdin（EOF）或代理自身取消属正常退出，
 				// 不作为错误上报；仅真实读异常保留错误链。
+				if stdioGone(err) {
+					clientGone.Store(true)
+				}
 				if stdioChannelClosed(innerCtx, err) {
 					errCh <- proxyResult{ProxyStdioClosed, nil}
 				} else {
@@ -253,6 +277,9 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 			}
 			if err := stdioConn.Write(innerCtx, msg); err != nil {
 				// 同上：客户端侧通道已结束属正常退出。
+				if stdioGone(err) {
+					clientGone.Store(true)
+				}
 				if stdioChannelClosed(innerCtx, err) {
 					errCh <- proxyResult{ProxyStdioClosed, nil}
 				} else {
@@ -265,17 +292,20 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 
 	select {
 	case r := <-errCh:
-		logrus.Infof("[SerialHub] stdio 代理退出（%s）: %v", r.reason, r.err)
+		// 先过交接屏障再定案：等待期间客户端可能已关闭 stdio，
+		// 那时按正常退出处理，绝不交出连接去接管。
 		innerCancel()
 		_ = clientConn.Close()
 		forwarders.Wait()
-		if r.reason == ProxyMasterLost {
+		reason, err := resolveProxyExit(r, clientGone.Load())
+		logrus.Infof("[SerialHub] stdio 代理退出（%s）: %v", reason, err)
+		if reason == ProxyMasterLost {
 			pendingMu.Lock()
 			deferred := pending
 			pendingMu.Unlock()
-			return r.reason, r.err, &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: deferred}
+			return reason, err, &StdioHandoff{Conn: stdioConn, State: tracker.snapshot(), Pending: deferred}
 		}
-		return r.reason, r.err, nil
+		return reason, err, nil
 	case <-ctx.Done():
 		logrus.Info("[SerialHub] stdio 代理退出：上下文取消")
 		innerCancel()

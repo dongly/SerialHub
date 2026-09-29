@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,23 @@ func injectStubTransportsWith(t *testing.T, masterConn mcpsdk.Connection) *io.Pi
 	return pw
 }
 
+// proxyOutcome 汇总一次 RunStdioProxy 的返回，便于在 goroutine 中传递。
+type proxyOutcome struct {
+	reason  ProxyExitReason
+	err     error
+	handoff *StdioHandoff
+}
+
+// startProxyAsync 异步启动 RunStdioProxy，返回接收结果的 channel。
+func startProxyAsync(ctx context.Context, masterURL string, handoff *StdioHandoff) <-chan proxyOutcome {
+	out := make(chan proxyOutcome, 1)
+	go func() {
+		reason, err, h := RunStdioProxy(ctx, masterURL, handoff)
+		out <- proxyOutcome{reason, err, h}
+	}()
+	return out
+}
+
 // TestRunStdioProxy_MasterLostByHealthProbe：非流式短连接空闲时无活跃 TCP，
 // 代理必须靠 /health 探活感知主实例退出并返回 masterLost（可接管）。
 func TestRunStdioProxy_MasterLostByHealthProbe(t *testing.T) {
@@ -100,16 +118,7 @@ func TestRunStdioProxy_MasterLostByHealthProbe(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type proxyOutcome struct {
-		reason  ProxyExitReason
-		err     error
-		handoff *StdioHandoff
-	}
-	outcome := make(chan proxyOutcome, 1)
-	go func() {
-		reason, err, handoff := RunStdioProxy(ctx, ts.URL, nil)
-		outcome <- proxyOutcome{reason, err, handoff}
-	}()
+	outcome := startProxyAsync(ctx, ts.URL, nil)
 
 	// 主实例健在：至少数个探活周期内不得误报退出
 	select {
@@ -267,16 +276,7 @@ func TestRunStdioProxy_CapturesSessionState(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type proxyOutcome struct {
-		reason  ProxyExitReason
-		err     error
-		handoff *StdioHandoff
-	}
-	outcome := make(chan proxyOutcome, 1)
-	go func() {
-		reason, err, handoff := RunStdioProxy(ctx, ts.URL, nil)
-		outcome <- proxyOutcome{reason, err, handoff}
-	}()
+	outcome := startProxyAsync(ctx, ts.URL, nil)
 
 	// 经 stdio 管道写入 initialize 与 initialized 通知（代理应原样转发给主）
 	initParams, _ := json.Marshal(mcpsdk.InitializeParams{ProtocolVersion: "2025-06-18"})
@@ -319,16 +319,7 @@ func TestRunStdioProxy_KeepsPendingMessage(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type proxyOutcome struct {
-		reason  ProxyExitReason
-		err     error
-		handoff *StdioHandoff
-	}
-	outcome := make(chan proxyOutcome, 1)
-	go func() {
-		reason, err, handoff := RunStdioProxy(ctx, "http://127.0.0.1:1", nil)
-		outcome <- proxyOutcome{reason, err, handoff}
-	}()
+	outcome := startProxyAsync(ctx, "http://127.0.0.1:1", nil)
 
 	time.Sleep(50 * time.Millisecond) // 等代理开始转发
 	if _, err := pw.Write([]byte("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}\n")); err != nil {
@@ -348,5 +339,112 @@ func TestRunStdioProxy_KeepsPendingMessage(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("等待 masterLost 超时")
+	}
+}
+
+// emitOnceConn 主实例侧替身：首次 Read 返回预置消息（模拟主实例主动推送），
+// 之后阻塞；Write 恒成功。用于构造「向 stdio 写回时客户端已断开」的场景。
+type emitOnceConn struct {
+	msg  jsonrpc.Message
+	done chan struct{}
+}
+
+func (c *emitOnceConn) Read(ctx context.Context) (jsonrpc.Message, error) {
+	if c.msg != nil {
+		m := c.msg
+		c.msg = nil
+		return m, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.done:
+		return nil, errors.New("连接已关闭")
+	}
+}
+
+func (c *emitOnceConn) Write(context.Context, jsonrpc.Message) error { return nil }
+
+func (c *emitOnceConn) Close() error {
+	select {
+	case <-c.done:
+	default:
+		close(c.done)
+	}
+	return nil
+}
+
+func (c *emitOnceConn) SessionID() string { return "" }
+
+// TestRunStdioProxy_BrokenPipeIsNormalExit 用真实 OS 管道验证：客户端关闭读端后
+// 写回得到系统级 broken pipe（Linux 为 syscall.EPIPE），必须判定为正常退出——
+// 不带错误、也不交出可接管的连接。此处 innerCtx 尚未取消，因此 err==nil 的
+// 断言真正约束了 EPIPE 被识别，而非被「自身取消」掩盖。
+func TestRunStdioProxy_BrokenPipeIsNormalExit(t *testing.T) {
+	origStdio, origMaster := stdioTransportFactory, masterTransportFactory
+	t.Cleanup(func() { stdioTransportFactory, masterTransportFactory = origStdio, origMaster })
+
+	// stdio 读端：永不写入也永不关闭，使 client→master goroutine 稳定阻塞
+	pipeR, pipeW := io.Pipe()
+	// stdio 写端：真实 OS 管道，读端立即关闭 → 写回必得 broken pipe
+	prd, pwd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prd.Close(); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := jsonrpc.DecodeMessage([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdioTransportFactory = func() mcpsdk.Transport {
+		return &mcpsdk.IOTransport{Reader: pipeR, Writer: pwd}
+	}
+	masterTransportFactory = func(string) mcpsdk.Transport {
+		return &stubTransport{conn: &emitOnceConn{msg: msg, done: make(chan struct{})}}
+	}
+	t.Cleanup(func() {
+		_ = pipeR.Close()
+		_ = pipeW.Close()
+		_ = pwd.Close()
+	})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	select {
+	case r := <-startProxyAsync(ctx, ts.URL, nil):
+		if r.reason != ProxyStdioClosed {
+			t.Fatalf("reason = %q, 期望 stdioClosed", r.reason)
+		}
+		if r.err != nil {
+			t.Fatalf("客户端 broken pipe 属正常退出，不应带错误，实际 %v", r.err)
+		}
+		if r.handoff != nil {
+			t.Fatal("客户端已断开，不得交出可接管的 stdio 连接")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("写回 broken pipe 后应在超时前判定为正常退出")
+	}
+}
+
+// TestResolveProxyExit_PrefersClientClose 表驱动验证退出语义优先级：
+// 客户端已关闭 stdio 时一律正常退出，即使「主失联」的结果先到也不接管。
+func TestResolveProxyExit_PrefersClientClose(t *testing.T) {
+	lostErr := errors.New("主实例读取结束")
+
+	if reason, err := resolveProxyExit(proxyResult{ProxyMasterLost, lostErr}, true); reason != ProxyStdioClosed || err != nil {
+		t.Fatalf("clientGone=true 应正常退出，实际 reason=%v err=%v", reason, err)
+	}
+	if reason, err := resolveProxyExit(proxyResult{ProxyMasterLost, lostErr}, false); reason != ProxyMasterLost || err != lostErr {
+		t.Fatalf("clientGone=false 应保留可接管语义，实际 reason=%v err=%v", reason, err)
+	}
+	if reason, err := resolveProxyExit(proxyResult{ProxyStdioClosed, nil}, false); reason != ProxyStdioClosed || err != nil {
+		t.Fatalf("stdio 正常结束应原样透传，实际 reason=%v err=%v", reason, err)
 	}
 }
