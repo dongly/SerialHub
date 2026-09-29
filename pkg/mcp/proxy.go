@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -124,7 +123,8 @@ var (
 // stdioGone 判定 stdio 端是否被 MCP 客户端真正关闭：客户端关闭 stdin（EOF）、
 // 管道对象已关闭（io.ErrClosedPipe），或写回时收到 broken pipe（平台差异由
 // isBrokenPipe 在 pipe_unix.go / pipe_windows.go 中处理：Linux 为 EPIPE，
-// Windows 为 ERROR_PIPE_NOT_AVAILABLE / ERROR_BROKEN_PIPE）。
+// Windows 为 ERROR_NO_DATA(232)——Go syscall 未导出该常量也不映射
+// io.ErrClosedPipe，故需显式按数值识别。
 // 不含代理自身取消——那是内部收尾，不是客户端离开。
 func stdioGone(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || isBrokenPipe(err)
@@ -203,7 +203,7 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 	// /health，连续失败即判定失联（上层据此接管为主）。
 	probe := time.NewTicker(masterProbeInterval)
 	defer probe.Stop()
-	healthURL := strings.TrimSuffix(masterURL, "/mcp") + "/health"
+	healthURL := masterURL + "/health"
 	probeClient := &http.Client{Timeout: 2 * time.Second}
 	go func() {
 		failures := 0

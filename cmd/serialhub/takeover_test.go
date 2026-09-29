@@ -121,24 +121,35 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	// 跨平台：进程终止统一用 Process.Kill（Windows=TerminateProcess、
 	// POSIX=SIGKILL），端口与 OS 文件锁随进程消亡释放，无需信号编排。
 
-	// 选一个空闲端口（Close 后到子进程监听之间存在小竞态，测试环境可接受）
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// 选两个空闲端口：主实例用 masterPort，stdio 代理用 proxyPort。
+	// 二者必须不同——接管后新主应继承死主的 masterPort 恢复服务，
+	// 而不是用代理自己启动时的 proxyPort（Close 后到子进程监听之间
+	// 存在小竞态，测试环境可接受）。
+	freePort := func() int {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer l.Close()
+		return l.Addr().(*net.TCPAddr).Port
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	masterPort := freePort()
+	proxyPort := freePort()
 
 	// 隔离单实例锁与日志目录：POSIX 走 XDG_CONFIG_HOME，
 	// Windows 锁在 os.UserCacheDir()=%LOCALAPPDATA%，两个都指到临时目录。
 	tmp := t.TempDir()
-	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", port)
-	env := append(os.Environ(),
-		"XDG_CONFIG_HOME="+tmp,
-		"LOCALAPPDATA="+tmp,
-		"SERIALHUB_TAKEOVER_CHILD=1",
-		fmt.Sprintf("SERIALHUB_TAKEOVER_PORT=%d", port),
-	)
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", masterPort)
+	childEnv := func(port int) []string {
+		return append(os.Environ(),
+			"XDG_CONFIG_HOME="+tmp,
+			"LOCALAPPDATA="+tmp,
+			"SERIALHUB_TAKEOVER_CHILD=1",
+			fmt.Sprintf("SERIALHUB_TAKEOVER_PORT=%d", port),
+		)
+	}
+	masterEnv := childEnv(masterPort)
+	proxyEnv := childEnv(proxyPort)
 
 	waitHealth := func(timeout time.Duration) bool {
 		deadline := time.Now().Add(timeout)
@@ -159,7 +170,7 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	//    存续，防 stdio reader EOF 提前退出），stdout 无人消费。
 	var stderrA, stderrB syncBuffer
 	masterCmd := exec.Command(os.Args[0], "-test.run=^TestStdioTakeoverChild$")
-	masterCmd.Env = env
+	masterCmd.Env = masterEnv
 	masterCmd.Stderr = &stderrA
 	if _, err := masterCmd.StdinPipe(); err != nil {
 		t.Fatal(err)
@@ -175,7 +186,7 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	// 2) stdio 代理（发现活主，进入透明转发）：stdin/stdout 均为管道，
 	//    供真实 MCP 客户端经 stdio 与本进程通信。
 	proxyCmd := exec.Command(os.Args[0], "-test.run=^TestStdioTakeoverChild$")
-	proxyCmd.Env = env
+	proxyCmd.Env = proxyEnv
 	proxyCmd.Stderr = &stderrB
 	proxyIn, err := proxyCmd.StdinPipe()
 	if err != nil {
@@ -245,8 +256,10 @@ func TestStdioTakeover_ProxyPromotesAfterMasterExit(t *testing.T) {
 	if lock.Pid != proxyCmd.Process.Pid {
 		t.Fatalf("接管后主 pid = %d, 期望代理进程 %d（原地升级应同 pid）", lock.Pid, proxyCmd.Process.Pid)
 	}
-	if lock.Port != port {
-		t.Fatalf("接管端口 = %d, 期望 %d", lock.Port, port)
+	// 端口必须等于死主的 masterPort：接管继承死主端口恢复服务，
+	// 而不是用代理自己启动时的 proxyPort。
+	if lock.Port != masterPort {
+		t.Fatalf("接管端口 = %d, 期望继承死主端口 %d", lock.Port, masterPort)
 	}
 
 	// 7) 同一客户端会话再次 tools/list：客户端不会重新 initialize，

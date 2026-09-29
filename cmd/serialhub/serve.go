@@ -432,12 +432,18 @@ var waitForMasterReady = instance.WaitReady
 // 重新竞锁后以主身份继续服务；若锁已被新主占据则回到代理模式。
 func runStdio(cfg *config.Config) error {
 	var reused *mcp.StdioHandoff
+	var lastMaster *instance.LockInfo // 最近一次代理的主：接管时继承其端口
 	takeovers := 0
 	for {
 		info := instance.Read()
 		if info == nil {
-			// 无活主：尝试成为主实例（竞锁失败则改走代理）
-			err := serveAsStdioMaster(cfg, reused)
+			// 无活主：尝试成为主实例（竞锁失败则改走代理）。
+			// 端口：首次成主用本进程 mcpPort；接管继承死主端口。
+			port := mcpPort
+			if lastMaster != nil && lastMaster.Port > 0 {
+				port = lastMaster.Port
+			}
+			err := serveAsStdioMaster(cfg, reused, port)
 			if !errors.Is(err, instance.ErrActive) {
 				return err
 			}
@@ -457,6 +463,7 @@ func runStdio(cfg *config.Config) error {
 		}
 
 		// 此处 info 为活主：以透明代理运行
+		lastMaster = info
 		reason, err, conn := proxyToMaster(*info, reused)
 		if reason != mcp.ProxyMasterLost {
 			if err != nil {
@@ -464,9 +471,16 @@ func runStdio(cfg *config.Config) error {
 			}
 			return nil
 		}
+		// WaitReady 型失联（主仍持锁、HTTP 未就绪）不算接管尝试：
+		// 它只是慢启动，让循环重探；只有锁真正空了才计数接管。
+		if live := instance.Read(); live != nil && live.Port > 0 {
+			time.Sleep(takeoverBackoff)
+			reused = conn
+			continue
+		}
 		takeovers++
-		if takeovers > maxStdioTakeovers {
-			return fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, takeovers)
+		if takeovers >= maxStdioTakeovers {
+			return fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, maxStdioTakeovers)
 		}
 		logrus.Infof("[SerialHub] 主实例已失联（%v），原地升级为主实例", err)
 		// 小退避：等旧主端口与锁完全释放，降低竞态窗口
@@ -499,20 +513,19 @@ func proxyToMaster(info instance.LockInfo, reused *mcp.StdioHandoff) (mcp.ProxyE
 // nil 则全新连接 stdin/stdout。竞锁失败返回 instance.ErrActive，
 // 由调用方回到代理模式。
 // 注意：接管路径使用启动时的配置快照，不重新加载配置文件。
-func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff) error {
+// port 指定监听端口：首次成主用本进程 mcpPort，接管则继承死主端口
+// （clients 已经连在那里），并按 runMaster 同款策略回退相邻端口。
+func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff, port int) error {
 	logrus.Info("[SerialHub] stdio 模式：本进程成为主实例")
 	// 单实例 lock：与前台主实例互斥。若此刻另一进程抢先成为主
 	// （Read 与 Acquire 之间的竞态），返回 ErrActive 由调用方回代理。
-	if _, err := instance.Acquire(host, mcpPort); err != nil {
+	if _, err := instance.Acquire(host, port); err != nil {
 		if errors.Is(err, instance.ErrActive) {
 			return err
 		}
 		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
 	}
 	defer instance.Release()
-
-	// 成为主实例后才回写配置；stdio 代理模式不落盘
-	persistConfig(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -531,7 +544,20 @@ func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff) error {
 	sm := newSerialManagerFromConfig(cfg)
 	buf := buffer.NewDataBuffer()
 
-	wsSrv, err := web.NewWebSocketServer(host, mcpPort, func() string {
+	// 与 runMaster 同款端口回退：死主端口可能仍处于 TIME_WAIT 或被临时占用。
+	actualPort, err := resolveListenPort(host, port)
+	if err != nil {
+		return fmt.Errorf(i18n.ServeErrors.SelectPortFailed, err)
+	}
+	// 同步全局：下游 startServices/HTTP 监听均按包级 mcpPort 建址
+	//（与 runMaster 的端口迁移先例一致）。
+	mcpPort = actualPort
+	if actualPort != port {
+		logrus.Infof("[SerialHub] 请求端口 %d 不可用，回退到 %d", port, actualPort)
+		instance.UpdatePort(actualPort)
+	}
+
+	wsSrv, err := web.NewWebSocketServer(host, actualPort, func() string {
 		if sm.IsConnected() {
 			return sm.GetConfig().String()
 		}
