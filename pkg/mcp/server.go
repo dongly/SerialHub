@@ -208,9 +208,6 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 			http.Error(w, "Terminal page not found", http.StatusInternalServerError)
 			return
 		}
-		// 终端页与静态资源禁用浏览器缓存：embed 资源无 ModTime/ETag，
-		// 升级重启后浏览器可能继续用旧页面（与新版服务端协议错配）。
-		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(data)
 	})
@@ -237,11 +234,7 @@ func (s *MCPServer) StartHTTPServer(addr string, autoOpenBrowser bool) (*http.Se
 	if err != nil {
 		logrus.Warnf("[SerialHub] 静态文件系统初始化失败: %v", err)
 	} else {
-		fileServer := http.FileServer(http.FS(staticFS))
-		mux.Handle("/static/", http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Cache-Control", "no-cache")
-			fileServer.ServeHTTP(w, r)
-		})))
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	}
 
 	corsMux := s.withCORS(mux)
