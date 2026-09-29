@@ -96,7 +96,7 @@ type proxyOutcome struct {
 func startProxyAsync(ctx context.Context, masterURL string, handoff *StdioHandoff) <-chan proxyOutcome {
 	out := make(chan proxyOutcome, 1)
 	go func() {
-		reason, err, h := RunStdioProxy(ctx, masterURL, handoff)
+		reason, h, err := RunStdioProxy(ctx, masterURL, handoff)
 		out <- proxyOutcome{reason, err, h}
 	}()
 	return out
@@ -159,7 +159,7 @@ func TestRunStdioProxy_MasterConnectFailed(t *testing.T) {
 
 	// 端口 1 几乎不可能有服务；无论 Connect 立即失败还是探活兜底，
 	// 都必须返回 masterLost。
-	reason, err, handoff := RunStdioProxy(context.Background(), "http://127.0.0.1:1", nil)
+	reason, handoff, err := RunStdioProxy(context.Background(), "http://127.0.0.1:1", nil)
 	if reason != ProxyMasterLost {
 		t.Fatalf("reason = %q, 期望 masterLost", reason)
 	}
@@ -177,7 +177,7 @@ func TestRunStdioProxy_StdioClosed(t *testing.T) {
 	pw := injectStubTransports(t)
 	pw.Close() // MCP 客户端断开 → Read 立即 EOF
 
-	reason, err, handoff := RunStdioProxy(context.Background(), "http://127.0.0.1:1", nil)
+	reason, handoff, err := RunStdioProxy(context.Background(), "http://127.0.0.1:1", nil)
 	if reason != ProxyStdioClosed {
 		t.Fatalf("reason = %q, 期望 stdioClosed", reason)
 	}

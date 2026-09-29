@@ -116,12 +116,12 @@ func runMaster(cfg *config.Config) error {
 		if errors.Is(err, instance.ErrActive) {
 			logrus.Infof("[SerialHub] 检测到主实例 %s（pid %d），本进程以代理模式运行（Ctrl+C 退出）", info.URL(), info.PID)
 			if info.Port > 0 {
-				_, perr, _ := proxyToMaster(info, nil)
+				_, _, perr := proxyToMaster(info, nil)
 				return perr
 			}
 			// 活主但元数据尚未写完：有界等待其可读
 			if live := instance.WaitForInfo(10 * time.Second); live != nil {
-				_, perr, _ := proxyToMaster(*live, nil)
+				_, _, perr := proxyToMaster(*live, nil)
 				return perr
 			}
 			return errMasterMetadataUnavailable
@@ -464,7 +464,7 @@ func runStdio(cfg *config.Config) error {
 
 		// 此处 info 为活主：以透明代理运行
 		lastMaster = info
-		reason, err, conn := proxyToMaster(*info, reused)
+		reason, conn, err := proxyToMaster(*info, reused)
 		if reason != mcp.ProxyMasterLost {
 			if err != nil {
 				return err
@@ -496,12 +496,12 @@ func runStdio(cfg *config.Config) error {
 // 就绪等待失败时统一归为失联（ProxyMasterLost），交由上层有界重试重新
 // 探锁：锁空则原地升级为主，锁仍被占则继续等待/代理；已持有的 stdio
 // 连接（接管重试中）原样保留，避免代理直接退出丢弃连接。
-func proxyToMaster(info instance.LockInfo, reused *mcp.StdioHandoff) (mcp.ProxyExitReason, error, *mcp.StdioHandoff) {
+func proxyToMaster(info instance.LockInfo, reused *mcp.StdioHandoff) (mcp.ProxyExitReason, *mcp.StdioHandoff, error) {
 	if !waitForMasterReady(info, 15*time.Second) {
 		// 元数据存在但 HTTP 未就绪：主实例可能在启动中，也可能已死。
 		// 首次无连接时 handoff 为 nil，升级时才创建 stdin reader
 		//（此刻尚无 reader，不存在争抢）。
-		return mcp.ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL()), reused
+		return mcp.ProxyMasterLost, reused, fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL())
 	}
 	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
 	logrus.Infof("[SerialHub] Web 终端地址: %s/terminal", info.URL())
@@ -526,6 +526,9 @@ func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff, port int)
 		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
 	}
 	defer instance.Release()
+
+	// 成为主实例后才回写配置；stdio 代理模式不落盘
+	persistConfig(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -84,7 +84,7 @@ func TestProxyToMaster_RetriesTakeoverWhenMasterNotReady(t *testing.T) {
 
 	// 持有 stdio 连接的接管重试：按 masterLost 返回并保留 handoff
 	handoff := &mcp.StdioHandoff{}
-	reason, err, got := proxyToMaster(info, handoff)
+	reason, got, err := proxyToMaster(info, handoff)
 	if reason != mcp.ProxyMasterLost {
 		t.Fatalf("reason = %q, 期望 masterLost（应继续有界重试）", reason)
 	}
@@ -97,7 +97,7 @@ func TestProxyToMaster_RetriesTakeoverWhenMasterNotReady(t *testing.T) {
 
 	// 初始启动（无 stdio 连接）：同样按 masterLost 返回，进入有界重试；
 	// 首次无连接时 handoff 仍为 nil，升级时才创建 stdin reader。
-	reason, err, got = proxyToMaster(info, nil)
+	reason, got, err = proxyToMaster(info, nil)
 	if reason != mcp.ProxyMasterLost {
 		t.Fatalf("reason = %q, 期望 masterLost（首次等待失败也应重试）", reason)
 	}
