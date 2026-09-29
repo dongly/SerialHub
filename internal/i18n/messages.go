@@ -336,6 +336,7 @@ var WebEvent = struct {
 var ServeErrors = struct {
 	MetadataUnavailable, ListenFailed, PortsOccupied, LockFailed, SelectPortFailed string
 	MasterStartFailed, WebSocketFailed, HTTPStartFailed, MasterNotReady            string
+	TakeoverGiveUp                                                                 string
 }{
 	MetadataUnavailable: T("本机已有运行中的主实例，但其服务元数据暂不可读；请稍后重试或直接启动服务", "a master instance is running but its metadata is not readable yet; retry shortly"),
 	ListenFailed:        T("监听 %s 失败: %w", "failed to listen on %s: %w"),
@@ -346,4 +347,5 @@ var ServeErrors = struct {
 	WebSocketFailed:     T("创建 WebSocket 服务失败: %w", "failed to create WebSocket service: %w"),
 	HTTPStartFailed:     T("主服务启动失败（%s 监听失败或初始化异常）", "failed to start main service (listen or initialization failed at %s)"),
 	MasterNotReady:      T("检测到主实例 %s，但其 HTTP 服务未就绪；暂无法代理，请稍后重试", "master %s is running but its HTTP service is not ready; retry shortly"),
+	TakeoverGiveUp:      T("主实例失联后的接管尝试已达上限（%d 次），放弃", "takeover attempts after master loss reached the limit (%d), giving up"),
 }

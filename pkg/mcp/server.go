@@ -320,6 +320,18 @@ func (s *MCPServer) RunStdioTransport(ctx context.Context) error {
 	return s.mcpServer.Run(ctx, &mcpsdk.StdioTransport{})
 }
 
+// reuseTransport 把既有 Connection 伪装成 Transport：Connect 直接返回该连接。
+type reuseTransport struct{ conn mcpsdk.Connection }
+
+func (t reuseTransport) Connect(context.Context) (mcpsdk.Connection, error) { return t.conn, nil }
+
+// RunStdioConnection 在既有 stdio 连接上运行服务（代理原地接管场景）：
+// 复用代理建立的同一 reader goroutine，避免二次连接 stdin 产生两个
+// reader 争抢字节流。
+func (s *MCPServer) RunStdioConnection(ctx context.Context, conn mcpsdk.Connection) error {
+	return s.mcpServer.Run(ctx, reuseTransport{conn: conn})
+}
+
 // Stop stops the MCP server
 func (s *MCPServer) Stop() error {
 	logrus.Infoln("[SerialHub] MCP 服务器已停止")

@@ -24,6 +24,7 @@ import (
 	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/dongly/serialhub/pkg/tray"
 	"github.com/dongly/serialhub/pkg/web"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -116,11 +117,13 @@ func runMaster(cfg *config.Config) error {
 		if errors.Is(err, instance.ErrActive) {
 			logrus.Infof("[SerialHub] 检测到主实例 %s（pid %d），本进程以代理模式运行（Ctrl+C 退出）", info.URL(), info.PID)
 			if info.Port > 0 {
-				return proxyToMaster(info)
+				_, perr, _ := proxyToMaster(info, nil)
+				return perr
 			}
 			// 活主但元数据尚未写完：有界等待其可读
 			if live := instance.WaitForInfo(10 * time.Second); live != nil {
-				return proxyToMaster(*live)
+				_, perr, _ := proxyToMaster(*live, nil)
+				return perr
 			}
 			return errMasterMetadataUnavailable
 		}
@@ -410,30 +413,88 @@ func closeSerialBounded(sm *serial.SerialManager, timeout time.Duration) bool {
 	}
 }
 
+// maxStdioTakeovers 限制单进程内「代理失联→原地接管」的最大尝试次数，
+// 防止主实例反复快速崩溃导致的病态循环。
+const maxStdioTakeovers = 5
+
+// takeoverBackoff 是判定主失联后、原地接管前的退避；包级变量便于测试注入。
+var takeoverBackoff = 500 * time.Millisecond
+
 // runStdio stdio 模式：发现主实例则作透明代理（RunStdioProxy）；
 // 否则本进程成为主实例（完整服务面，但不弹浏览器、无托盘），
 // 随 stdio 连接断开而整体退出（MCP local 惯例：客户端管理进程生命周期）。
+//
+// 代理与主失联（/health 探活连续失败）时原地升级为主实例：复用既有
+// stdio 连接（同一 reader goroutine，避免两个 reader 争抢 os.Stdin），
+// 重新竞锁后以主身份继续服务；若锁已被新主占据则回到代理模式。
 func runStdio(cfg *config.Config) error {
-	if info := instance.Read(); info != nil {
-		if info.Port > 0 {
-			return proxyToMaster(*info)
+	var reused mcpsdk.Connection
+	takeovers := 0
+	for {
+		info := instance.Read()
+		if info == nil {
+			// 无活主：尝试成为主实例（竞锁失败则改走代理）
+			err := serveAsStdioMaster(cfg, reused)
+			if !errors.Is(err, instance.ErrActive) {
+				return err
+			}
+			// 竞态：另一进程抢先成为主，等其元数据可读后回代理
+			if live := instance.WaitForInfo(10 * time.Second); live != nil {
+				info = live
+			} else {
+				return errMasterMetadataUnavailable
+			}
+		} else if info.Port <= 0 {
+			// 有活主但元数据尚未写完：有界等待其可读
+			if live := instance.WaitForInfo(10 * time.Second); live != nil {
+				info = live
+			} else {
+				return errMasterMetadataUnavailable
+			}
 		}
-		// 有活主但元数据尚未写完：有界等待其可读
-		if live := instance.WaitForInfo(10 * time.Second); live != nil {
-			return proxyToMaster(*live)
-		}
-		return errMasterMetadataUnavailable
-	}
 
-	logrus.Info("[SerialHub] stdio 模式：未发现主实例，本进程成为主实例")
+		// 此处 info 为活主：以透明代理运行
+		reason, err, conn := proxyToMaster(*info, reused)
+		if reason != mcp.ProxyMasterLost {
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+		takeovers++
+		if takeovers > maxStdioTakeovers {
+			return fmt.Errorf(i18n.ServeErrors.TakeoverGiveUp, takeovers)
+		}
+		logrus.Infof("[SerialHub] 主实例已失联（%v），原地升级为主实例", err)
+		// 小退避：等旧主端口与锁完全释放，降低竞态窗口
+		time.Sleep(takeoverBackoff)
+		reused = conn
+	}
+}
+
+// proxyToMaster 等待主实例 HTTP 就绪后以 stdio 透明代理运行。
+// 主实例先持锁写元数据、后启动 HTTP；此处的等待不改变锁所有权。
+// reused 非 nil 时复用该 stdio 连接（上轮代理交回），nil 则全新连接。
+func proxyToMaster(info instance.LockInfo, reused mcpsdk.Connection) (mcp.ProxyExitReason, error, mcpsdk.Connection) {
+	if !instance.WaitReady(info, 15*time.Second) {
+		return "", fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL()), nil
+	}
+	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
+	logrus.Infof("[SerialHub] Web 终端地址: %s/terminal", info.URL())
+	return mcp.RunStdioProxy(context.Background(), info.URL(), reused)
+}
+
+// serveAsStdioMaster 以主实例身份运行（stdio 模式完整服务面）。
+// reused 非 nil 时复用该 stdio 连接服务（原地接管场景）；nil 则全新连接
+// stdin/stdout。竞锁失败返回 instance.ErrActive，由调用方回到代理模式。
+// 注意：接管路径使用启动时的配置快照，不重新加载配置文件。
+func serveAsStdioMaster(cfg *config.Config, reused mcpsdk.Connection) error {
+	logrus.Info("[SerialHub] stdio 模式：本进程成为主实例")
 	// 单实例 lock：与前台主实例互斥。若此刻另一进程抢先成为主
-	// （Read 与 Acquire 之间的竞态），回退到代理模式（等待其对 HTTP 就绪）。
+	// （Read 与 Acquire 之间的竞态），返回 ErrActive 由调用方回代理。
 	if _, err := instance.Acquire(host, mcpPort); err != nil {
 		if errors.Is(err, instance.ErrActive) {
-			if live := instance.WaitForInfo(10 * time.Second); live != nil {
-				return proxyToMaster(*live)
-			}
-			return errMasterMetadataUnavailable
+			return err
 		}
 		return fmt.Errorf(i18n.ServeErrors.LockFailed, err)
 	}
@@ -475,23 +536,20 @@ func runStdio(cfg *config.Config) error {
 		return errors.New(i18n.ServeErrors.MasterStartFailed)
 	}
 
-	if err := svcs.mcp.RunStdioTransport(ctx); err != nil {
-		logAsync(logrus.DebugLevel, fmt.Sprintf("[SerialHub] stdio 传输结束: %v", err))
+	// 原地接管时复用代理建立的 stdio 连接（同一 reader goroutine），
+	// 避免二次连接 stdin 造成两个 reader 争抢字节流。
+	var serveErr error
+	if reused != nil {
+		serveErr = svcs.mcp.RunStdioConnection(ctx, reused)
+	} else {
+		serveErr = svcs.mcp.RunStdioTransport(ctx)
+	}
+	if serveErr != nil {
+		logAsync(logrus.DebugLevel, fmt.Sprintf("[SerialHub] stdio 传输结束: %v", serveErr))
 	}
 	// 退出路径控制线程不同步写日志：通知由 gracefulShutdown/有界收尾输出
 	gracefulShutdown(sm, svcs)
 	return nil
-}
-
-// proxyToMaster 等待主实例 HTTP 就绪后以 stdio 透明代理运行。
-// 主实例先持锁写元数据、后启动 HTTP；此处的等待不改变锁所有权。
-func proxyToMaster(info instance.LockInfo) error {
-	if !instance.WaitReady(info, 15*time.Second) {
-		return fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL())
-	}
-	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
-	logrus.Infof("[SerialHub] Web 终端地址: %s/terminal", info.URL())
-	return mcp.RunStdioProxy(context.Background(), info.URL())
 }
 
 func createSaveConfigFunc(cfg *config.Config) func(*serial.Config) {
