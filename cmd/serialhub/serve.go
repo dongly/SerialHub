@@ -202,7 +202,11 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 		autoConnectSerial(sm, cfg)
 
-		wsSrv, err := web.NewWebSocketServer(host, mcpPort, func() string {
+		// 注意用 = 而非 :=：把服务器赋给外层 wsSrv，避免闭包局部变量
+		// 遮蔽——事件 handler（上面 SetEventHandler 注册的闭包）捕获的是
+		// 外层 wsSrv，遮蔽会让 serial_event 广播永远发到 nil 服务器上。
+		var err error
+		wsSrv, err = web.NewWebSocketServer(host, mcpPort, func() string {
 			if sm.IsConnected() {
 				return sm.GetConfig().String()
 			}
