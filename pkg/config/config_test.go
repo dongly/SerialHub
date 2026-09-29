@@ -330,3 +330,21 @@ port = "COM1"
 		t.Errorf("expected baud rate 38400, got %d", loaded.Serial.BaudRate)
 	}
 }
+
+// TestAutoConnect 启动自动连接开关：默认开启，可被配置文件关闭。
+func TestAutoConnect(t *testing.T) {
+	if !GetDefault().Serial.AutoConnect {
+		t.Error("默认 AutoConnect 应为 true")
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[serial]\nautoConnect = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Serial.AutoConnect {
+		t.Error("autoConnect = false 应生效")
+	}
+}

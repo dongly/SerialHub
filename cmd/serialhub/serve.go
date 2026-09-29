@@ -159,6 +159,23 @@ func runMaster(cfg *config.Config) error {
 	return runWithoutTray(cfg, sm, buf, !noBrowser)
 }
 
+// autoConnectSerial 启动时自动连接配置中记录的串口（上次使用/连接的端口）。
+// 端口为空时跳过；连接失败只记 debug 日志，不阻塞启动（用户可稍后手动连接）。
+func autoConnectSerial(sm *serial.SerialManager, cfg *config.Config) {
+	if !cfg.Serial.AutoConnect {
+		logrus.Debug("[SerialHub] 已禁用启动自动连接串口")
+		return
+	}
+	if sm.GetConfig().Port == "" {
+		return
+	}
+	if err := sm.Connect(); err != nil {
+		logrus.Debugf("[SerialHub] 自动连接串口失败: %v", err)
+		return
+	}
+	logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
+}
+
 func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer) error {
 	logrus.Debug("[SerialHub] 系统托盘模式已启用")
 
@@ -169,15 +186,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 
 	trayMgr := tray.NewTrayManager(sm, cfg, host, mcpPort, appVersion, minimized)
 	saveConfigFunc := createSaveConfigFunc(cfg)
-	trayMgr.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
-		saveConfigFunc(&serial.Config{
-			Port:     port,
-			BaudRate: baudRate,
-			DataBits: dataBits,
-			Parity:   parity,
-			StopBits: float32(stopBits),
-		})
-	})
+	trayMgr.SetOnConfigChanged(saveConfigFunc)
 	sm.SetConfigChangeHandler(saveConfigFunc)
 
 	var wsSrv *web.WebSocketServer
@@ -191,11 +200,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		_, cancel := context.WithCancel(context.Background())
 		cancelFunc = cancel
 
-		if err := sm.Connect(); err != nil {
-			logrus.Debugf("[SerialHub] 自动连接串口失败: %v", err)
-		} else {
-			logrus.Infof("[SerialHub] 已自动连接串口: %s", sm.GetConfig().String())
-		}
+		autoConnectSerial(sm, cfg)
 
 		wsSrv, err := web.NewWebSocketServer(host, mcpPort, func() string {
 			if sm.IsConnected() {
@@ -351,6 +356,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	}
 
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
+	autoConnectSerial(sm, cfg)
 
 	addr := fmt.Sprintf("%s:%d", host, mcpPort)
 	svcs := startServices(sm, wsSrv, buf, autoOpenBrowser)
@@ -460,7 +466,6 @@ func runStdio(cfg *config.Config) error {
 	}
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
-
 	svcs := startServices(sm, wsSrv, buf, false)
 	if svcs == nil {
 		return errors.New(i18n.ServeErrors.MasterStartFailed)
@@ -486,6 +491,9 @@ func proxyToMaster(info instance.LockInfo) error {
 }
 
 func createSaveConfigFunc(cfg *config.Config) func(*serial.Config) {
+	if configPath == "" {
+		logrus.Warn("[SerialHub] 未指定配置文件路径，托盘/串口配置修改不会持久化")
+	}
 	return func(serialCfg *serial.Config) {
 		cfg.Serial.Port = serialCfg.Port
 		cfg.Serial.BaudRate = serialCfg.BaudRate

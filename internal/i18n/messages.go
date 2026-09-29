@@ -82,6 +82,7 @@ var Tray = struct {
 	SelectPortItemTip                                              string // 选择串口 %s
 	SeparatorTip, BaudRateTip, DataBitsTip, StopBitsTip, ParityTip string
 	CurrentConfigTip, NetworkStatusTip                             string
+	AutoConnectMenu, AutoConnectTip                                string
 }{
 	MenuSerialTip:       T("串口连接", "Serial connection"),
 	MenuSelectPort:      T("选择串口 ▶", "Select Port ▶"),
@@ -121,6 +122,8 @@ var Tray = struct {
 	ParityTip:           T("选择校验位", "Choose parity"),
 	CurrentConfigTip:    T("当前配置", "Current configuration"),
 	NetworkStatusTip:    T("网络状态", "Network status"),
+	AutoConnectMenu:     T("自动连接上次端口", "Auto-connect last port"),
+	AutoConnectTip:      T("启动时自动连接上次使用的串口（菜单项切换开/关）", "Connect the last used serial port on startup (toggle to enable/disable)"),
 }
 
 // CLI 是根命令及 setup、upgrade 的帮助和交互文本。

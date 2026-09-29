@@ -27,7 +27,7 @@ const (
 )
 
 type OnReadyFunc func()
-type OnConfigChangedFunc func(port string, baudRate int, dataBits int, parity string, stopBits float64)
+type OnConfigChangedFunc func(serialCfg *serial.Config)
 
 type TrayManager struct {
 	serial          *serial.SerialManager

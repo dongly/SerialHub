@@ -14,6 +14,8 @@ type SerialConfig struct {
 	DataBits int
 	Parity   string
 	StopBits float64
+	// AutoConnect 启动时是否自动连接上次使用的串口端口（默认 true）。
+	AutoConnect bool
 }
 
 type MCPConfig struct {
@@ -40,11 +42,12 @@ type Config struct {
 func GetDefault() *Config {
 	return &Config{
 		Serial: SerialConfig{
-			Port:     "",
-			BaudRate: 115200,
-			DataBits: 8,
-			Parity:   "none",
-			StopBits: 1,
+			Port:        "",
+			BaudRate:    115200,
+			DataBits:    8,
+			Parity:      "none",
+			StopBits:    1,
+			AutoConnect: true,
 		},
 		MCP: MCPConfig{
 			HTTPPort: DefaultHTTPPort,

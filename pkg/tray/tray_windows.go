@@ -28,7 +28,7 @@ const (
 )
 
 type OnReadyFunc func()
-type OnConfigChangedFunc func(port string, baudRate int, dataBits int, parity string, stopBits float64)
+type OnConfigChangedFunc func(serialCfg *serial.Config)
 
 type TrayManager struct {
 	serial          *serial.SerialManager
@@ -60,6 +60,7 @@ type TrayManager struct {
 	mNetworkStatus  *systray.MenuItem
 	mOpenTerminal   *systray.MenuItem
 	mShowLog        *systray.MenuItem
+	mAutoConnect    *systray.MenuItem
 }
 
 var baudRates = []int{9600, 19200, 38400, 57600, 115200, 230400}
@@ -187,6 +188,16 @@ func (t *TrayManager) createMenu() {
 		item := t.mParity.AddSubMenuItem(label, fmt.Sprintf(i18n.Tray.ParityItem, p))
 		t.mParityItems[p] = item
 	}
+
+	// 3b. 自动连接上次端口开关（✓ 表示启用）
+	t.mAutoConnect = systray.AddMenuItem(autoConnectLabel(t.config.Serial.AutoConnect), i18n.Tray.AutoConnectTip)
+	go func() {
+		for range t.mAutoConnect.ClickedCh {
+			t.toggleAutoConnect()
+		}
+	}()
+
+	systray.AddSeparator()
 
 	// 4. 当前配置显示
 	t.mCurrentConfig = systray.AddMenuItem(t.getConfigSummary(), i18n.Tray.CurrentConfigTip)
@@ -483,7 +494,25 @@ func (t *TrayManager) setParity(parity string) {
 	logrus.Infof("[SerialHub] 设置校验位: %s", parity)
 }
 
-// syncSerialConfig 同步更新 SerialManager 的配置
+// autoConnectLabel 返回「自动连接上次端口」菜单标题：启用时加 ✓ 前缀。
+func autoConnectLabel(enabled bool) string {
+	if enabled {
+		return "✓ " + i18n.Tray.AutoConnectMenu
+	}
+	return i18n.Tray.AutoConnectMenu
+}
+
+// toggleAutoConnect 切换「启动时自动连接上次端口」。开关值直接写入共享配置，
+// 落盘由 onConfigChanged 回调（createSaveConfigFunc）负责：仅当指定了配置文件
+// 路径时写盘（见 serve.go）。
+func (t *TrayManager) toggleAutoConnect() {
+	t.config.Serial.AutoConnect = !t.config.Serial.AutoConnect
+	t.mAutoConnect.SetTitle(autoConnectLabel(t.config.Serial.AutoConnect))
+	t.notifyConfigChangedAndReconnect()
+	logrus.Infof("[SerialHub] 自动连接上次端口: %v", t.config.Serial.AutoConnect)
+}
+
+// syncSerialConfig 同步更新 SerialManager 的配置。
 func (t *TrayManager) syncSerialConfig() {
 	serialCfg := &serial.Config{
 		Port:     t.config.Serial.Port,
@@ -499,7 +528,13 @@ func (t *TrayManager) syncSerialConfig() {
 
 func (t *TrayManager) notifyConfigChangedAndReconnect() {
 	if t.onConfigChanged != nil {
-		t.onConfigChanged(t.config.Serial.Port, t.config.Serial.BaudRate, t.config.Serial.DataBits, t.config.Serial.Parity, t.config.Serial.StopBits)
+		t.onConfigChanged(&serial.Config{
+			Port:     t.config.Serial.Port,
+			BaudRate: t.config.Serial.BaudRate,
+			DataBits: t.config.Serial.DataBits,
+			Parity:   t.config.Serial.Parity,
+			StopBits: float32(t.config.Serial.StopBits),
+		})
 	}
 }
 

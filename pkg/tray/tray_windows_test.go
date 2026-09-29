@@ -27,6 +27,23 @@ func getTestPort() string {
 	return port
 }
 
+// configSummaryExpected 组装 i18n 化的 getConfigSummary 期望值，
+// 使断言在 zh/en 两种语言下都成立（与 getConfigSummary 的拼接逻辑一致）。
+func configSummaryExpected(port string, baud, dataBits int, parity string, stopBits float64) string {
+	switch parity {
+	case "none":
+		parity = "N"
+	case "even":
+		parity = "E"
+	case "odd":
+		parity = "O"
+	}
+	if port == "" {
+		port = i18n.Tray.PortNotSelected
+	}
+	return fmt.Sprintf(i18n.Tray.ConfigSummary, port, baud, dataBits, parity, stopBitsLabel(stopBits))
+}
+
 func TestTrayState(t *testing.T) {
 	states := []TrayState{TrayIdle, TrayConnected, TrayError}
 	for _, state := range states {
@@ -347,20 +364,20 @@ func TestGetConfigSummary(t *testing.T) {
 	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	// 默认配置: 115200, 8, none, 1 → "当前: 未选择 115200 8N1"
-	testutil.AssertEqual(t, "当前: 未选择 115200 8N1", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "none", 1), trayMgr.getConfigSummary())
 
 	// even parity → "当前: 未选择 115200 8E1"
 	conf.Serial.Parity = "even"
-	testutil.AssertEqual(t, "当前: 未选择 115200 8E1", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "even", 1), trayMgr.getConfigSummary())
 
 	// odd parity → "当前: 未选择 115200 8O1"
 	conf.Serial.Parity = "odd"
-	testutil.AssertEqual(t, "当前: 未选择 115200 8O1", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "odd", 1), trayMgr.getConfigSummary())
 
 	// 1.5 stopBits → "当前: 未选择 115200 8N1.5"
 	conf.Serial.Parity = "none"
 	conf.Serial.StopBits = 1.5
-	testutil.AssertEqual(t, "当前: 未选择 115200 8N1.5", trayMgr.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "none", 1.5), trayMgr.getConfigSummary())
 }
 
 // TestGetNetworkStatus 测试 getNetworkStatus 函数
@@ -395,8 +412,8 @@ func TestGetSerialMenuTitle(t *testing.T) {
 	conf.Serial.Port = getTestPort()
 	trayMgr := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
-	// 未连接时返回 "连接 <port>"
-	expected := "连接 " + getTestPort()
+	// 未连接时返回 i18n 的连接标题
+	expected := fmt.Sprintf(i18n.Tray.TitleConnect, getTestPort())
 	testutil.AssertEqual(t, expected, trayMgr.getSerialMenuTitle())
 }
 
@@ -990,7 +1007,7 @@ func TestGetConfigSummary_StopBits2(t *testing.T) {
 	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	conf.Serial.StopBits = 2
-	testutil.AssertEqual(t, "当前: 未选择 115200 8N2", tm.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "none", 2), tm.getConfigSummary())
 }
 
 // TestGetConfigSummary_完整覆盖 测试 getConfigSummary 所有分支
@@ -1010,11 +1027,11 @@ func TestGetConfigSummary_FullCoverage(t *testing.T) {
 		stopBits float64
 		expected string
 	}{
-		{"none", 1, "当前: 未选择 115200 8N1"},
-		{"none", 1.5, "当前: 未选择 115200 8N1.5"},
-		{"none", 2, "当前: 未选择 115200 8N2"},
-		{"even", 1, "当前: 未选择 115200 8E1"},
-		{"odd", 1, "当前: 未选择 115200 8O1"},
+		{"none", 1, configSummaryExpected("", 115200, 8, "none", 1)},
+		{"none", 1.5, configSummaryExpected("", 115200, 8, "none", 1.5)},
+		{"none", 2, configSummaryExpected("", 115200, 8, "none", 2)},
+		{"even", 1, configSummaryExpected("", 115200, 8, "even", 1)},
+		{"odd", 1, configSummaryExpected("", 115200, 8, "odd", 1)},
 	}
 
 	for _, tt := range tests {
@@ -1146,7 +1163,7 @@ func TestGetConfigSummary_UnknownParity(t *testing.T) {
 	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
 	conf.Serial.Parity = "unknown"
-	testutil.AssertEqual(t, "当前: 未选择 115200 8unknown1", tm.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("", 115200, 8, "unknown", 1), tm.getConfigSummary())
 }
 
 // TestGetIcon_AllStates 测试所有状态的图标加载
@@ -1328,12 +1345,9 @@ func TestSetOnConfigChanged_CallbackInvoked(t *testing.T) {
 	var capturedDataBits int
 	callbackInvoked := false
 
-	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
-		_ = port
-		capturedBaudRate = baudRate
-		capturedDataBits = dataBits
-		_ = parity
-		_ = stopBits
+	tm.SetOnConfigChanged(func(serialCfg *serial.Config) {
+		capturedBaudRate = serialCfg.BaudRate
+		capturedDataBits = serialCfg.DataBits
 		callbackInvoked = true
 	})
 
@@ -1360,6 +1374,8 @@ func TestNotifyConfigChangedAndReconnect_NoCallback(t *testing.T) {
 // TestAutoReconnect_NoPort 测试无端口时不尝试连接
 func TestAutoReconnect_NoPort(t *testing.T) {
 	tm := newTestTrayManager(t)
+	// 显式置空端口：不依赖"默认测试端口不可打开"的环境假设
+	tm.config.Serial.Port = ""
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
 	tm.autoReconnect()
@@ -1448,13 +1464,14 @@ func TestGetSerialMenuTitle_Connected(t *testing.T) {
 	tm := newTestTrayManager(t)
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 
-	expected := "连接 " + tm.config.Serial.Port
+	expected := fmt.Sprintf(i18n.Tray.TitleConnect, tm.config.Serial.Port)
 	testutil.AssertEqual(t, expected, tm.getSerialMenuTitle())
 }
 
 func TestAutoReconnect_WithPort(t *testing.T) {
 	tm := newTestTrayManager(t)
 	tm.config.Serial.Port = "COM_NONEXISTENT"
+	tm.syncSerialConfig() // 与生产路径一致：配置先同步到 SerialManager 再重连
 
 	tm.autoReconnect()
 
@@ -1466,9 +1483,9 @@ func TestNotifyConfigChangedAndReconnect_WithCallback(t *testing.T) {
 
 	callbackInvoked := false
 	var capturedPort string
-	tm.SetOnConfigChanged(func(port string, baudRate int, dataBits int, parity string, stopBits float64) {
+	tm.SetOnConfigChanged(func(serialCfg *serial.Config) {
 		callbackInvoked = true
-		capturedPort = port
+		capturedPort = serialCfg.Port
 	})
 
 	tm.notifyConfigChangedAndReconnect()
@@ -1525,7 +1542,7 @@ func TestGetConfigSummary_WithPort(t *testing.T) {
 	conf.Serial.Port = "COM4"
 	tm := NewTrayManager(serialMgr, conf, "127.0.0.1", 5050, "0.1.0", false)
 
-	testutil.AssertEqual(t, "当前: COM4 115200 8N1", tm.getConfigSummary())
+	testutil.AssertEqual(t, configSummaryExpected("COM4", 115200, 8, "none", 1), tm.getConfigSummary())
 }
 
 // TestSetPort_SamePort 测试设置为相同端口
@@ -1557,4 +1574,61 @@ func TestTrayManager_MenuItemUpdates(t *testing.T) {
 
 	// 验证配置已更新
 	testutil.AssertEqual(t, 9600, tm.config.Serial.BaudRate)
+}
+
+// TestAutoConnectLabel 自动连接开关菜单标题：启用加 ✓ 前缀，禁用为纯文案。
+func TestAutoConnectLabel(t *testing.T) {
+	enabled := autoConnectLabel(true)
+	disabled := autoConnectLabel(false)
+	if !strings.HasPrefix(enabled, "✓ ") || !strings.Contains(enabled, i18n.Tray.AutoConnectMenu) {
+		t.Errorf("启用态标题 = %q", enabled)
+	}
+	if disabled != i18n.Tray.AutoConnectMenu {
+		t.Errorf("禁用态标题 = %q", disabled)
+	}
+}
+
+// TestToggleAutoConnect_直调回调 直调自动连接开关回调：翻转配置并刷新菜单标题，
+// 不点击真实托盘（点击交互不在自动化范围）。
+func TestToggleAutoConnect_直调回调(t *testing.T) {
+	tm := newTestTrayManager(t)
+	tm.mAutoConnect = &systray.MenuItem{ClickedCh: make(chan struct{})}
+	tm.config.Serial.AutoConnect = false
+
+	callWithTimeout(t, func() { tm.toggleAutoConnect() }, 500*time.Millisecond)
+	testutil.AssertEqual(t, true, tm.config.Serial.AutoConnect)
+
+	callWithTimeout(t, func() { tm.toggleAutoConnect() }, 500*time.Millisecond)
+	testutil.AssertEqual(t, false, tm.config.Serial.AutoConnect)
+}
+
+// TestToggleSerial_直调回调 直调连接/断开开关回调：未连接时连接，再调断开。
+// 需要 SERIALHUB_TEST_PORT 指向可打开的端口（如 com0com 对），否则跳过。
+func TestToggleSerial_直调回调(t *testing.T) {
+	if os.Getenv("SERIALHUB_TEST_PORT") == "" {
+		t.Skip("需要 SERIALHUB_TEST_PORT 指向可打开的串口（如 com0com 对）")
+	}
+	tm := newTestTrayManager(t)
+
+	callWithTimeout(t, func() { tm.toggleSerial() }, 3*time.Second)
+	testutil.AssertEqual(t, true, tm.serial.IsConnected())
+
+	callWithTimeout(t, func() { tm.toggleSerial() }, 3*time.Second)
+	testutil.AssertEqual(t, false, tm.serial.IsConnected())
+}
+
+// TestOnExit_直调回调 直调退出回调：触发 exitCallback 并关闭 QuitChan。
+func TestOnExit_直调回调(t *testing.T) {
+	tm := newTestTrayManager(t)
+	called := false
+	tm.SetOnExit(func() { called = true })
+
+	callWithTimeout(t, func() { tm.onExit() }, 200*time.Millisecond)
+	testutil.AssertEqual(t, true, called)
+
+	select {
+	case <-tm.QuitChan():
+	default:
+		t.Error("onExit 后 QuitChan 应已关闭")
+	}
 }
