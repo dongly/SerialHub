@@ -46,6 +46,16 @@ sudo ln -s ~/tools/serialhub/serialhub /usr/local/bin/serialhub
 serialhub --version    # 输出 SerialHub v0.5.0 形式即成功
 ```
 
+### 源码构建（macOS 唯一方式；需 Go 1.26+）
+
+预编译包只覆盖 Linux / Windows（amd64），macOS 及其他平台从源码构建：
+
+```bash
+git clone https://github.com/dongly/serialhub && cd serialhub
+go build -o serialhub ./cmd/serialhub        # Windows: -o serialhub.exe
+sudo cp serialhub /usr/local/bin/            # 或放到 PATH 内任意目录
+```
+
 ### WSL 用户：把 USB 串口接入 WSL
 
 WSL 默认看不到 Windows 宿主的 USB 串口，需要 usbipd 挂载。推荐图形工具

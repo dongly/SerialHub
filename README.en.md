@@ -35,14 +35,37 @@ flowchart TB
 
 ## Installation
 
-Download the archive for your platform from
-[GitHub Releases](https://github.com/dongly/serialhub/releases) and extract it
-(the Windows archive ships `serialhub.ps1` / `serialhub.bat` launcher scripts).
+### Option 1: Prebuilt archive (recommended)
 
-Self-upgrade from an installed older version (config and logs are preserved):
+Download the archive for your platform from
+[GitHub Releases](https://github.com/dongly/serialhub/releases) (Windows `.zip` / Linux `.tar.gz`; the archive contains a top-level version directory).
+
+**Linux**:
 
 ```bash
-serialhub upgrade          # fetch latest release, verify checksum, atomically replace itself
+VER=$(curl -s https://api.github.com/repos/dongly/serialhub/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+curl -LO "https://github.com/dongly/serialhub/releases/download/${VER}/serialhub-${VER#v}-linux-amd64.tar.gz"
+tar -xzf serialhub-*-linux-amd64.tar.gz
+sudo cp serialhub-*-linux-amd64/serialhub /usr/local/bin/ && serialhub --version
+```
+
+**Windows**: download the `.zip`, extract to any directory (e.g. `D:\Tools\serialhub`; ships `serialhub.ps1` / `serialhub.bat` launcher scripts), then add it to PATH (PowerShell):
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\Tools\serialhub", "User")
+```
+
+### Option 2: Build from source (the only way on macOS; requires Go 1.26+)
+
+```bash
+git clone https://github.com/dongly/serialhub && cd serialhub
+go build -o serialhub ./cmd/serialhub        # Windows: -o serialhub.exe
+```
+
+### Upgrade & uninstall
+
+```bash
+serialhub upgrade          # fetch latest release, verify checksum, atomically replace itself (config and logs preserved)
 serialhub uninstall        # uninstall: dry-run list, then clean MCP entries / config / logs / binary
 ```
 

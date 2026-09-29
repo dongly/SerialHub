@@ -35,18 +35,41 @@ flowchart TB
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台的压缩包，
-解压即用（Windows 包内含 `serialhub.ps1`/`serialhub.bat` 启动脚本）。
+### 方式一：预编译包（推荐）
 
-已安装旧版本可直接自升级（配置与日志保留不动）：
+从 [GitHub Releases](https://github.com/dongly/serialhub/releases) 下载对应平台压缩包（Windows `.zip` / Linux `.tar.gz`，包内有顶层版本目录）：
+
+**Linux**：
 
 ```bash
-serialhub upgrade          # 查询 GitHub Releases 最新版，下载校验并原子替换自身
+VER=$(curl -s https://api.github.com/repos/dongly/serialhub/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+curl -LO "https://github.com/dongly/serialhub/releases/download/${VER}/serialhub-${VER#v}-linux-amd64.tar.gz"
+tar -xzf serialhub-*-linux-amd64.tar.gz
+sudo cp serialhub-*-linux-amd64/serialhub /usr/local/bin/ && serialhub --version
+```
+
+**Windows**：下载 `.zip` 解压到任意目录（如 `D:\Tools\serialhub`，包内含 `serialhub.ps1`/`serialhub.bat` 启动脚本），加入 PATH（PowerShell）：
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\Tools\serialhub", "User")
+```
+
+### 方式二：源码构建（macOS 唯一方式；需 Go 1.26+）
+
+```bash
+git clone https://github.com/dongly/serialhub && cd serialhub
+go build -o serialhub ./cmd/serialhub        # Windows: -o serialhub.exe
+```
+
+### 自升级与卸载
+
+```bash
+serialhub upgrade          # 查询 GitHub Releases 最新版，下载校验并原子替换自身（配置与日志保留）
 serialhub uninstall        # 卸载：dry-run 列清单确认后清理 MCP 条目/配置/日志/二进制
 ```
 
 网络代理遵从 `HTTPS_PROXY`/`HTTP_PROXY`；私有加速可设 `SERIALHUB_GITHUB_API`（默认 `https://api.github.com`）。
-详细步骤（PATH 配置、安装验证、WSL USB 串口挂载）见 [QUICKSTART.md](./QUICKSTART.md)。
+PATH 配置、安装验证、WSL USB 串口挂载等详细步骤见 [QUICKSTART.md](./QUICKSTART.md)。
 
 ## 快速开始
 
