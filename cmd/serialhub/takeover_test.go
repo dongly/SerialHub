@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,7 +50,8 @@ func (s *syncBuffer) String() string {
 // （主死后原地升级为主），无主则自成主实例。正常 `go test` 直接
 // 跑到本函数时 env 不符，立即返回（同 instance_test 的子进程先例）。
 func TestStdioTakeoverChild(t *testing.T) {
-	if os.Getenv("SERIALHUB_TAKEOVER_CHILD") != "1" {
+	foreground := os.Getenv("SERIALHUB_FOREGROUND_CHILD") == "1"
+	if !foreground && os.Getenv("SERIALHUB_TAKEOVER_CHILD") != "1" {
 		return
 	}
 	port, err := strconv.Atoi(os.Getenv("SERIALHUB_TAKEOVER_PORT"))
@@ -60,6 +62,15 @@ func TestStdioTakeoverChild(t *testing.T) {
 	host = "127.0.0.1"
 	mcpPort = port
 	configPath = "" // stdio 主模式不落盘（persistConfig 对空路径 no-op）
+	if foreground {
+		// 前台模式（runMaster 路径）：锁被占 → 转透明代理；
+		// 主实例死亡时返回健康探测错误（由父测试断言非零退出与错误内容）。
+		if err := runMaster(config.GetDefault()); err != nil {
+			fmt.Fprintf(os.Stderr, "[SerialHub] [foreground-child] 退出: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if err := runStdio(config.GetDefault()); err != nil {
 		fmt.Fprintf(os.Stderr, "[SerialHub] [takeover-child] 退出: %v\n", err)
 		os.Exit(1)
@@ -309,5 +320,109 @@ func TestRunStdio_WaitReadyHasBoundedRetries(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("慢启动等待未设上限：代理在持锁不就绪的主实例前无界自旋")
+	}
+}
+
+// TestForegroundProxy_ExitsWithErrorWhenMasterDies：前台模式（runMaster）
+// 下第二实例发现活主后转透明代理；主实例死亡时，前台代理经 /health 探活
+// 判定失联并以非零退出报告健康探测失败——这是用户实测观察到的行为
+// （masterLost → Error: 主实例健康探测连续失败: ... connection refused），
+// 本测试把它锁定为契约（平台中性断言：dial tcp + /health）。
+func TestForegroundProxy_ExitsWithErrorWhenMasterDies(t *testing.T) {
+	tmp := t.TempDir()
+	freePort := func() int {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer l.Close()
+		return l.Addr().(*net.TCPAddr).Port
+	}
+	masterPort := freePort()
+	proxyPort := freePort() // 前台子进程自己的 mcpPort（仅 Acquire 用，代理跟随锁元数据）
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/health", masterPort)
+
+	// 子进程 env：XDG/LOCALAPPDATA 隔离锁与日志；端口经 SERIALHUB_TAKEOVER_PORT
+	// 传入（master 子进程＝监听端口；foreground 子进程＝Acquire 用的 mcpPort）。
+	baseEnv := func(port int) []string {
+		return append(os.Environ(),
+			"XDG_CONFIG_HOME="+tmp,
+			"LOCALAPPDATA="+tmp,
+			"SERIALHUB_TAKEOVER_PORT="+strconv.Itoa(port),
+		)
+	}
+	masterEnv := append(baseEnv(masterPort), "SERIALHUB_TAKEOVER_CHILD=1")
+	proxyEnv := append(baseEnv(proxyPort), "SERIALHUB_FOREGROUND_CHILD=1")
+
+	var stderrMaster, stderrProxy syncBuffer
+	newChild := func(env []string, stderr *syncBuffer) *exec.Cmd {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestStdioTakeoverChild$")
+		cmd.Env = env
+		cmd.Stderr = stderr
+		cmd.StdinPipe() // 持有写端：子进程 stdin 不 EOF（避免 StdioClosed 抢先）
+		return cmd
+	}
+	waitHealth := func(timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(healthURL)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return true
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		return false
+	}
+
+	// 1) 主实例子进程（runStdio → 自成主，监听 masterPort）
+	masterCmd := newChild(masterEnv, &stderrMaster)
+	if err := masterCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer masterCmd.Process.Kill()
+	if !waitHealth(10 * time.Second) {
+		t.Fatalf("主实例未就绪:\n%s", stderrMaster.String())
+	}
+
+	// 2) 前台子进程（runMaster → 锁被占 → 透明代理）
+	proxyCmd := newChild(proxyEnv, &stderrProxy)
+	if err := proxyCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer proxyCmd.Process.Kill()
+	time.Sleep(1500 * time.Millisecond) // 等其进入转发状态
+
+	// 3) 杀主实例：前台代理应经探活 2×2s 判定失联并以非零退出
+	if err := masterCmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = masterCmd.Wait()
+
+	done := make(chan error, 1)
+	go func() { done <- proxyCmd.Wait() }()
+	select {
+	case err := <-done:
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("前台代理应非零退出, 实际 %v", err)
+		}
+		if code := exitErr.ExitCode(); code == 0 {
+			t.Fatalf("前台代理退出码应为非零, 实际 %d", code)
+		}
+		out := stderrProxy.String()
+		// 平台/语言无关断言：Linux 底层文案为「connect: connection refused」，
+		// Windows 为「connectex: ...actively refused it.」，两平台都含
+		// 「dial tcp」；/health 为探活目标 URL（i18n 本地化的只是外层描述）。
+		if !strings.Contains(out, "dial tcp") {
+			t.Fatalf("退出原因应含健康探测的底层网络错误(dial tcp):\n%s", out)
+		}
+		if !strings.Contains(out, "/health") {
+			t.Fatalf("退出原因应指向 /health 探测:\n%s", out)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("前台代理在主实例死亡后 20s 内未退出:\n" + stderrProxy.String())
 	}
 }
