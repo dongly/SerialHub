@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestResolveListenPort_端口被占时自动迁移：请求端口被监听者占用（EADDRINUSE）
+// TestResolveListenPort_FallbackWhenOccupied：请求端口被监听者占用（EADDRINUSE）
 // 时应返回下一个可用端口；请求端口空闲时原样返回。
-func TestResolveListenPort_端口被占时自动迁移(t *testing.T) {
+func TestResolveListenPort_FallbackWhenOccupied(t *testing.T) {
 	// 先占住一个空闲端口
 	occ, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -43,8 +43,8 @@ func TestResolveListenPort_端口被占时自动迁移(t *testing.T) {
 	}
 }
 
-// TestResolveListenPort_全部被占时报错：maxPortFallback+1 个连续端口全占时应返回错误。
-func TestResolveListenPort_全部被占时报错(t *testing.T) {
+// TestResolveListenPort_AllOccupiedErrors：maxPortFallback+1 个连续端口全占时应返回错误。
+func TestResolveListenPort_AllOccupiedErrors(t *testing.T) {
 	base, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("获取起始端口失败: %v", err)

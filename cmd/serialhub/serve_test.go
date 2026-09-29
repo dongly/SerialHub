@@ -17,11 +17,11 @@ func (w *blockingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestFlushBoundedLog_日志输出阻塞时按时返回 验证停机收尾的有界性：
+// TestFlushBoundedLog_ReturnsOnScheduleWhenBlocked 验证停机收尾的有界性：
 // 日志 writer 卡死（stdout 背压/文件锁等价物）时，flushBoundedLog 不得
 // 永久阻塞控制线程，应在 ~500ms 超时后返回（防止未来把同步日志移回
 // 控制线程导致强退路径到不了 os.Exit）。
-func TestFlushBoundedLog_日志输出阻塞时按时返回(t *testing.T) {
+func TestFlushBoundedLog_ReturnsOnScheduleWhenBlocked(t *testing.T) {
 	release := make(chan struct{})
 	blocked := &blockingWriter{release: release}
 

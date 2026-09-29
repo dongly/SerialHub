@@ -97,7 +97,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 - **用户可见文本使用 i18n 中文/英文**：按系统语言选择，`SERIALHUB_LANG=zh/en` 可覆盖，无法识别时英文兜底；Go 文本集中在 `internal/i18n/messages.go`。服务端向 Web 终端发送语言无关的事件标识，由各页面按所选语言显示（前端文案在 `pkg/web/static/i18n.js`）；logrus 排障日志保持中文。
 - 错误包装：`fmt.Errorf("描述：%w", err)`
 - 导入顺序：标准库 → 第三方 → 本地（`github.com/dongly/serialhub`）
-- 测试描述中文：`func TestXxxx(t *testing.T)`
+- 测试函数名英文（`func TestXxxx(t *testing.T)`），用例内中文注释/断言消息描述意图
 - 日志前缀统一 `[SerialHub]`
 
 ## Git 提交

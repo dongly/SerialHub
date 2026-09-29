@@ -8,7 +8,7 @@ import (
 )
 
 // mergeJSON 应保留文件中的其他顶层键与其他服务器条目
-func TestMergeJSON_保留既有条目(t *testing.T) {
+func TestMergeJSON_KeepsExistingEntries(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mcp.json")
 	orig := `{
@@ -51,7 +51,7 @@ func TestMergeJSON_保留既有条目(t *testing.T) {
 }
 
 // 拒绝覆盖时应返回 ErrEntryExists 且文件不变
-func TestMergeJSON_拒绝覆盖(t *testing.T) {
+func TestMergeJSON_RejectOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mcp.json")
 	orig := `{"mcp":{"serialhub":{"url":"http://old/mcp"}}}`
@@ -68,7 +68,7 @@ func TestMergeJSON_拒绝覆盖(t *testing.T) {
 }
 
 // 文件不存在时应创建并建立嵌套目录
-func TestMergeJSON_新建文件(t *testing.T) {
+func TestMergeJSON_CreatesNewFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "dir", "mcp.json")
 	err := mergeJSON(path, "servers", "serialhub", map[string]any{"type": "http"}, nil)
@@ -131,7 +131,7 @@ func TestTarget(t *testing.T) {
 }
 
 // 不支持的层级应报错
-func TestScope校验(t *testing.T) {
+func TestScopeValidation(t *testing.T) {
 	if _, err := Install(Options{Client: "vscode", Scope: ScopeUser, Mode: ModeHTTP, URL: "u"}); err == nil {
 		t.Fatal("vscode 用户级应报错")
 	}
@@ -145,7 +145,7 @@ func TestScope校验(t *testing.T) {
 
 // OpenCode V2 结构：条目须嵌套在 mcp.servers 下；stdio 的 command 为数组；
 // v0.5.0 写入的扁平 mcp.serialhub 残留应被迁移清理
-func TestOpenCodeV2结构(t *testing.T) {
+func TestOpenCodeV2Structure(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir) // 项目级 Install 写入当前目录 opencode.json，需隔离
 	path := filepath.Join(dir, "opencode.json")
@@ -186,7 +186,7 @@ func TestOpenCodeV2结构(t *testing.T) {
 }
 
 // opencode stdio 模式的 command 应为「可执行文件+--stdio」数组（V2 无 args 字段）
-func TestOpenCodeStdioCommand数组(t *testing.T) {
+func TestOpenCodeStdioCommandArray(t *testing.T) {
 	_, _, entry, err := target(Options{Client: "opencode", Scope: ScopeUser, Mode: ModeStdio})
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestOpenCodeStdioCommand数组(t *testing.T) {
 }
 
 // Mode 留空时应默认 stdio 本地模式（Install 填充，v0.6 起默认从 HTTP 改为 stdio）
-func TestInstall默认模式为Stdio(t *testing.T) {
+func TestInstall_DefaultModeIsStdio(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir) // 项目级 Install 写入当前目录 opencode.json，需隔离
 	path := filepath.Join(dir, "opencode.json")

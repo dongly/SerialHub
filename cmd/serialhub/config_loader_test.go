@@ -411,10 +411,10 @@ func TestResolveConfigPathImpl(t *testing.T) {
 	})
 }
 
-// TestLoadConfig_首次启动在用户配置目录落盘 覆盖三处皆无时的新建路径：
+// TestLoadConfig_FirstRunWritesUserConfig 覆盖三处皆无时的新建路径：
 // resolveConfigPath 对自动选择的路径创建父目录；loadConfig 本身不落盘
 // （避免被拒绝的重复实例写配置），成为主实例后 persistConfig 首次落盘。
-func TestLoadConfig_首次启动在用户配置目录落盘(t *testing.T) {
+func TestLoadConfig_FirstRunWritesUserConfig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 的自动路径是 exe 同目录，不走 XDG 新建路径")
 	}
@@ -457,9 +457,9 @@ func TestLoadConfig_首次启动在用户配置目录落盘(t *testing.T) {
 	}
 }
 
-// TestMigrateConfigFile_目标已存在时不覆盖 覆盖并发迁移防护：目标已被
+// TestMigrateConfigFile_NoOverwriteExistingTarget 覆盖并发迁移防护：目标已被
 // 另一进程迁移完成时直接采用，不覆盖、不重复迁移。
-func TestMigrateConfigFile_目标已存在时不覆盖(t *testing.T) {
+func TestMigrateConfigFile_NoOverwriteExistingTarget(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "config.toml")
 	dst := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(src, []byte("[serial]\nport = \"SRC\"\n"), 0644); err != nil {
@@ -503,13 +503,13 @@ func TestLoadConfig_LogDirEnvOverridesFile(t *testing.T) {
 	}
 }
 
-// TestMigrateConfigFile_并发迁移不互相覆盖 两个迁移同时进行时，发布
+// TestMigrateConfigFile_ConcurrentNoClobber 两个迁移同时进行时，发布
 // 走 link 原子不覆盖：目标内容是其中一个源的完整副本（bytes.Equal，
 // 绝不交叉损坏）；输掉发布竞争的一方保留自己的源文件；不残留临时
 // 文件。通过注入 osLink 让「源 → 目标」的 link 恒返回跨设备错误，
 // 确定性覆盖 CreateTemp+link 复制 fallback 路径（临时文件发布用
 // 真实 link）。
-func TestMigrateConfigFile_并发迁移不互相覆盖(t *testing.T) {
+func TestMigrateConfigFile_ConcurrentNoClobber(t *testing.T) {
 	origLink := osLink
 	defer func() { osLink = origLink }()
 	// 模拟跨设备错误：既非 EEXIST 也非 ENOENT，migrateConfigFile 会

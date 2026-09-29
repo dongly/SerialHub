@@ -92,7 +92,7 @@ func drainWebShutdown() {
 	}
 }
 
-func TestWebSerialEvent_只传事件标识(t *testing.T) {
+func TestWebSerialEvent_EventCodeOnly(t *testing.T) {
 	for _, tc := range []struct{ code, port string }{
 		{i18n.WebEvent.Connected, "COM19"},
 		{i18n.WebEvent.Disconnected, ""},
@@ -114,9 +114,9 @@ func TestWebSerialEvent_只传事件标识(t *testing.T) {
 	}
 }
 
-// TestRequestWebShutdown_先请求后等待仍能收到：主循环尚未开始等待时
+// TestRequestWebShutdown_EarlyRequestStillReceived：主循环尚未开始等待时
 // （启动窗口内）的首次停机请求不得丢失——webShutdown 容量必须为 1。
-func TestRequestWebShutdown_先请求后等待仍能收到(t *testing.T) {
+func TestRequestWebShutdown_EarlyRequestStillReceived(t *testing.T) {
 	defer drainWebShutdown()
 	requestWebShutdown() // 此时无任何接收方
 	requestWebShutdown() // 重复请求，应合并不堆积

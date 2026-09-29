@@ -345,7 +345,7 @@ func newUpgradeTestServer(t *testing.T, tagName string, tarGz []byte) *httptest.
 	return server
 }
 
-func TestUpgraderRun_完整升级(t *testing.T) {
+func TestUpgraderRun_FullUpgrade(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("该用例走 linux tar.gz 分支")
 	}
@@ -390,7 +390,7 @@ func TestUpgraderRun_完整升级(t *testing.T) {
 	}
 }
 
-func TestUpgraderRun_已是最新(t *testing.T) {
+func TestUpgraderRun_AlreadyLatest(t *testing.T) {
 	tarGz := makeTarGz(t, []struct{ name, content string }{
 		{"serialhub-0.5.1-linux-amd64/serialhub", "SAME"},
 	})
@@ -420,7 +420,7 @@ func TestUpgraderRun_已是最新(t *testing.T) {
 	}
 }
 
-func TestUpgraderRun_校验失败不动二进制(t *testing.T) {
+func TestUpgraderRun_VerifyFailureKeepsBinary(t *testing.T) {
 	tarGz := makeTarGz(t, []struct{ name, content string }{
 		{"serialhub-9.9.9-linux-amd64/serialhub", "EVIL"},
 	})
@@ -464,7 +464,7 @@ func TestUpgraderRun_校验失败不动二进制(t *testing.T) {
 	}
 }
 
-func TestUpgraderRun_API错误(t *testing.T) {
+func TestUpgraderRun_APIError(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
 	u := &upgrader{

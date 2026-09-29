@@ -133,7 +133,7 @@ func TestUninstallJSON(t *testing.T) {
 	})
 }
 
-func TestUninstallFrom_项目级(t *testing.T) {
+func TestUninstallFrom_ProjectScope(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	t.Run("opencode", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestUninstallFrom_项目级(t *testing.T) {
 	})
 }
 
-func TestUninstallFrom_用户级(t *testing.T) {
+func TestUninstallFrom_UserScope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -197,7 +197,7 @@ func TestUninstallFrom_用户级(t *testing.T) {
 	})
 }
 
-func TestUninstallFrom_官方CLI不存在时给出提示(t *testing.T) {
+func TestUninstallFrom_MissingCLIGivesHint(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // 里面没有任何可执行文件
 	for _, tc := range []struct {
 		client string
@@ -220,9 +220,9 @@ func TestUninstallFrom_官方CLI不存在时给出提示(t *testing.T) {
 	}
 }
 
-// TestUninstallFrom_符号链接配置在真实目标上操作：dotfiles 管理的配置是符号链接时，
+// TestUninstallFrom_SymlinkOperatesOnRealTarget：dotfiles 管理的配置是符号链接时，
 // 卸载应更新链接指向的真实文件，而不是把链接替换成普通文件（拆链接）。
-func TestUninstallFrom_符号链接配置在真实目标上操作(t *testing.T) {
+func TestUninstallFrom_SymlinkOperatesOnRealTarget(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix 符号链接")
 	}
@@ -269,9 +269,9 @@ func TestUninstallFrom_符号链接配置在真实目标上操作(t *testing.T) 
 	}
 }
 
-// TestWriteFileAtomic_冲突检测 覆盖乐观冲突检测的完整链路：临时文件就绪后、
+// TestWriteFileAtomic_ConflictDetection 覆盖乐观冲突检测的完整链路：临时文件就绪后、
 // rename 前重读比较，外部已修改则中止、原文件保留、无临时残留。
-func TestWriteFileAtomic_冲突检测(t *testing.T) {
+func TestWriteFileAtomic_ConflictDetection(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "cfg.json")
 	orig := []byte(`{"mcp":{"servers":{"serialhub":{},"other":{}}}}`)
@@ -299,8 +299,8 @@ func TestWriteFileAtomic_冲突检测(t *testing.T) {
 	}
 }
 
-// TestWriteFileAtomic_正常替换 覆盖正常路径：内容替换、权限保留、无临时残留。
-func TestWriteFileAtomic_正常替换(t *testing.T) {
+// TestWriteFileAtomic_NormalReplace 覆盖正常路径：内容替换、权限保留、无临时残留。
+func TestWriteFileAtomic_NormalReplace(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "cfg.json")
 	orig := []byte(`{"a":1}`)
@@ -324,9 +324,9 @@ func TestWriteFileAtomic_正常替换(t *testing.T) {
 	}
 }
 
-// TestUninstallJSON_悬空符号链接幂等跳过：链接指向的文件不存在时，
+// TestUninstallJSON_DanglingSymlinkSkipped：链接指向的文件不存在时，
 // 按条目不存在处理，不创建文件、不拆链接。
-func TestUninstallJSON_悬空符号链接幂等跳过(t *testing.T) {
+func TestUninstallJSON_DanglingSymlinkSkipped(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "cfg.json")
 	if err := os.Symlink(filepath.Join(tmp, "gone-target.json"), path); err != nil {

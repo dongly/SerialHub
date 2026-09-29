@@ -519,9 +519,9 @@ func TestUpdateSerialStatus_StateDedup(t *testing.T) {
 	testutil.AssertNotEqual(t, trayMgr.state, newState) // 不满足去重条件
 }
 
-// TestComputeSerialMenuStatus_切换串口刷新标题 回归：未连接状态下切换串口，
+// TestComputeSerialMenuStatus_TitleRefreshOnPortSwitch 回归：未连接状态下切换串口，
 // 连接状态仍为 TrayIdle（去重命中），但菜单标题必须反映新端口。
-func TestComputeSerialMenuStatus_切换串口刷新标题(t *testing.T) {
+func TestComputeSerialMenuStatus_TitleRefreshOnPortSwitch(t *testing.T) {
 	cfg := serial.DefaultConfig()
 	cfg.Port = "COM1"
 	serialMgr, err := serial.NewSerialManager(cfg)
@@ -1588,9 +1588,9 @@ func TestAutoConnectLabel(t *testing.T) {
 	}
 }
 
-// TestToggleAutoConnect_直调回调 直调自动连接开关回调：翻转配置并刷新菜单标题，
+// TestToggleAutoConnect_DirectCallback 直调自动连接开关回调：翻转配置并刷新菜单标题，
 // 不点击真实托盘（点击交互不在自动化范围）。
-func TestToggleAutoConnect_直调回调(t *testing.T) {
+func TestToggleAutoConnect_DirectCallback(t *testing.T) {
 	tm := newTestTrayManager(t)
 	tm.mAutoConnect = &systray.MenuItem{ClickedCh: make(chan struct{})}
 	tm.config.Serial.AutoConnect = false
@@ -1602,9 +1602,9 @@ func TestToggleAutoConnect_直调回调(t *testing.T) {
 	testutil.AssertEqual(t, false, tm.config.Serial.AutoConnect)
 }
 
-// TestToggleSerial_直调回调 直调连接/断开开关回调：未连接时连接，再调断开。
+// TestToggleSerial_DirectCallback 直调连接/断开开关回调：未连接时连接，再调断开。
 // 需要 SERIALHUB_TEST_PORT 指向可打开的端口（如 com0com 对），否则跳过。
-func TestToggleSerial_直调回调(t *testing.T) {
+func TestToggleSerial_DirectCallback(t *testing.T) {
 	if os.Getenv("SERIALHUB_TEST_PORT") == "" {
 		t.Skip("需要 SERIALHUB_TEST_PORT 指向可打开的串口（如 com0com 对）")
 	}
@@ -1617,8 +1617,8 @@ func TestToggleSerial_直调回调(t *testing.T) {
 	testutil.AssertEqual(t, false, tm.serial.IsConnected())
 }
 
-// TestOnExit_直调回调 直调退出回调：触发 exitCallback 并关闭 QuitChan。
-func TestOnExit_直调回调(t *testing.T) {
+// TestOnExit_DirectCallback 直调退出回调：触发 exitCallback 并关闭 QuitChan。
+func TestOnExit_DirectCallback(t *testing.T) {
 	tm := newTestTrayManager(t)
 	called := false
 	tm.SetOnExit(func() { called = true })

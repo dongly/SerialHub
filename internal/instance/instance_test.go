@@ -272,8 +272,8 @@ func TestUpdatePort(t *testing.T) {
 	}
 }
 
-// TestUpdatePort_未持锁时幂等空操作。
-func TestUpdatePort_未持锁时幂等空操作(t *testing.T) {
+// TestUpdatePort_NoOpWithoutLock。
+func TestUpdatePort_NoOpWithoutLock(t *testing.T) {
 	path := testLockPath(t)
 	Release() // 确保未持锁
 	UpdatePort(5100)
