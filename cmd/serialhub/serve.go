@@ -479,16 +479,15 @@ func runStdio(cfg *config.Config) error {
 // 主实例先持锁写元数据、后启动 HTTP；此处的等待不改变锁所有权。
 // reused 非 nil 时复用该 stdio 连接（上轮代理交回），nil 则全新连接。
 //
-// 就绪等待失败时：已持有 stdio 连接（处于接管重试中）则归为失联并保留
-// 连接，交给有界重试重新竞锁，避免代理直接退出丢弃连接；初始无连接时
-// 仍是普通失败（无接管可做）。
+// 就绪等待失败时统一归为失联（ProxyMasterLost），交由上层有界重试重新
+// 探锁：锁空则原地升级为主，锁仍被占则继续等待/代理；已持有的 stdio
+// 连接（接管重试中）原样保留，避免代理直接退出丢弃连接。
 func proxyToMaster(info instance.LockInfo, reused *mcp.StdioHandoff) (mcp.ProxyExitReason, error, *mcp.StdioHandoff) {
 	if !waitForMasterReady(info, 15*time.Second) {
-		err := fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL())
-		if reused != nil {
-			return mcp.ProxyMasterLost, err, reused
-		}
-		return "", err, nil
+		// 元数据存在但 HTTP 未就绪：主实例可能在启动中，也可能已死。
+		// 首次无连接时 handoff 为 nil，升级时才创建 stdin reader
+		//（此刻尚无 reader，不存在争抢）。
+		return mcp.ProxyMasterLost, fmt.Errorf(i18n.ServeErrors.MasterNotReady, info.URL()), reused
 	}
 	logrus.Infof("[SerialHub] 主实例 %s 就绪，以透明代理运行", info.URL())
 	logrus.Infof("[SerialHub] Web 终端地址: %s/terminal", info.URL())

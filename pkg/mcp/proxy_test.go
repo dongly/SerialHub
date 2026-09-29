@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/dongly/serialhub/internal/i18n"
 )
 
 // stubConn 模拟一条对端无响应的 MCP 连接：Read 阻塞到 ctx 取消或
@@ -162,64 +163,32 @@ func TestRunStdioProxy_MasterConnectFailed(t *testing.T) {
 }
 
 // TestRunStdioProxy_StdioClosed：MCP 客户端关闭 stdio 属正常退出，
-// 必须返回 stdioClosed（上层不得据此接管）。
+// 必须返回 stdioClosed 且不带错误（上层不得据此接管）。
 func TestRunStdioProxy_StdioClosed(t *testing.T) {
-	origStdio, origMaster := stdioTransportFactory, masterTransportFactory
-	pr, pw := io.Pipe()
-	_ = pw
-	stdioTransportFactory = func() mcpsdk.Transport {
-		return &mcpsdk.IOTransport{Reader: pr, Writer: nopWriteCloser{io.Discard}}
-	}
-	masterTransportFactory = func(string) mcpsdk.Transport {
-		return &stubTransport{conn: newStubConn()}
-	}
-	t.Cleanup(func() {
-		stdioTransportFactory, masterTransportFactory = origStdio, origMaster
-		pr.Close()
-	})
+	pw := injectStubTransports(t)
 	pw.Close() // MCP 客户端断开 → Read 立即 EOF
 
 	reason, err, handoff := RunStdioProxy(context.Background(), "http://127.0.0.1:1", nil)
 	if reason != ProxyStdioClosed {
 		t.Fatalf("reason = %q, 期望 stdioClosed", reason)
 	}
-	if err == nil {
-		t.Fatal("期望返回 stdio 读结束错误")
+	if err != nil {
+		t.Fatalf("stdio 正常关闭不应作为错误退出, 实际 %v", err)
 	}
 	if handoff != nil {
 		t.Fatal("stdioClosed 时连接已关闭，不得交出（避免接管误用）")
 	}
 }
 
-// failWriteConn：Read 阻塞到 ctx 取消或 Close，Write 恒失败——
+// failWriteConn 复用 stubConn 的读/关生命周期，只把 Write 改为恒失败——
 // 用于触发「已完整读出但转发失败」的 pending 保留路径。
-type failWriteConn struct{ done chan struct{} }
+type failWriteConn struct{ *stubConn }
 
-func newFailWriteConn() *failWriteConn { return &failWriteConn{done: make(chan struct{})} }
-
-func (c *failWriteConn) Read(ctx context.Context) (jsonrpc.Message, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-c.done:
-		return nil, errors.New("连接已关闭")
-	}
-}
+func newFailWriteConn() *failWriteConn { return &failWriteConn{stubConn: newStubConn()} }
 
 func (c *failWriteConn) Write(context.Context, jsonrpc.Message) error {
 	return errors.New("主实例写入失败")
 }
-
-func (c *failWriteConn) Close() error {
-	select {
-	case <-c.done:
-	default:
-		close(c.done)
-	}
-	return nil
-}
-
-func (c *failWriteConn) SessionID() string { return "" }
 
 // TestSessionStateTracker_RecordsHandshake：代理必须从转发的消息中捕获
 // initialize / notifications/initialized / logging/setLevel，供接管后的

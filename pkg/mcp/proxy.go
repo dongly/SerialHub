@@ -3,17 +3,20 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
+
+	"github.com/dongly/serialhub/internal/i18n"
 )
 
 // RunStdioProxy 以 stdio 透明代理模式运行：本进程不提供任何服务，
@@ -109,6 +112,13 @@ var (
 		return &mcpsdk.StreamableClientTransport{Endpoint: endpoint}
 	}
 )
+
+// stdioChannelClosed 判定错误是否表示与 MCP 客户端的 stdio 通道已结束：
+// 客户端关闭 stdin（EOF）、管道已关闭，或代理自身已取消。这些情况属正常
+// 退出，不应作为错误上报。
+func stdioChannelClosed(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe)
+}
 
 // RunStdioProxy 以 stdio 透明代理模式运行，返回退出原因、错误与 stdio 连接。
 //
@@ -212,7 +222,13 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 		for {
 			msg, err := stdioConn.Read(innerCtx)
 			if err != nil {
-				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioReadEnded, err)}
+				// 客户端关闭 stdin（EOF）或代理自身取消属正常退出，
+				// 不作为错误上报；仅真实读异常保留错误链。
+				if stdioChannelClosed(innerCtx, err) {
+					errCh <- proxyResult{ProxyStdioClosed, nil}
+				} else {
+					errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioReadEnded, err)}
+				}
 				return
 			}
 			if err := clientConn.Write(innerCtx, msg); err != nil {
@@ -236,7 +252,12 @@ func RunStdioProxy(ctx context.Context, masterURL string, handoff *StdioHandoff)
 				return
 			}
 			if err := stdioConn.Write(innerCtx, msg); err != nil {
-				errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioWriteFailed, err)}
+				// 同上：客户端侧通道已结束属正常退出。
+				if stdioChannelClosed(innerCtx, err) {
+					errCh <- proxyResult{ProxyStdioClosed, nil}
+				} else {
+					errCh <- proxyResult{ProxyStdioClosed, fmt.Errorf(i18n.ServeErrors.ProxyStdioWriteFailed, err)}
+				}
 				return
 			}
 		}

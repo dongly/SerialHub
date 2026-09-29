@@ -59,14 +59,14 @@ func TestStdioTakeoverChild(t *testing.T) {
 	}
 	port, err := strconv.Atoi(os.Getenv("SERIALHUB_TAKEOVER_PORT"))
 	if err != nil || port <= 0 {
-		fmt.Fprintln(os.Stderr, "[takeover-child] 缺少有效 SERIALHUB_TAKEOVER_PORT")
+		fmt.Fprintln(os.Stderr, "[SerialHub] [takeover-child] 缺少有效 SERIALHUB_TAKEOVER_PORT")
 		os.Exit(2)
 	}
 	host = "127.0.0.1"
 	mcpPort = port
 	configPath = "" // stdio 主模式不落盘（persistConfig 对空路径 no-op）
 	if err := runStdio(config.GetDefault()); err != nil {
-		fmt.Fprintf(os.Stderr, "[takeover-child] 退出: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[SerialHub] [takeover-child] 退出: %v\n", err)
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -95,10 +95,11 @@ func TestProxyToMaster_RetriesTakeoverWhenMasterNotReady(t *testing.T) {
 		t.Fatal("必须原样保留 handoff 供下一轮重试")
 	}
 
-	// 初始启动（无 stdio 连接）：仍按普通错误返回，不进入接管循环
+	// 初始启动（无 stdio 连接）：同样按 masterLost 返回，进入有界重试；
+	// 首次无连接时 handoff 仍为 nil，升级时才创建 stdin reader。
 	reason, err, got = proxyToMaster(info, nil)
-	if reason != "" {
-		t.Fatalf("reason = %q, 期望空（非接管场景）", reason)
+	if reason != mcp.ProxyMasterLost {
+		t.Fatalf("reason = %q, 期望 masterLost（首次等待失败也应重试）", reason)
 	}
 	if err == nil {
 		t.Fatal("期望返回主未就绪错误")
