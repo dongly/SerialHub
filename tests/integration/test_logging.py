@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import find_free_port, wait_for_health
+from harness import find_free_port, wait_for_health
 
 
 class TestLogging:
@@ -28,7 +28,7 @@ class TestLogging:
             log_dir.mkdir(parents=True, exist_ok=True)
 
             proc = subprocess.Popen(
-                [str(binary), "--no-tray", "--debug", "--mcp-port", str(mcp_port)],
+                [str(binary), "--debug", "--mcp-port", str(mcp_port)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env={**os.environ, "SERIALHUB_LOG_DIR": str(log_dir)},

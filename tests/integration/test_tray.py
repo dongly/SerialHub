@@ -14,7 +14,6 @@ $env:SERIALHUB_INTEGRATION_TEST = "1"; $env:SERIALHUB_TEST_PORT = "COM4"; pytest
 """
 
 import os
-import signal
 import socket
 import subprocess
 import threading
@@ -25,29 +24,19 @@ from typing import Generator
 import pytest
 import requests
 
-# GUI 自动化工具（可选）
-try:
-    from pywinauto import Application, Desktop
-    from pywinauto.keyboard import send_keys
+from harness import get_test_port, read_result_data
 
-    PYWINAUTO_AVAILABLE = True
-except ImportError:
-    PYWINAUTO_AVAILABLE = False
 
 # ─── 常量 ──────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-BINARY_PATH = PROJECT_ROOT / "bin" / "serialhub.exe"
+BINARY_PATH = PROJECT_ROOT / "bin" / ("serialhub.exe" if os.name == "nt" else "serialhub")
 
 DEFAULT_MCP_PORT = 50010
 STARTUP_WAIT = 2.5
 
 
 # ─── 辅助函数 ──────────────────────────────────────────
-
-
-def get_test_port() -> str:
-    return os.environ.get("SERIALHUB_TEST_PORT", "COM4")
 
 
 def ensure_binary() -> Path:
@@ -108,7 +97,6 @@ def start_server_with_retry(
 
         cmd = [
             str(binary),
-            "--no-tray",
             "--mcp-port",
             str(mcp_port),
         ]
@@ -194,7 +182,7 @@ def binary() -> Path:
 
 @pytest.fixture
 def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
-    """启动 serialhub --no-tray 并返回连接信息，测试结束后自动停止。
+    """启动 serialhub 并返回连接信息，测试结束后自动停止。
 
     使用高端口范围（40000+）避免与系统服务或默认端口冲突，
     并在启动失败时收集服务器日志输出用于诊断。
@@ -211,7 +199,6 @@ def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
         proc = subprocess.Popen(
             [
                 str(binary),
-                "--no-tray",
                 "--mcp-port",
                 str(mcp_port),
             ],
@@ -254,70 +241,6 @@ def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
         break
     else:
         raise RuntimeError(f"服务器启动失败，已重试 3 次:\n{last_error}")
-
-    try:
-        yield {
-            "proc": proc,
-            "mcp_port": mcp_port,
-            "log_dir": log_dir,
-        }
-    finally:
-        if proc is not None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=3)
-
-
-@pytest.fixture
-def serialhub_server_with_tray(binary, tmp_path) -> Generator[dict, None, None]:
-    """启动 serialhub（带托盘，不带 --no-tray）用于 GUI 自动化测试。"""
-    log_dir = tmp_path / "logs"
-    proc = None
-    last_error = None
-
-    for attempt in range(3):
-        mcp_port = find_free_port()
-
-        proc = subprocess.Popen(
-            [
-                str(binary),
-                "--mcp-port",
-                str(mcp_port),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, "SERIALHUB_LOG_DIR": str(log_dir)},
-        )
-
-        output: dict[str, str] = {}
-        stdout_thread = threading.Thread(
-            target=_collect_output, args=(proc, output, "stdout"), daemon=True
-        )
-        stderr_thread = threading.Thread(
-            target=_collect_output, args=(proc, output, "stderr"), daemon=True
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-
-        try:
-            wait_for_health(mcp_port, timeout=15)
-        except TimeoutError:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=3)
-            proc = None
-            last_error = f"带托盘服务器启动超时 (attempt {attempt + 1}/3)"
-            continue
-
-        break
-    else:
-        raise RuntimeError(f"带托盘服务器启动失败:\n{last_error}")
 
     try:
         yield {
@@ -441,18 +364,8 @@ class TestTrayIntegration:
             {"name": "serial_read", "arguments": {"timeout": 2000}},
         )
 
-        # 验证数据回环
-        received = ""
-        for item in read_result.get("result", {}).get("content", []):
-            if item.get("type") == "text":
-                text = item.get("text", "")
-                if "data:" in text:
-                    import re
-
-                    match = re.search(r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text)
-                    if match:
-                        received = match.group(1).strip()
-                        break
+        # 验证数据回环（负载在 MCP structuredContent 中）
+        received = read_result_data(read_result)
 
         assert received == test_data, (
             f"数据不匹配: 期望 {test_data!r}, 实际 {received!r}"
@@ -460,274 +373,3 @@ class TestTrayIntegration:
 
         # 3. 断开连接
         mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
-
-
-class TestTrayGUIAutomation:
-    """托盘 GUI 自动化测试 - 使用 pywinauto 自动点击菜单"""
-
-    def _find_tray_icon(self, desktop):
-        """查找 SerialHub 托盘图标"""
-        for i in range(10):
-            try:
-                tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
-                    title_re=".*SerialHub.*", found_index=0
-                )
-                if tray_icon.exists():
-                    return tray_icon
-            except Exception:
-                pass
-            time.sleep(0.5)
-        return None
-
-    def test_tray_menu_click_connect(self, serialhub_server_with_tray):
-        """测试托盘图标和菜单可交互"""
-        info = serialhub_server_with_tray
-        time.sleep(1)
-
-        desktop = Desktop(backend="uia")
-
-        tray_icon = self._find_tray_icon(desktop)
-        if not tray_icon:
-            pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-        tray_icon.right_click_input()
-        time.sleep(0.5)
-
-        menu = desktop.window(class_name="#32768")
-        assert menu.exists(), "托盘菜单未打开"
-
-        send_keys("{ESC}")
-        time.sleep(0.3)
-
-        health = requests.get(f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5)
-        assert health.status_code == 200
-
-    def test_tray_menu_baud_rate_change(self, serialhub_server_with_tray):
-        """测试通过托盘菜单修改波特率"""
-        info = serialhub_server_with_tray
-        time.sleep(1)
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找并右键点击托盘图标
-            tray_icon = None
-            for i in range(10):
-                try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
-                        title_re=".*SerialHub.*"
-                    )
-                    if tray_icon.exists():
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.5)
-
-            if not tray_icon or not tray_icon.exists():
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 右键点击打开菜单
-            tray_icon.right_click_input()
-            time.sleep(0.5)
-
-            # 查找菜单并点击"串口设置"
-            menu = desktop.window(class_name="#32768")
-            if menu.exists():
-                # 按 ESC 关闭菜单（仅测试菜单能否打开）
-                send_keys("{ESC}")
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")
-
-    def test_tray_menu_full_workflow(self, serialhub_server_with_tray):
-        """测试托盘菜单完整工作流：验证托盘图标、菜单操作、MCP 功能"""
-        info = serialhub_server_with_tray
-        time.sleep(1)
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找托盘图标
-            tray_icon = None
-            for i in range(10):
-                try:
-                    tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
-                        title_re=".*SerialHub.*"
-                    )
-                    if tray_icon.exists():
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.5)
-
-            if not tray_icon or not tray_icon.exists():
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 1. 右键点击打开菜单
-            tray_icon.right_click_input()
-            time.sleep(0.5)
-
-            # 2. 验证菜单可以打开（按 ESC 关闭）
-            send_keys("{ESC}")
-            time.sleep(0.3)
-
-            # 3. 使用 MCP 验证服务器正常运行
-            status = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_status"})
-            assert "result" in status
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")
-
-        # 验证服务器健康（不检查连接状态，因为托盘可能自动连接）
-        health = requests.get(f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5)
-        assert health.status_code == 200
-
-
-class TestTrayGUIAdvanced:
-    """托盘 GUI 高级自动化测试 - 完整的菜单导航和配置验证"""
-
-    def _find_tray_icon(self, desktop, timeout=10):
-        """查找 SerialHub 托盘图标"""
-        for i in range(timeout * 2):
-            try:
-                tray_icon = desktop.window(class_name="Shell_TrayWnd").child_window(
-                    title_re=".*SerialHub.*", found_index=0
-                )
-                if tray_icon.exists():
-                    return tray_icon
-            except Exception:
-                pass
-            time.sleep(0.5)
-        return None
-
-    def _open_tray_menu(self, tray_icon):
-        """右键点击托盘图标打开菜单"""
-        tray_icon.right_click_input()
-        time.sleep(0.8)  # 等待菜单动画
-
-        desktop = Desktop(backend="uia")
-        menu = desktop.window(class_name="#32768")
-        return menu if menu.exists() else None
-
-    def test_tray_menu_navigate_submenus(self, serialhub_server_with_tray):
-        """测试托盘菜单子菜单导航"""
-        info = serialhub_server_with_tray
-        time.sleep(2)  # 等待托盘完全初始化
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找托盘图标
-            tray_icon = self._find_tray_icon(desktop)
-            if not tray_icon:
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 打开主菜单
-            menu = self._open_tray_menu(tray_icon)
-            if not menu:
-                pytest.fail("无法打开托盘菜单")
-
-            # 按 ESC 关闭菜单
-            send_keys("{ESC}")
-            time.sleep(0.3)
-
-            # 验证服务器仍然正常运行
-            health = requests.get(
-                f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5
-            )
-            assert health.status_code == 200
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")
-
-    def test_tray_config_display_update(self, serialhub_server_with_tray):
-        """测试托盘配置显示更新"""
-        info = serialhub_server_with_tray
-        time.sleep(2)
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找托盘图标
-            tray_icon = self._find_tray_icon(desktop)
-            if not tray_icon:
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 记录初始配置
-            initial_status = mcp_call(
-                info["mcp_port"], "tools/call", {"name": "serial_status"}
-            )
-            initial_text = _get_content_text(initial_status)
-            assert "connected" in initial_text.lower()
-
-            # 打开菜单查看配置显示
-            menu = self._open_tray_menu(tray_icon)
-            if menu:
-                # 按 ESC 关闭
-                send_keys("{ESC}")
-                time.sleep(0.3)
-
-            current_status = mcp_call(
-                info["mcp_port"], "tools/call", {"name": "serial_status"}
-            )
-            current_text = _get_content_text(current_status)
-            assert "connected" in current_text.lower()
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")
-
-    def test_tray_menu_all_items_accessible(self, serialhub_server_with_tray):
-        """测试托盘菜单所有项可访问"""
-        info = serialhub_server_with_tray
-        time.sleep(2)
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找托盘图标
-            tray_icon = self._find_tray_icon(desktop)
-            if not tray_icon:
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 测试多次打开和关闭菜单
-            for i in range(3):
-                menu = self._open_tray_menu(tray_icon)
-                if menu:
-                    time.sleep(0.3)
-                    send_keys("{ESC}")
-                    time.sleep(0.3)
-
-            # 验证服务器健康
-            health = requests.get(
-                f"http://127.0.0.1:{info['mcp_port']}/health", timeout=5
-            )
-            assert health.status_code == 200
-            assert health.json()["status"] == "ok"
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")
-
-    def test_tray_icon_tooltip(self, serialhub_server_with_tray):
-        """测试托盘图标工具提示"""
-        info = serialhub_server_with_tray
-        time.sleep(2)
-
-        try:
-            desktop = Desktop(backend="uia")
-
-            # 查找托盘图标
-            tray_icon = self._find_tray_icon(desktop)
-            if not tray_icon:
-                pytest.skip("无法访问托盘图标（可能需要 GUI 环境）")
-
-            # 尝试获取工具提示文本
-            try:
-                tooltip = tray_icon.window_text()
-                # 验证工具提示包含 SerialHub
-                assert "SerialHub" in tooltip or len(tooltip) > 0
-            except Exception:
-                # 如果无法获取文本，至少验证图标存在
-                assert tray_icon.exists()
-
-        except Exception as e:
-            pytest.fail(f"GUI 自动化失败: {e}")

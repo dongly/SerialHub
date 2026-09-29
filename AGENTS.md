@@ -39,8 +39,9 @@ serialhub -p COM7 -D         # 直接启动
 ## 测试
 
 - **Go 单元测试**：`go test ./...`（`internal/testutil/` 提供 mock 串口和网络连接）
+- **Windows 测试（WSL 经 PowerShell）**：`tools/test-windows.sh [包...] [-run 正则]`——交叉编译 Windows 测试二进制并经真实 Windows pwsh 实跑（默认 `./pkg/tray`、zh+en 双语；`SERIALHUB_LANG` 指定单语言；`-hw [TEST:PEER]` 走 com0com 硬件回环——省略值自动探测串口对并自动起对端回显进程，默认包 `./pkg/serial`）。勿在 WSL 内直接 `GOOS=windows go test`（Wine 拉起 systray panic）
 - **Python 集成测试**：`tests/integration/`（需 pytest + 运行中的 SerialHub 服务）
-- **Python E2E 测试**：`tests/e2e/`（Playwright，需真实串口设备）
+- **Python 浏览器 UI 测试**：`tests/integration/playwright/`（pytest + Playwright）
 - 硬件测试由 `SERIALHUB_HARDWARE_TEST=1` 控制，`SERIALHUB_TEST_PORT` 指定端口
 
 ## 架构要点
@@ -123,7 +124,6 @@ internal/instance/      单实例 lock（OS 文件锁互斥、活主发现）与
 internal/i18n/          用户可见消息双语词条与语言检测（SERIALHUB_LANG 覆盖）
 internal/testutil/     Mock 串口（MockSerialPort）、Mock 网络连接（MockConn）、测试辅助
 tests/integration/     Python 集成测试（pytest，需运行中的服务）
-tests/e2e/             Python E2E 测试（Playwright，需真实串口）
 docs/                  领域术语表（CONTEXT.md）
 tools/                 开发辅助脚本（genicons.py 图标生成）
 ```

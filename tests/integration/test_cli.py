@@ -28,7 +28,6 @@ class TestCLI:
             "--mcp-port",
             "--config",
             "--debug",
-            "--no-tray",
             "--minimized",
         ]:
             assert flag in r.stdout, f"缺少 {flag}"

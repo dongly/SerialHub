@@ -25,7 +25,10 @@ try:
 except ImportError:
     WS_CLIENT_AVAILABLE = False
 
-from conftest import (
+from harness import (
+    read_result_data,
+    recv_text,
+    to_text,
     _get_content_text,
     ensure_binary,
     find_free_port,
@@ -58,7 +61,7 @@ requires_hardware = pytest.mark.skipif(
 
 @pytest.fixture
 def serialhub_server_ws(binary, tmp_path):
-    """启动 serialhub --no-tray 并返回连接信息。
+    """启动 serialhub 并返回连接信息。
 
     WebSocket /ws 端点与 MCP 共用同一端口。
     """
@@ -75,7 +78,6 @@ def serialhub_server_ws(binary, tmp_path):
         proc = subprocess.Popen(
             [
                 str(binary),
-                "--no-tray",
                 "--mcp-port",
                 str(mcp_port),
             ],
@@ -160,6 +162,11 @@ def ws_client(serialhub_server_ws):
 # ─── 辅助函数 ──────────────────────────────────────────
 
 
+def _send_ws(ws, data) -> None:
+    """发送 WebSocket 数据（服务端为 binary 帧，websocket-client 需 bytes）。"""
+    ws.send(data.encode("utf-8") if isinstance(data, str) else data)
+
+
 def _extract_data_from_mcp_text(text: str) -> str:
     """从 MCP serial_read 返回文本中提取 data 字段值。"""
     match = re.search(r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text)
@@ -183,7 +190,7 @@ class TestWebTerminal:
         ws = websocket.create_connection(info["ws_url"], timeout=5)
         try:
             # 服务器应发送欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert isinstance(welcome, str), f"欢迎消息应为文本帧: {type(welcome)}"
             assert "SerialHub" in welcome or "Connected" in welcome, (
                 f"欢迎消息异常: {welcome!r}"
@@ -204,7 +211,7 @@ class TestWebTerminal:
 
         # 发送测试数据
         test_data = "HelloFromWebSocket\n"
-        ws.send(test_data)
+        _send_ws(ws, test_data)
 
         # WebSocket 发送的数据通过 dataChan 到 bridge，bridge 再写入串口
         # 在无真实串口时，数据通过 DataBridge 流转，可通过 MCP serial_read 验证
@@ -217,41 +224,35 @@ class TestWebTerminal:
     def test_web_terminal_multiple_clients(self, serialhub_server_ws):
         """多个 WebSocket 客户端同时连接
 
-        SerialHub 的 WebSocketServer 仅支持单客户端，新连接会踢掉旧连接。
-        验证：
+        SerialHub 的 WebSocketServer 支持多客户端并发广播。验证：
         1. 第一个客户端连接成功
-        2. 第二个客户端连接后，第一个被踢掉
-        3. 服务器端始终只有 1 个活跃客户端
+        2. 第二个客户端连接后，第一个仍然存活
+        3. 第二个客户端可继续正常通信
         """
         info = serialhub_server_ws
 
         # 第一个客户端连接
         ws1 = websocket.create_connection(info["ws_url"], timeout=5)
-        welcome1 = ws1.recv()
+        welcome1 = recv_text(ws1)
         assert "Connected" in welcome1 or "SerialHub" in welcome1
 
         # 第二个客户端连接（应踢掉第一个）
         ws2 = websocket.create_connection(info["ws_url"], timeout=5)
-        welcome2 = ws2.recv()
+        welcome2 = recv_text(ws2)
         assert "Connected" in welcome2 or "SerialHub" in welcome2
 
-        # 验证第一个客户端已被踢掉
+        # 服务端支持多客户端并发广播：第一个客户端不应被踢掉
         time.sleep(0.5)
         ws1.settimeout(1)
-        kicked = False
         try:
-            data = ws1.recv()
-            if not data:
-                kicked = True
+            ws1.recv()
+        except websocket.WebSocketTimeoutException:
+            pass  # 无数据但连接仍在，符合多客户端并发预期
         except websocket.WebSocketConnectionClosedException:
-            kicked = True
-        except Exception:
-            kicked = True
-
-        assert kicked, "第一个客户端应被新连接踢掉"
+            pytest.fail("第一个客户端被意外踢掉（服务端应支持多客户端并发）")
 
         # 第二个客户端仍可正常通信
-        ws2.send("still_alive\n")
+        _send_ws(ws2, "still_alive\n")
 
         # 清理
         try:
@@ -289,7 +290,7 @@ class TestWebTerminal:
 
         try:
             # 读取欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert len(welcome) > 0
 
             time.sleep(0.5)
@@ -303,7 +304,7 @@ class TestWebTerminal:
 
             # 通过 WebSocket 发送数据
             test_data = "HelloWS\n"
-            ws.send(test_data)
+            _send_ws(ws, test_data)
 
             # 等待数据通过 WebSocket -> DataBridge -> 串口 -> 回环
             time.sleep(0.5)
@@ -315,7 +316,7 @@ class TestWebTerminal:
                 {"name": "serial_read", "arguments": {"timeout": 3000}},
             )
 
-            received = _extract_data_from_mcp_text(_get_content_text(read_result))
+            received = read_result_data(read_result)
             assert "HelloWS" in received, (
                 f"WebSocket 数据未正确转发到串口: 发送 {test_data!r}, 接收 {received!r}"
             )
@@ -340,6 +341,7 @@ class TestWebTerminal:
                 ws_data = ws.recv()
             except websocket.WebSocketTimeoutException:
                 ws_data = ""
+            ws_data = to_text(ws_data)
 
             assert mcp_data in ws_data or len(ws_data) > 0, (
                 f"串口数据未正确转发到 WebSocket: 发送 {mcp_data!r}, 接收 {ws_data!r}"
@@ -399,7 +401,7 @@ class TestWebTerminal:
 
                 # 通过 WebSocket 发送 Unicode 数据
                 send_data = test_str + "\n"
-                ws.send(send_data)
+                _send_ws(ws, send_data)
                 time.sleep(0.3)
 
                 # 通过 MCP 读取验证
@@ -409,7 +411,7 @@ class TestWebTerminal:
                     {"name": "serial_read", "arguments": {"timeout": 2000}},
                 )
 
-                received = _extract_data_from_mcp_text(_get_content_text(read_result))
+                received = read_result_data(read_result)
                 received_clean = received.replace("\n", "").replace("\r", "")
                 assert test_str in received_clean, (
                     f"{desc} 测试失败: 发送 {test_str!r}, 接收 {received!r}"
@@ -424,8 +426,11 @@ class TestWebTerminal:
                     {"name": "serial_read", "arguments": {"timeout": 200}},
                 )
 
+                # 服务端 WebSocket 单帧上限 4096 字节（pkg/web/client.go
+                # maxMessageSize），超限帧会被直接断开；按真实客户端行为分帧发送。
                 large_data = "A" * size + "\n"
-                ws.send(large_data)
+                for i in range(0, len(large_data), 4000):
+                    _send_ws(ws, large_data[i : i + 4000])
                 time.sleep(1.0)  # 大数据需要更多传输时间
 
                 # 分段读取，累积接收数据
@@ -436,7 +441,7 @@ class TestWebTerminal:
                         "tools/call",
                         {"name": "serial_read", "arguments": {"timeout": 2000}},
                     )
-                    chunk = _extract_data_from_mcp_text(_get_content_text(read_result))
+                    chunk = read_result_data(read_result)
                     if chunk:
                         all_received += chunk
                     else:

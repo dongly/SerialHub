@@ -13,15 +13,23 @@ SerialHub 硬件集成测试
 """
 
 import os
-import re
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator
 
 import pytest
 import requests
+
+from harness import (  # 优先 SERIALHUB_TEST_PORT，POSIX 回退 pty 伪设备
+    get_test_port,
+    read_result_parts,
+    wait_for_health,
+    _collect_output,
+)
+
 
 # GUI 自动化工具（可选）
 try:
@@ -35,7 +43,8 @@ except ImportError:
 # ─── 常量 ──────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-BINARY_PATH = PROJECT_ROOT / "bin" / "serialhub.exe"
+BINARY_NAME = "serialhub.exe" if os.name == "nt" else "serialhub"
+BINARY_PATH = PROJECT_ROOT / "bin" / BINARY_NAME
 
 DEFAULT_MCP_PORT = 50010
 STARTUP_WAIT = 2.5
@@ -44,8 +53,6 @@ STARTUP_WAIT = 2.5
 # ─── 辅助函数 ──────────────────────────────────────────
 
 
-def get_test_port() -> str:
-    return os.environ.get("SERIALHUB_TEST_PORT", "COM4")
 
 
 def ensure_binary() -> Path:
@@ -101,9 +108,10 @@ def _get_content_text(result: dict) -> str:
 @pytest.fixture(scope="session")
 def hardware_test_enabled():
     """检查是否启用了硬件测试"""
-    if not os.environ.get("SERIALHUB_HARDWARE_TEST"):
+    if not os.environ.get("SERIALHUB_HARDWARE_TEST") and os.name != "posix":
         pytest.skip(
             "硬件测试需要设置 SERIALHUB_HARDWARE_TEST=1 和 SERIALHUB_TEST_PORT=COM4"
+            "（POSIX 上未设置时自动使用 pty 伪设备）"
         )
     yield
 
@@ -116,7 +124,6 @@ def serialhub_server():
 
     cmd = [
         str(binary),
-        "--no-tray",
         "--mcp-port",
         str(mcp_port),
         "--host",
@@ -503,17 +510,9 @@ class TestSerialHardware:
                     },
                 )
 
-                # 从 result 的 data 字段提取数据
-                result_data = read_result.get("result", {})
-                content = result_data.get("content", [])
-                for item in content:
-                    if item.get("type") == "text":
-                        text = item.get("text", "")
-                        # 查找 data: 后面的内容
-                        if "data:" in text:
-                            data_part = text.split("data:", 1)[1].strip()
-                            if data_part:
-                                received_data += data_part
+                data_part, _ = read_result_parts(read_result)
+                if data_part:
+                    received_data += data_part
 
                 if len(received_data) >= size:
                     break
@@ -606,23 +605,7 @@ class TestSerialHardware:
                 },
             )
 
-            # 从 result 的 content 中提取数据
-            # 响应格式: "读取成功: N 字节\nmap[bytes:N data:XXX timedOut:false]"
-            received_bytes = 0
-            result_data = read_result.get("result", {})
-            content = result_data.get("content", [])
-            for item in content:
-                if item.get("type") == "text":
-                    text = item.get("text", "")
-                    # 查找 bytes: 字段
-                    if "bytes:" in text:
-                        try:
-                            # 提取 bytes 值
-                            match = re.search(r"bytes:(\d+)", text)
-                            if match:
-                                received_bytes = int(match.group(1))
-                        except:
-                            pass
+            _, received_bytes = read_result_parts(read_result)
 
             # 验证接收到的字节数与发送的字节数相同
             sent_bytes_len = len(test_data.encode("utf-8"))
@@ -707,21 +690,13 @@ class TestSerialHardware:
                 {"name": "serial_read", "arguments": {"timeout": 2000}},
             )
 
-            # 提取接收到的数据
-            received = ""
-            for item in read_result.get("result", {}).get("content", []):
-                if item.get("type") == "text":
-                    text = item.get("text", "")
-                    if "data:" in text:
-                        match = re.search(
-                            r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text
-                        )
-                        if match:
-                            received = match.group(1).strip()
-                            break
+            received, _ = read_result_parts(read_result)
 
-            # 验证数据（字节级比较）
+            # 验证数据（字节级比较）。空负载时伪设备（pty/com0com）可能回
+            # 杂零星换行噪声，那不是产品写入的数据，这里只在空用例中忽略。
             sent_bytes = test_data.encode("utf-8", errors="replace")
+            if not sent_bytes:
+                received = received.strip("\r\n")
             received_bytes = (
                 received.encode("utf-8", errors="replace") if received else b""
             )
@@ -740,6 +715,7 @@ class TestSerialHardware:
 # ─── 测试类: TestTrayAutoConnect ─────────────────────────────
 
 
+@pytest.mark.skipif(os.name != "nt", reason="托盘用例仅适用于 Windows")
 class TestTrayAutoConnect:
     """托盘自动连接上次串口测试"""
 
@@ -773,7 +749,7 @@ httpPort = 5050
         config_file.write_text(config_content, encoding="utf-8")
 
         try:
-            # 启动 SerialHub（不带 --no-tray，不带 --serial-port，让它从 config.toml 读取）
+            # 启动 SerialHub（不带 --serial-port，让它从 config.toml 读取）
             port = find_free_port()
             mcp_port = find_free_port()
 
@@ -907,3 +883,135 @@ httpPort = 5050
 
         except Exception as e:
             pytest.fail(f"GUI 自动化失败: {e}")
+
+
+# ─── 伪串口（POSIX pty）：启动自动连接 AutoConnect ─────────────────
+# 这些用例需要按配置文件启动（--config），与上面的 serialhub_server fixture
+# 的命令行启动方式不同，故自带启动辅助函数。
+@pytest.fixture
+def pseudo_serial() -> Generator[dict, None, None]:
+    """创建一个 pty 伪串口：slave 作为串口设备路径，master 用于收发数据。"""
+    pty = pytest.importorskip("pty")
+    master_fd, slave_fd = pty.openpty()
+    device_path = os.ttyname(slave_fd)
+    os.set_blocking(master_fd, False)
+    try:
+        yield {"path": device_path, "master_fd": master_fd, "slave_fd": slave_fd}
+    finally:
+        for fd in (slave_fd, master_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+def _write_config(tmp_path: Path, port: str, auto_connect: bool) -> Path:
+    """写临时配置：指定伪串口设备与 AutoConnect 开关。"""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+host = "127.0.0.1"
+
+[serial]
+port = "{port}"
+baudRate = 115200
+dataBits = 8
+parity = "none"
+stopBits = 1
+autoConnect = {str(auto_connect).lower()}
+
+[mcp]
+httpPort = 99999
+"""
+    )
+    return config_path
+
+def _start_server(binary: Path, config_path: Path, tmp_path: Path):
+    """按配置文件启动 serialhub（--debug 便于断言自动连接分支）。"""
+    mcp_port = find_free_port()
+    log_dir = tmp_path / "logs"
+    proc = subprocess.Popen(
+        [
+            str(binary),
+            "--no-browser",
+            "--debug",
+            "--config",
+            str(config_path),
+            "--mcp-port",
+            str(mcp_port),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={
+            **os.environ,
+            "SERIALHUB_LOG_DIR": str(log_dir),
+            # 隔离配置与单实例锁：避免与本机已运行的真实 master 冲突（否则会进入代理模式）
+            "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+            "LOCALAPPDATA": str(tmp_path / "localappdata"),
+        },
+    )
+    output: dict[str, str] = {}
+    for key in ("stdout", "stderr"):
+        threading.Thread(
+            target=_collect_output, args=(proc, output, key), daemon=True
+        ).start()
+    return proc, mcp_port, output
+
+def _stop_server(proc: subprocess.Popen) -> None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=3)
+
+def _wait_for_log(log_dir: Path, needle: str, timeout: float = 10.0) -> bool:
+    """轮询日志文件，等待出现指定文本（SERIALHUB_LOG_DIR 下的 logrus 文件日志）。"""
+    log_file = log_dir / "serialhub.log"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if needle in log_file.read_text(encoding="utf-8", errors="replace"):
+                return True
+        except FileNotFoundError:
+            pass
+        time.sleep(0.2)
+    return False
+
+@pytest.mark.skipif(os.name != "posix", reason="伪串口依赖 POSIX pty")
+class TestAutoConnect:
+    """启动自动连接上次端口（[serial] autoConnect）"""
+
+    def test_auto_connect_enabled_opens_pseudo_port(
+        self, binary, tmp_path, pseudo_serial
+    ):
+        """autoConnect=true：启动即打开配置中的伪串口。"""
+        config_path = _write_config(tmp_path, pseudo_serial["path"], auto_connect=True)
+        proc, mcp_port, output = _start_server(binary, config_path, tmp_path)
+        try:
+            wait_for_health(mcp_port)
+            assert _wait_for_log(tmp_path / "logs", "已自动连接串口"), "未自动连接伪串口"
+        finally:
+            _stop_server(proc)
+
+    def test_auto_connect_disabled_skips(self, binary, tmp_path, pseudo_serial):
+        """autoConnect=false：启动不自动连接。"""
+        config_path = _write_config(tmp_path, pseudo_serial["path"], auto_connect=False)
+        proc, mcp_port, output = _start_server(binary, config_path, tmp_path)
+        try:
+            wait_for_health(mcp_port)
+            log_dir = tmp_path / "logs"
+            assert _wait_for_log(log_dir, "已禁用启动自动连接串口"), "未走禁用分支"
+            assert not _wait_for_log(log_dir, "已自动连接串口", timeout=1.0)
+        finally:
+            _stop_server(proc)
+
+    def test_auto_connect_persists_config_key(self, binary, tmp_path, pseudo_serial):
+        """回写配置后 autoConnect 键仍在（整结构编码不丢字段）。"""
+        config_path = _write_config(tmp_path, pseudo_serial["path"], auto_connect=False)
+        proc, mcp_port, _ = _start_server(binary, config_path, tmp_path)
+        try:
+            wait_for_health(mcp_port)
+            saved = config_path.read_text(encoding="utf-8")
+            assert "autoconnect" in saved.lower(), f"配置未保留 autoConnect: {saved}"
+        finally:
+            _stop_server(proc)

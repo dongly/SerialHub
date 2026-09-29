@@ -5,7 +5,7 @@
 
 import requests
 
-from conftest import mcp_call, _get_content_text
+from harness import mcp_call, _get_content_text
 
 
 class TestMCPTools:
@@ -48,7 +48,8 @@ class TestMCPTools:
         info = serialhub_server
         result = mcp_call(info["mcp_port"], "tools/call", {"name": "serial_disconnect"})
         text = _get_content_text(result)
-        assert "断开" in text or "disconnect" in text.lower() or "port" in text.lower()
+        # 未连接时工具返回「串口未连接」，同样属正常响应
+        assert "断开" in text or "disconnect" in text.lower() or "未连接" in text
 
     def test_serial_write_response(self, serialhub_server):
         """测试写入串口响应"""
@@ -62,11 +63,13 @@ class TestMCPTools:
             },
         )
         text = _get_content_text(result)
+        # 未连接时工具返回「串口未连接」，同样属正常响应
         assert (
             "写入" in text
             or "write" in text.lower()
             or "字节" in text
             or "bytes" in text.lower()
+            or "未连接" in text
         )
 
     def test_serial_read_not_connected(self, serialhub_server):

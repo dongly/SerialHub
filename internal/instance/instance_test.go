@@ -114,7 +114,13 @@ func TestLockHolderProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout.WriteString("READY\n")
-	select {} // parent kills after checking ownership
+	// 等待父进程 Kill。不要用 select{}：无 case 的 select 会触发 Go 死锁
+	// 检测器 fatal 退出（Windows 测试进程无常驻信号 goroutine 兜底），
+	// 子进程立即释放锁，父进程就会误判"无活主"。挂一个定时器保持运行时
+	// 活跃：5 分钟足够父进程完成检查，也避免父进程异常退出后子进程长期占锁。
+	select {
+	case <-time.After(5 * time.Minute):
+	}
 }
 
 // TestRaceChildProcess 是两个子进程并发抢锁的参与者：成功者持锁 2s 后再退出，

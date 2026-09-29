@@ -6,23 +6,20 @@ pytest tests/integration/test_websocket.py -v
 
 启用服务器交互测试：
 $env:SERIALHUB_INTEGRATION_TEST = "1"
-$env:SERIALHUB_TEST_PORT = "COM4"
+（测试串口自动选择：POSIX pty / Windows com0com，可用 SERIALHUB_TEST_PORT 覆盖）
 pytest tests/integration/test_websocket.py -v
 
 WebSocket 端点: ws://127.0.0.1:{mcp_port}/ws
 """
 
-import os
 import socket
-import subprocess
 import sys
-import threading
 import time
-from pathlib import Path
 from typing import Generator, Optional
 
 import pytest
-import requests
+
+from harness import get_test_port, mcp_call, read_result_data, recv_text, to_text
 
 # WebSocket 客户端库
 try:
@@ -32,186 +29,12 @@ try:
 except ImportError:
     WEBSOCKET_AVAILABLE = False
 
-# ─── 常量 ──────────────────────────────────────────────
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-BINARY_PATH = PROJECT_ROOT / "bin" / "serialhub.exe"
-STARTUP_WAIT = 2.5
-
-
 # ─── 辅助函数 ──────────────────────────────────────────
 
 
-def get_test_port() -> str:
-    return os.environ.get("SERIALHUB_TEST_PORT", "COM4")
-
-
-def ensure_binary() -> Path:
-    if BINARY_PATH.exists():
-        return BINARY_PATH
-    subprocess.run(
-        ["go", "build", "-o", str(BINARY_PATH), "./cmd/serialhub"],
-        cwd=str(PROJECT_ROOT),
-        check=True,
-    )
-    assert BINARY_PATH.exists(), f"构建失败: {BINARY_PATH}"
-    return BINARY_PATH
-
-
-def find_free_port() -> int:
-    """分配一个可用端口，通过 SO_REUSEADDR 设置降低端口被抢占的风险。"""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _collect_output(proc: subprocess.Popen, output: dict, key: str) -> None:
-    """后台线程：持续读取子进程输出，避免 PIPE 死锁并收集日志用于诊断。"""
-    try:
-        data = getattr(proc, key).read()
-        output[key] = data.decode("utf-8", errors="replace") if data else ""
-    except Exception:
-        output[key] = ""
-
-
-def wait_for_health(mcp_port: int, timeout: float = 10) -> requests.Response:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            resp = requests.get(f"http://127.0.0.1:{mcp_port}/health", timeout=2)
-            if resp.status_code == 200:
-                return resp
-        except requests.ConnectionError:
-            pass
-        time.sleep(0.3)
-    raise TimeoutError(f"健康检查超时: mcp_port={mcp_port}")
-
-
-def mcp_call(
-    mcp_port: int,
-    method: str,
-    params: dict = None,
-    req_id: int = 1,
-    max_retries: int = 3,
-) -> dict:
-    """调用 MCP 工具（StreamableHTTP Stateless 模式，无需 session ID）"""
-    body = {"jsonrpc": "2.0", "method": method, "id": req_id}
-    if params is not None:
-        body["params"] = params
-
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-    }
-
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            resp = requests.post(
-                f"http://127.0.0.1:{mcp_port}/mcp",
-                json=body,
-                headers=headers,
-                timeout=10,
-            )
-            assert resp.status_code == 200, (
-                f"MCP 请求失败: {resp.status_code} {resp.text}"
-            )
-            return resp.json()
-        except (requests.ConnectionError, requests.exceptions.ConnectionError) as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                time.sleep(0.5)
-            continue
-
-    raise last_error if last_error else Exception("MCP 调用失败")
-
-
-# ─── Fixtures ──────────────────────────────────────────
-
-
-@pytest.fixture(scope="session")
-def binary() -> Path:
-    return ensure_binary()
-
-
-@pytest.fixture
-def serialhub_server(binary, tmp_path) -> Generator[dict, None, None]:
-    """启动 serialhub --no-tray 并返回连接信息，测试结束后自动停止。
-
-    使用高端口范围（40000+）避免与系统服务或默认端口冲突，
-    并在启动失败时收集服务器日志输出用于诊断。
-    """
-    log_dir = tmp_path / "logs"
-    proc = None
-    last_error = None
-
-    for attempt in range(3):
-        mcp_port = find_free_port()
-
-        proc = subprocess.Popen(
-            [
-                str(binary),
-                "--no-tray",
-                "--mcp-port",
-                str(mcp_port),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, "SERIALHUB_LOG_DIR": str(log_dir)},
-        )
-
-        # 后台读取输出，避免 PIPE 缓冲区满导致子进程挂死
-        output: dict[str, str] = {}
-        stdout_thread = threading.Thread(
-            target=_collect_output, args=(proc, output, "stdout"), daemon=True
-        )
-        stderr_thread = threading.Thread(
-            target=_collect_output, args=(proc, output, "stderr"), daemon=True
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-
-        try:
-            wait_for_health(mcp_port, timeout=15)
-        except TimeoutError:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            proc.wait(timeout=3)
-            proc = None
-
-            last_error = (
-                f"健康检查超时 (attempt {attempt + 1}/3): mcp_port={mcp_port}\n"
-            )
-            if output.get("stderr"):
-                last_error += f"stderr: {output['stderr'][:2000]}\n"
-            if output.get("stdout"):
-                last_error += f"stdout: {output['stdout'][:2000]}\n"
-            continue
-
-        break
-    else:
-        raise RuntimeError(f"服务器启动失败，已重试 3 次:\n{last_error}")
-
-    try:
-        yield {
-            "proc": proc,
-            "mcp_port": mcp_port,
-            "log_dir": log_dir,
-        }
-    finally:
-        if proc is not None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-
-
-# ─── WebSocket 测试 ─────────────────────────────────────
+def _send_ws(ws, data) -> None:
+    """发送 WebSocket 数据（服务端为 binary 帧，websocket-client 需 bytes）。"""
+    ws.send(data.encode("utf-8") if isinstance(data, str) else data)
 
 
 class TestWebSocket:
@@ -232,7 +55,7 @@ class TestWebSocket:
         try:
             ws.connect(ws_url)
             # 读取欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert len(welcome) > 0, "未收到欢迎消息"
             assert "SerialHub" in welcome or "Connected" in welcome, (
                 f"欢迎消息格式异常: {welcome}"
@@ -255,12 +78,12 @@ class TestWebSocket:
         try:
             ws.connect(ws_url)
             # 读取欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert len(welcome) > 0
 
             # 发送测试数据
             test_data = "hello\n"
-            ws.send(test_data)
+            _send_ws(ws, test_data)
 
             # 等待响应（可能没有响应，但不报错即可）
             ws.settimeout(2)
@@ -289,7 +112,7 @@ class TestWebSocket:
             ws1 = websocket.WebSocket()
             ws1.settimeout(5)
             ws1.connect(ws_url)
-            welcome1 = ws1.recv()
+            welcome1 = recv_text(ws1)
             assert len(welcome1) > 0, "客户端 1 未收到欢迎消息"
             clients.append(ws1)
 
@@ -297,7 +120,7 @@ class TestWebSocket:
             ws2 = websocket.WebSocket()
             ws2.settimeout(5)
             ws2.connect(ws_url)
-            welcome2 = ws2.recv()
+            welcome2 = recv_text(ws2)
             assert len(welcome2) > 0, "客户端 2 未收到欢迎消息"
             clients.append(ws2)
 
@@ -373,7 +196,7 @@ class TestWebSocket:
             ws.connect(ws_url)
 
             # 读取欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert len(welcome) > 0
 
             # 等待 WebSocket 连接稳定
@@ -388,7 +211,7 @@ class TestWebSocket:
 
             # 通过 WebSocket 发送数据（需要包含换行符才能触发转发）
             test_data = "HelloFromWS\n"
-            ws.send(test_data)
+            _send_ws(ws, test_data)
 
             # 等待数据通过串口回环
             time.sleep(0.5)
@@ -404,21 +227,7 @@ class TestWebSocket:
             )
 
             # 提取接收到的数据
-            received_data = ""
-            result_data = read_result.get("result", {})
-            content = result_data.get("content", [])
-            for item in content:
-                if item.get("type") == "text":
-                    text = item.get("text", "")
-                    if "data:" in text:
-                        import re
-
-                        match = re.search(
-                            r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text
-                        )
-                        if match:
-                            received_data = match.group(1).strip()
-                            break
+            received_data = read_result_data(read_result)
 
             # 验证数据（允许部分匹配，因为可能有其他数据）
             assert (
@@ -447,6 +256,7 @@ class TestWebSocket:
                 ws_data = ws.recv()
             except websocket.WebSocketTimeoutException:
                 ws_data = b""
+            ws_data = to_text(ws_data)
 
             assert mcp_data in ws_data or len(ws_data) > 0, (
                 f"串口数据未正确转发到 WebSocket: 发送 {mcp_data!r}, 接收 {ws_data!r}"
@@ -494,13 +304,13 @@ class TestWebSocket:
             ws.connect(ws_url)
 
             # 读取欢迎消息
-            welcome = ws.recv()
+            welcome = recv_text(ws)
             assert len(welcome) > 0
             time.sleep(0.5)
 
             # 测试简单数据（带换行符触发转发）
             test_data = "ABC123\n"
-            ws.send(test_data)
+            _send_ws(ws, test_data)
 
             # 等待数据回环
             time.sleep(0.5)
@@ -512,19 +322,7 @@ class TestWebSocket:
                 {"name": "serial_read", "arguments": {"timeout": 3000}},
             )
 
-            received = ""
-            for item in read_result.get("result", {}).get("content", []):
-                if item.get("type") == "text":
-                    text = item.get("text", "")
-                    if "data:" in text:
-                        import re
-
-                        match = re.search(
-                            r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text
-                        )
-                        if match:
-                            received = match.group(1).strip()
-                            break
+            received = read_result_data(read_result)
 
             # 验证数据
             assert "ABC123" in received, (
@@ -550,7 +348,7 @@ class TestWebSocket:
 
                 # 发送数据（带换行符）
                 send_data = test_str + "\n"
-                ws.send(send_data)
+                _send_ws(ws, send_data)
                 time.sleep(0.3)
 
                 # 读取验证
@@ -560,19 +358,7 @@ class TestWebSocket:
                     {"name": "serial_read", "arguments": {"timeout": 2000}},
                 )
 
-                received = ""
-                for item in read_result.get("result", {}).get("content", []):
-                    if item.get("type") == "text":
-                        text = item.get("text", "")
-                        if "data:" in text:
-                            import re
-
-                            match = re.search(
-                                r"data:(.+?)(?:\s+bytes:|\s+timedOut|$)", text
-                            )
-                            if match:
-                                received = match.group(1).strip()
-                                break
+                received = read_result_data(read_result)
 
                 # 验证数据包含（去掉换行符）
                 received_clean = received.replace("\n", "").replace("\r", "")

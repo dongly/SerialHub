@@ -7,6 +7,7 @@ SerialHub 配置文件测试
     pytest tests/integration/test_config.py -v
 """
 
+import os
 import subprocess
 import tempfile
 import time
@@ -16,7 +17,7 @@ from typing import Generator
 import pytest
 import requests
 
-from conftest import (
+from harness import (
     ensure_binary,
     find_free_port,
     mcp_call,
@@ -59,7 +60,6 @@ httpPort = 99999
             proc = subprocess.Popen(
                 [
                     str(binary),
-                    "--no-tray",
                     "--config",
                     str(config_path),
                     "--mcp-port",
@@ -88,7 +88,6 @@ httpPort = 99999
             proc = subprocess.Popen(
                 [
                     str(binary),
-                    "--no-tray",
                     "--config",
                     str(bad_config),
                     "--mcp-port",
@@ -137,7 +136,6 @@ httpPort = 5050
             proc = subprocess.Popen(
                 [
                     str(binary),
-                    "--no-tray",
                     "--config",
                     str(config_path),
                     "--mcp-port",
@@ -164,7 +162,7 @@ httpPort = 5050
                 proc.wait(timeout=5)
 
     def test_single_instance(self, binary):
-        """测试单实例运行（第二个实例应退出）"""
+        """测试单实例运行（第二个实例不会成为新的主实例）"""
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -180,7 +178,6 @@ baudRate = 115200
             proc1 = subprocess.Popen(
                 [
                     str(binary),
-                    "--no-tray",
                     "--config",
                     str(config_path),
                     "--mcp-port",
@@ -199,7 +196,6 @@ baudRate = 115200
                 proc2 = subprocess.Popen(
                     [
                         str(binary),
-                        "--no-tray",
                         "--config",
                         str(config_path),
                         "--mcp-port",
@@ -209,20 +205,36 @@ baudRate = 115200
                     stderr=subprocess.PIPE,
                 )
 
-                # 等待第二个实例退出
+                # 单实例语义：第二实例发现活主后转为透明代理，可能立即正常退出
+                # （stdio 代理无输入时），也可能常驻代理；但它绝不会在自己的
+                # 端口上再成为一个主实例。
                 try:
                     proc2.wait(timeout=5)
                 except subprocess.TimeoutExpired:
+                    pass
+
+                if proc2.poll() is None:
                     proc2.terminate()
-                    proc2.wait(timeout=3)
+                    try:
+                        proc2.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc2.kill()
 
-                # 验证第二个实例退出且返回错误
-                assert proc2.returncode != 0, "第二个实例应该退出并返回错误码"
+                health2 = None
+                try:
+                    health2 = requests.get(
+                        f"http://127.0.0.1:{mcp_port2}/health", timeout=2
+                    )
+                except requests.RequestException:
+                    pass
+                assert health2 is None or health2.status_code != 200, (
+                    "第二个实例不应在自身端口上成为新的主实例"
+                )
 
-                stderr_output = proc2.stderr.read().decode("utf-8", errors="replace")
-                assert (
-                    "已在运行中" in stderr_output or "running" in stderr_output.lower()
-                ), f"错误消息应提示已在运行中，实际输出: {stderr_output}"
+                health1 = requests.get(
+                    f"http://127.0.0.1:{mcp_port1}/health", timeout=5
+                )
+                assert health1.status_code == 200, "第一个实例应保持为主实例"
 
             finally:
                 proc1.terminate()
@@ -233,8 +245,11 @@ baudRate = 115200
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 将二进制复制到临时目录
-            tmp_binary = Path(tmpdir) / "serialhub.exe"
+            binary_name = "serialhub.exe" if os.name == "nt" else "serialhub"
+            tmp_binary = Path(tmpdir) / binary_name
             tmp_binary.write_bytes(binary.read_bytes())
+            if os.name != "nt":
+                tmp_binary.chmod(0o755)  # 复制后补回可执行位
 
             # 在同级目录创建 config.toml
             config_path = Path(tmpdir) / "config.toml"
@@ -257,7 +272,6 @@ debug = true
             proc = subprocess.Popen(
                 [
                     str(tmp_binary),
-                    "--no-tray",
                     "--mcp-port",
                     str(mcp_port),
                 ],

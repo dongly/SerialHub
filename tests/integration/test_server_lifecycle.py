@@ -31,7 +31,6 @@ class TestServerLifecycle:
         proc = subprocess.Popen(
             [
                 str(binary),
-                "--no-tray",
                 "--serial-port",
                 "INVALID_PORT_99999",
                 "--mcp-port",
