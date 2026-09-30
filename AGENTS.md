@@ -40,6 +40,7 @@ serialhub -p COM7 -D         # 直接启动
 
 - **Go 单元测试**：`go test ./...`（`internal/testutil/` 提供 mock 串口和网络连接）
 - **Windows 测试（WSL 经 PowerShell）**：`tools/test-windows.sh [包...] [-run 正则]`——交叉编译 Windows 测试二进制并经真实 Windows pwsh 实跑（默认 `./pkg/tray`、zh+en 双语；`SERIALHUB_LANG` 指定单语言；`-hw [TEST:PEER]` 走 com0com 硬件回环——省略值自动探测串口对并自动起对端回显进程，默认包 `./pkg/serial`）。勿在 WSL 内直接 `GOOS=windows go test`（Wine 拉起 systray panic）
+- **编译产物端到端测试**：`tests/test-deployed.sh`——WSL 交叉编译 Windows exe，经 interop 在沙箱用户目录（USERPROFILE/LOCALAPPDATA/APPDATA 重定向）实跑 uninstall/upgrade；mock GitHub API（`SERIALHUB_GITHUB_API` 指向 WSL IP）+ 伪造 release 验证升级全链路；覆盖 dry-run 清单/延迟自删/随包清理/空目录回收/MCP 条目合并逆操作/弯引号路径；所有命令带 timeout + 全局看门狗，挂死自动退出
 - **Python 集成测试**：`tests/integration/`（需 pytest + 运行中的 SerialHub 服务）
 - **Python 浏览器 UI 测试**：`tests/integration/playwright/`（pytest + Playwright）
 - 硬件测试由 `SERIALHUB_HARDWARE_TEST=1` 控制，`SERIALHUB_TEST_PORT` 指定端口
