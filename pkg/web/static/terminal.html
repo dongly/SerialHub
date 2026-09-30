@@ -522,10 +522,10 @@
                 // 浏览器自动接回并收到「新实例已接管」提示。
                 if (reconnectTimer === null) {
                     reconnectRetries++;
-                    // 退避 1,2,4,5,5,5 共 6 次，间隔总和约 22s（不含握手
+                    // 退避 1,2,4,5,5 共 5 次，间隔总和约 17s（不含握手
                     // 耗时），覆盖前台代理接管流程（实测约 4-6s）；
                     // 超时无实例监听则停止，不无限刷屏。
-                    if (reconnectRetries > 6) {
+                    if (reconnectRetries > 5) {
                         terminal.writeln('\x1b[31m[SerialHub] ' + t('serviceExited') + '\x1b[0m');
                         return;
                     }
