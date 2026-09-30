@@ -14,10 +14,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/spf13/cobra"
 
 	"github.com/dongly/serialhub/internal/i18n"
+	"github.com/dongly/serialhub/internal/instance"
 	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcpsetup"
 )
@@ -49,11 +51,20 @@ type uninstallAction struct {
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	// 0. 检测运行中的实例（默认端口 + 用户配置端口，验证 SerialHub 身份）
+	// 版本行模板集中在 i18n（产品名与版本号本身无需翻译）
+	fmt.Printf(i18n.Uninstall.VersionLine+"\n", appVersion)
+
+	// 0. 检测运行中的实例（默认端口 + 用户配置端口，验证 SerialHub 身份）。
+	// 对侧实例（如 WSL2 localhost 端口转发命中的另一系统实例）不占用
+	// 本机文件与端口，仅提示、不拦截卸载。
 	for _, t := range detectCandidateTargets() {
 		base := "http://" + net.JoinHostPort(t.host, strconv.Itoa(t.port))
-		if serialhubRunningAt(base) {
+		local, remote := serialhubInstanceAt(base)
+		if local {
 			return fmt.Errorf(i18n.Uninstall.Running, base)
+		}
+		if remote {
+			fmt.Println(fmt.Sprintf(i18n.Uninstall.RemoteInstance, base))
 		}
 	}
 
@@ -278,31 +289,40 @@ func effectiveHosts(host string) []string {
 	}
 }
 
-// serialhubRunningAt 探测 base/health 是否是正在运行的 SerialHub。
+// serialhubInstanceAt 探测 base/health 是否是正在运行的 SerialHub。
 // 识别规则：返回 200 且 JSON 中 service=="serialhub"（新版实例产品标识）；
 // 老版本实例无 service 字段，回退 role∈{master,worker} 启发式。
 // role 并非 SerialHub 特有字段，回退分支是尽力识别而非保证，
 // 其他服务恰好返回相同 role 时仍可能被误判。
-func serialhubRunningAt(base string) bool {
+func serialhubInstanceAt(base string) (local, remote bool) {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	resp, err := client.Get(base + "/health")
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+		return false, false
 	}
 	var h struct {
 		Service string `json:"service"`
 		Role    string `json:"role"`
+		Side    string `json:"side"`
 	}
 	if err := json.Unmarshal(body, &h); err != nil {
-		return false
+		return false, false
 	}
 	isRole := h.Role == "master" || h.Role == "worker"
-	return (h.Service == "serialhub" && isRole) || (h.Service == "" && isRole)
+	if !((h.Service == "serialhub" && isRole) || (h.Service == "" && isRole)) {
+		return false, false
+	}
+	// side 与本机不一致＝对侧实例经 WSL2 localhost 转发可达，
+	// 不是本机进程：不拦截卸载，仅提示。老版本无 side 字段按本机处理。
+	if h.Side != "" && h.Side != instance.LocalSide() {
+		return false, true
+	}
+	return true, false
 }
 
 // userStateDesc 描述用户状态目录位置（配置+日志+Windows 锁目录），显示实际路径。
@@ -579,9 +599,9 @@ func removeSelfBinary() (string, error) {
 	}
 	if runtime.GOOS == "windows" {
 		script := windowsDelayedRemoveScript(exe, filepath.Dir(exe))
-		del := exec.Command("cmd", "/c", script)
+		del := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
 		// 延迟进程工作目录须避开安装目录：在安装目录内执行卸载时，
-		// cmd 自身占用目录会让尾部 rmdir 失败（此时 exe 已删，无法重跑补救）
+		// 进程自身占用目录会让目录删除失败（此时 exe 已删，无法重跑补救）
 		if dir := os.Getenv("SystemRoot"); dir != "" {
 			del.Dir = dir
 		} else {
@@ -594,13 +614,47 @@ func removeSelfBinary() (string, error) {
 	return "", fmt.Errorf(i18n.Uninstall.BinaryFailed, exe)
 }
 
-// windowsDelayedRemoveScript 构造 Windows 延迟删除自删脚本：先等 uninstall
-// 进程退出（首次约 2s），随后最多三轮「if exist 检查 → del → 等待」。用
-// if exist 显式验证而非 del 的退出码——文件被占用时 del 可能报错却返回 0，
-// 退出码重试（|| 链）会漏判；失败重试固定间隔约 3s，总窗口约 10s，覆盖退出慢与瞬时
-// 句柄。cmd /c 直接执行时循环变量写 %i（批处理文件内才是 %%i）。
+// windowsDelayedRemoveScript 构造 Windows 延迟自删的 PowerShell 脚本：
+// 等待 uninstall 进程退出（约 2s）后，以「文件是否在场」判定成败重试删除
+// exe（固定间隔 3s，最多 3 次），最后回收空的安装目录（非空不动）。
+// 路径不进入脚本文本，而是以 UTF-16 码元列表（psCharArray）嵌入、
+// 脚本内 [char[]] 重建——单引号字面量无法可靠承载路径：除 ASCII '
+// 需转义外，PowerShell 还把 U+2018～U+201B 弯引号视为引号，路径
+// 含这些字符会破坏（甚至注入）脚本。码元数组对空格/中文/通配符/
+// 引号全部免疫。经 exec 传给 powershell.exe（CRT 参数还原规则，
+// 无 cmd /c 的引号剥离歧义——此前 cmd 方案因 Go argv 序列化与
+// cmd 解析规则不一致导致 del 从未执行）。
+// powershellRetryRemove 产出「延迟删除单个文件」的 PowerShell 重试段：
+// $<name> 由码元数组重建为路径，先等 2s 让调用方退出，随后最多 3 次
+// 尝试（间隔 3s），以文件是否在场判定成败（不依赖 cmdlet 退出码——
+// del/Remove-Item 对被锁文件可能报错但退出码为成功）。uninstall 自删
+// 与 upgrade 清 .old 共用此段，调整重试策略只改这里。
+func powershellRetryRemove(name, path string) string {
+	return "$" + name + " = -join [char[]](" + psCharArray(path) + "); " +
+		"Start-Sleep -Seconds 2; " +
+		"foreach ($i in 1..3) { " +
+		"if (Test-Path -LiteralPath $" + name + ") { " +
+		"Remove-Item -Force -LiteralPath $" + name + "; " +
+		"Start-Sleep -Seconds 3 } " +
+		"}"
+}
+
 func windowsDelayedRemoveScript(exe, dir string) string {
-	return fmt.Sprintf(
-		`ping -n 3 127.0.0.1 >nul & for /l %%i in (1,1,3) do (if exist "%s" (del /f "%s" & ping -n 4 127.0.0.1 >nul)) & rmdir "%s"`,
-		exe, exe, dir)
+	return powershellRetryRemove("e", exe) + "; " +
+		"$d = -join [char[]](" + psCharArray(dir) + "); " +
+		"if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -Force -LiteralPath $d)) { " +
+		"[void][System.IO.Directory]::Delete($d) }"
+}
+
+// psCharArray 把 s 编码为逗号分隔的 UTF-16 码元列表，供 PowerShell
+// `-join [char[]](...)` 重建字符串：脚本内不出现任何路径字面量，
+// 从根本上消除引号（ASCII/弯引号）、通配符与变量展开的注入面；
+// 代理对字符（>U+FFFF）拆为两个码元，与 PS 的 UTF-16 字符串一致。
+func psCharArray(s string) string {
+	units := utf16.Encode([]rune(s))
+	nums := make([]string, len(units))
+	for i, u := range units {
+		nums[i] = strconv.FormatUint(uint64(u), 10)
+	}
+	return strings.Join(nums, ",")
 }

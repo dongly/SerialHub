@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,71 +10,103 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/dongly/serialhub/internal/instance"
 )
 
-func TestSerialhubRunningAt(t *testing.T) {
-	t.Run("SerialHub的health响应识别为true", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestSerialhubInstanceAt(t *testing.T) {
+	health := func(body string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/health" {
-				w.Write([]byte(`{"status":"ok","service":"serialhub","role":"master"}`))
+				w.Write([]byte(body))
 				return
 			}
 			w.WriteHeader(http.StatusNotFound)
 		}))
-		defer server.Close()
-		if !serialhubRunningAt(server.URL) {
-			t.Fatal("SerialHub /health（含 service+role 字段）应返回 true")
+	}
+	// want: local/remote/none
+	check := func(t *testing.T, url, want string) {
+		t.Helper()
+		local, remote := serialhubInstanceAt(url)
+		got := "none"
+		if local {
+			got = "local"
+		} else if remote {
+			got = "remote"
 		}
+		if got != want {
+			t.Fatalf("探活分类不符：got=%s want=%s", got, want)
+		}
+	}
+
+	t.Run("SerialHub的health响应识别为本机实例", func(t *testing.T) {
+		srv := health(`{"status":"ok","service":"serialhub","role":"master"}`)
+		defer srv.Close()
+		check(t, srv.URL, "local")
 	})
 
 	t.Run("老版本实例无service字段回退role识别", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/health" {
-				w.Write([]byte(`{"status":"ok","role":"worker"}`))
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
+		srv := health(`{"status":"ok","role":"worker"}`)
+		defer srv.Close()
+		check(t, srv.URL, "local")
+	})
+
+	t.Run("同侧实例识别为本机", func(t *testing.T) {
+		srv := health(fmt.Sprintf(`{"status":"ok","service":"serialhub","role":"master","side":%q}`, instance.LocalSide()))
+		defer srv.Close()
+		check(t, srv.URL, "local")
+	})
+
+	t.Run("对侧实例经端口转发不拦截本机卸载", func(t *testing.T) {
+		// side 与本机必然不同（LocalSide 不会返回该值）
+		srv := health(`{"status":"ok","service":"serialhub","role":"master","side":"opposite-side"}`)
+		defer srv.Close()
+		check(t, srv.URL, "remote")
+	})
+
+	t.Run("对侧worker角色同样不拦截", func(t *testing.T) {
+		srv := health(`{"status":"ok","service":"serialhub","role":"worker","side":"opposite-side"}`)
+		defer srv.Close()
+		check(t, srv.URL, "remote")
+	})
+
+	t.Run("坏JSON响应视为无实例", func(t *testing.T) {
+		srv := health(`{"status":"ok","service":"serialhub"`) // 截断的 JSON
+		defer srv.Close()
+		check(t, srv.URL, "none")
+	})
+
+	t.Run("探活超时视为无实例", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(2 * time.Second) // 远超 serialhubInstanceAt 的 500ms 客户端超时
 		}))
-		defer server.Close()
-		if !serialhubRunningAt(server.URL) {
-			t.Fatal("老版本实例（仅 role=worker）应回退识别为 true")
-		}
+		defer srv.Close()
+		check(t, srv.URL, "none")
 	})
 
 	t.Run("其他服务的200不误判", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"status":"ok"}`)) // 无 role 字段：不是 SerialHub
-		}))
-		defer server.Close()
-		if serialhubRunningAt(server.URL) {
-			t.Fatal("无 role 字段的 /health 不应误判为 SerialHub")
-		}
+		srv := health(`{"status":"ok"}`) // 无 role 字段：不是 SerialHub
+		defer srv.Close()
+		check(t, srv.URL, "none")
 	})
 
 	t.Run("其他服务冒用role不被service拒绝", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"status":"ok","service":"other-tool","role":"master"}`))
-		}))
-		defer server.Close()
-		if serialhubRunningAt(server.URL) {
-			t.Fatal("service 不是 serialhub 时不应识别为 SerialHub")
-		}
+		srv := health(`{"status":"ok","service":"other-tool","role":"master"}`)
+		defer srv.Close()
+		check(t, srv.URL, "none")
 	})
 
 	t.Run("404视为无实例", func(t *testing.T) {
-		server := httptest.NewServer(http.NotFoundHandler())
-		defer server.Close()
-		if serialhubRunningAt(server.URL) {
-			t.Fatal("404 应返回 false")
-		}
+		srv := httptest.NewServer(http.NotFoundHandler())
+		defer srv.Close()
+		check(t, srv.URL, "none")
 	})
 
 	t.Run("连接失败视为无实例", func(t *testing.T) {
-		server := httptest.NewServer(http.NotFoundHandler())
-		server.Close() // 立即关闭，端口不再服务
-		if serialhubRunningAt(server.URL) {
-			t.Fatal("连接失败应返回 false")
-		}
+		srv := httptest.NewServer(http.NotFoundHandler())
+		srv.Close() // 立即关闭，端口不再服务
+		check(t, srv.URL, "none")
 	})
 }
 
@@ -409,30 +442,94 @@ func TestRemoveInstallDirExtrasIn_AbortOnFailure(t *testing.T) {
 }
 
 func TestWindowsDelayedRemoveScript(t *testing.T) {
-	// 用例：中文与空格混合路径，验证引号包裹与脚本结构
-	exe := `D:\My Tools\serialhub\serialhub.exe`
-	dir := `D:\My Tools\serialhub`
+	// 用例：中文、空格与弯引号（U+2019）混合路径——旧单引号字面量方案
+	// 会被弯引号破坏，码元数组应对全部字符免疫
+	exe := `D:\My Tools\don’t串口\serialhub.exe`
+	dir := `D:\My Tools\don’t串口`
 	got := windowsDelayedRemoveScript(exe, dir)
 
-	// 前置等待后进入 for /l 三轮循环；if exist 显式验证（不依赖 del 退出码）
-	if !strings.Contains(got, "ping -n 3 127.0.0.1 >nul & for /l %i in (1,1,3) do (") {
+	// 路径以 UTF-16 码元列表嵌入，$e/$d 各一次，脚本内 [char[]] 重建
+	if !strings.Contains(got, "$e = -join [char[]]("+psCharArray(exe)+"); ") {
+		t.Errorf("exe 应以码元数组构造 $e: %q", got)
+	}
+	if !strings.Contains(got, "$d = -join [char[]]("+psCharArray(dir)+"); ") {
+		t.Errorf("dir 应以码元数组构造 $d: %q", got)
+	}
+	// 前置等待后进入三轮循环；以文件是否在场判定（不依赖退出码）
+	if !strings.Contains(got, "Start-Sleep -Seconds 2; foreach ($i in 1..3) {") {
 		t.Errorf("缺少首轮等待+循环前缀: %q", got)
 	}
-	if !strings.Contains(got, `if exist "D:\My Tools\serialhub\serialhub.exe" (del /f "D:\My Tools\serialhub\serialhub.exe" & ping -n 4 127.0.0.1 >nul)`) {
-		t.Errorf("循环体应为 if exist 检查+删除+间隔等待: %q", got)
+	if !strings.Contains(got, "if (Test-Path -LiteralPath $e) { Remove-Item -Force -LiteralPath $e; ") {
+		t.Errorf("循环体应为 -LiteralPath 变量检查+删除+间隔等待: %q", got)
 	}
-	// 尾部 rmdir 安装目录，且无 /s（非空目录不动）
-	if !strings.HasSuffix(got, `& rmdir "D:\My Tools\serialhub"`) {
-		t.Errorf("应以 rmdir 安装目录结尾: %q", got)
+	// 尾部：目录存在且已空才删除
+	if !strings.HasSuffix(got, "if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -Force -LiteralPath $d)) { [void][System.IO.Directory]::Delete($d) }") {
+		t.Errorf("应以目录空判定+删除结尾: %q", got)
 	}
-	// %q 转义回归检查：Go 的 %q 会把反斜杠写成双份，cmd 不识别
-	if strings.Contains(got, `\\`) {
-		t.Errorf("路径出现 Go 转义反斜杠（应显式引号包裹）: %q", got)
+	// 注入面归零：路径原文（含弯引号/空格/中文）不得出现在脚本文本中
+	for _, lit := range []string{exe, dir, `don’t`, "串口"} {
+		if strings.Contains(got, lit) {
+			t.Errorf("脚本文本不应包含路径原文 %q: %q", lit, got)
+		}
+	}
+	// cmd 批处理残留回归检查：不得再出现 cmd 语法
+	for _, frag := range []string{"cmd", "del /f", "if exist", "ping -n"} {
+		if strings.Contains(got, frag) {
+			t.Errorf("不应再包含 cmd 批处理语法 %q: %q", frag, got)
+		}
+	}
+	// 单引号字面量残留回归检查：路径一律走变量，不再以引号字面量进入脚本
+	if strings.Contains(got, "LiteralPath '") {
+		t.Errorf("不应出现单引号路径字面量: %q", got)
 	}
 	// 括号配对
 	open, close := strings.Count(got, "("), strings.Count(got, ")")
 	if open != close {
 		t.Errorf("括号不配对: open=%d close=%d", open, close)
+	}
+}
+
+func TestWindowsDelayedRemoveScript_WildcardPath(t *testing.T) {
+	// 方括号目录在 -Path 通配符语义下是字符类；码元数组以变量传递，
+	// 配合 -LiteralPath 双保险，脚本文本不含路径原文
+	exe := `D:\Tools[1]\serialhub\serialhub.exe`
+	dir := `D:\Tools[1]\serialhub`
+	got := windowsDelayedRemoveScript(exe, dir)
+	if strings.Count(got, "LiteralPath $e") != 2 {
+		t.Errorf("exe 应以 -LiteralPath 变量出现 2 次: %q", got)
+	}
+	if !strings.Contains(got, "Test-Path -LiteralPath $d") || !strings.Contains(got, "Get-ChildItem -Force -LiteralPath $d") {
+		t.Errorf("目录判定应使用 -LiteralPath 变量: %q", got)
+	}
+	for _, lit := range []string{exe, dir, "Tools[1]"} {
+		if strings.Contains(got, lit) {
+			t.Errorf("脚本文本不应包含路径原文 %q: %q", lit, got)
+		}
+	}
+	// 码元列表应完整覆盖方括号路径（代理对之外的常规编码由同源函数生成）
+	if !strings.Contains(got, psCharArray(exe)) || !strings.Contains(got, psCharArray(dir)) {
+		t.Errorf("应嵌入完整码元列表: %q", got)
+	}
+}
+
+func TestPsCharArray(t *testing.T) {
+	// 路径编码为逗号分隔 UTF-16 码元：空串、ASCII、中文（BMP 内单码元）、
+	// 弯引号与增补平面字符（代理对拆两码元）四类代表
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"空串", "", ""},
+		{"ASCII", "AB", "65,66"},
+		{"中文BMP单码元", "串", "20018"},               // U+4E32
+		{"弯引号", "’", "8217"},                     // U+2019
+		{"代理对拆两码元", "\U00010437", "55297,56375"}, // U+10437 → D801 DC37
+	}
+	for _, c := range cases {
+		if got := psCharArray(c.in); got != c.want {
+			t.Errorf("%s: psCharArray(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
 	}
 }
 

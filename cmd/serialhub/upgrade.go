@@ -82,14 +82,15 @@ type ghRelease struct {
 }
 
 func (u *upgrader) run(out io.Writer) error {
-	fmt.Fprintf(out, i18n.CLI.CheckVersion, u.nowVer)
+	// 显示用完整版本（含构建哈希，与 --version 一致）；比较逻辑仍用 u.nowVer。
+	fmt.Fprintf(out, i18n.CLI.CheckVersion, appVersion)
 	rel, err := u.fetchLatestRelease()
 	if err != nil {
 		return fmt.Errorf(i18n.CLI.FetchFailed, err)
 	}
 	latestVer := trimVPrefix(rel.TagName)
 	if compareVersion(latestVer, u.nowVer) <= 0 {
-		fmt.Fprintf(out, i18n.CLI.AlreadyLatest, u.nowVer, rel.TagName)
+		fmt.Fprintf(out, i18n.CLI.AlreadyLatest, appVersion, rel.TagName)
 		return nil
 	}
 
@@ -97,7 +98,7 @@ func (u *upgrader) run(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, i18n.CLI.FoundVersion, latestVer, asset.Name)
+	fmt.Fprintf(out, i18n.CLI.FoundVersion, latestVer, appVersion, asset.Name)
 
 	data, err := u.download(asset.BrowserDownloadURL, maxArchiveBytes)
 	if err != nil {
@@ -119,7 +120,7 @@ func (u *upgrader) run(out io.Writer) error {
 	if err := u.replaceSelf(bin); err != nil {
 		return fmt.Errorf(i18n.CLI.ReplaceFailed, err)
 	}
-	fmt.Fprintf(out, i18n.CLI.UpgradeDone, u.nowVer, latestVer)
+	fmt.Fprintf(out, i18n.CLI.UpgradeDone, appVersion, latestVer)
 	return nil
 }
 
@@ -365,8 +366,11 @@ func (u *upgrader) replaceSelf(bin []byte) error {
 		}
 		return err
 	}
-	// 延迟删除 .old（timeout /t 在无交互 stdin 的子进程会报错，用 ping 计时）
-	del := exec.Command("cmd", "/c", fmt.Sprintf("ping -n 3 127.0.0.1 >nul & del /f %q", old))
+	// 延迟删除 .old（PowerShell 多轮重试；cmd /c 传脚本串与 Go 的
+	// argv 转义不兼容，内部引号变 \" 后 cmd 无法正确解析）
+	// 与 uninstall 自删共用同一段重试脚本（uninstall.go powershellRetryRemove）
+	del := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+		powershellRetryRemove("o", old))
 	if err := del.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, i18n.UpgradeErrors.KeepOld, old)
 	}

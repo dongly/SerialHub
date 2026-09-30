@@ -175,7 +175,7 @@ var CLI = struct {
 	CheckVersion:           T("[SerialHub] 当前版本 %s，正在检查更新...\n", "[SerialHub] Current version %s; checking for updates...\n"),
 	FetchFailed:            T("查询最新版本失败：%w", "failed to check latest release: %w"),
 	AlreadyLatest:          T("[SerialHub] 已是最新版本 %s（latest release: %s）。\n", "[SerialHub] Already up to date: %s (latest release: %s).\n"),
-	FoundVersion:           T("[SerialHub] 发现新版本 %s，下载 %s ...\n", "[SerialHub] New version %s; downloading %s...\n"),
+	FoundVersion:           T("[SerialHub] 发现新版本 %s（当前 %s），下载 %s ...\n", "[SerialHub] New version %s (current %s); downloading %s...\n"),
 	DownloadFailed:         T("下载 %s 失败：%w", "failed to download %s: %w"),
 	DownloadChecksumFailed: T("下载校验文件失败：%w", "failed to download checksum file: %w"),
 	VerifyFailed:           T("校验失败：%w", "checksum verification failed: %w"),
@@ -188,20 +188,23 @@ var CLI = struct {
 // Uninstall 是卸载向导及各动作的用户可见文案。
 var Uninstall = struct {
 	Short, Long, Yes, Running, Plan, Empty, Confirm, Cancel, Failed, ManualDone, Done   string
+	VersionLine                                                                         string
 	SkipBinary, ActionFailed, Entry, CLIEntryCodex, CLIEntryClaude, Pending, FileExists string
 	State, Binary, Exists, LockDir, ConfigAndLogs, NoFiles, RemovedFiles                string
 	LocateDir, CheckFailed, RemoveFailed, NoConfigDir, NotFound, RemovedState           string
 	LocateSelf, RemovedBinary, DelayedBinary, BinaryFailed, ManualRemove                string
-	InstallFiles, RemovedInstallFiles, RemovedEmptyDir                                  string
+	InstallFiles, RemovedInstallFiles, RemovedEmptyDir, RemoteInstance                  string
 }{
 	Short:          T("卸载 SerialHub（清理 MCP 接入条目、配置日志与二进制）", "Uninstall SerialHub (MCP entries, configuration, logs and executable)"),
 	Long:           T("卸载 SerialHub：\n  1. 移除各 MCP 客户端中的 serialhub 条目（OpenCode/Claude/Cursor/Windsurf/VS Code/Codex，\n     含当前目录的项目级配置；Codex 与 Claude 用户级经官方 CLI 移除，遵循该 CLI 行为）\n  2. 删除配置与日志目录（Linux/macOS: ~/.config/serialhub/；Windows: exe 同目录 config.toml 与 logs/ + 锁目录 %LOCALAPPDATA%\\serialhub\\）\n  3. 删除二进制本身（Windows 下经延迟删除命令）\n默认先列出将清理的项（dry-run），确认后执行；全程幂等，不存在的项自动跳过。\n运行实例检测覆盖默认端口与用户配置文件的地址端口（含 Windows exe 同目录配置）；\n其他自定义端口（-m/-c 临时指定）的实例请自行确认已退出。\n前置清理项失败时会跳过二进制删除并返回非零退出码，修复后重跑即可。\n注意：-c/--config 指定的自定义路径配置不在清理范围，需手动删除。", "Uninstall SerialHub:\n  1. Remove serialhub entries from MCP clients (including project entries in the current directory).\n     Codex and Claude user entries use their official CLIs.\n  2. Remove configuration and logs (on Windows, also remove the LOCALAPPDATA lock directory).\n  3. Remove the executable (delayed deletion on Windows).\nA preview is shown before confirmation; missing items are skipped. Running instances detected on the default and configured addresses block uninstall.\nStop instances using custom -m/-c settings yourself. On failure, executable deletion is skipped so you can retry.\nCustom -c/--config files are not removed."),
 	Yes:            T("跳过确认直接卸载", "Uninstall without confirmation"),
 	Running:        T("检测到 SerialHub 正在运行（%s/health），请先退出再卸载", "SerialHub is running (%s/health); stop it before uninstalling"),
+	RemoteInstance: T("检测到对侧实例正通过端口转发占用 %s，不影响本机卸载", "Remote instance detected at %s via port forwarding; local uninstall continues"),
 	Plan:           T("[SerialHub] 卸载将清理以下内容：", "[SerialHub] Uninstall will remove:"),
 	Empty:          T("  （无可清理项，已是干净状态）", "  (Nothing to remove; already clean)"),
 	Confirm:        T("确认执行卸载? (y/N): ", "Proceed with uninstall? (y/N): "),
 	Cancel:         T("已取消卸载。", "Uninstall cancelled."),
+	VersionLine:    T("[SerialHub] SerialHub v%s", "[SerialHub] SerialHub v%s"),
 	Failed:         T("卸载未完全完成，%d 项失败：\n%s", "Uninstall incomplete: %d item(s) failed:\n%s"),
 	ManualDone:     T("[SerialHub] 卸载完成（存在待手动处理项，见上方说明）。", "[SerialHub] Uninstall finished; manual steps remain (see above)."),
 	Done:           T("[SerialHub] 卸载完成。感谢使用！", "[SerialHub] Uninstall complete. Thank you!"),
