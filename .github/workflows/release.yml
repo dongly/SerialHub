@@ -24,6 +24,11 @@ jobs:
 
       - name: go test
         run: go test ./...
+        env:
+          # 仓库测试断言中文词条；CI runner 无中文 locale 时 i18n 检测为
+          # 英文，输出与断言不匹配（i18n 语言在包 init 时求值，无法在
+          # 测试内覆盖，故在此固定语境）。
+          SERIALHUB_LANG: zh
 
   build:
     name: Build ${{ matrix.os }}/${{ matrix.arch }}
