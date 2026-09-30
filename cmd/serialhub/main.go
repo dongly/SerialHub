@@ -41,6 +41,10 @@ func main() {
 		Long:  i18n.CLI.RootLong,
 		RunE:  runServe,
 		Args:  cobra.NoArgs,
+		// 运行期错误（如主实例失联）不需要 Usage 帮助；错误统一由 main
+		// 单行打印（SilenceErrors 关掉 cobra 自带输出，避免重复两遍）。
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&serialPort, "serial-port", "p", "", i18n.CLI.FlagSerialPort)
@@ -62,7 +66,7 @@ func main() {
 	rootCmd.AddCommand(newUpgradeCmd())
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
