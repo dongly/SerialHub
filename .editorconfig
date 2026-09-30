@@ -1,0 +1,31 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+indent_style = tab
+
+[*.{yml,yaml,json,toml}]
+indent_style = space
+indent_size = 2
+
+# Windows 脚本编码与换行：
+# - ps1：UTF-8 BOM + CRLF（PS 5.1 无 BOM 按系统 ANSI 解码非 ASCII 中文乱码）
+# - bat/cmd：无 BOM + CRLF（cmd 不剥 BOM，BOM 会拼进首行命令报错；纯 ASCII）
+[*.{bat,cmd}]
+charset = utf-8
+end_of_line = crlf
+
+[*.{ps1,psm1}]
+charset = utf-8-bom
+end_of_line = crlf
+
+# install.ps1 经 irm|​iex 在线安装以字符串执行：UTF-8 BOM 会混入首行
+# 导致解析错乱（fix 8434e7b），必须保持无 BOM 纯 ASCII。
+[install.ps1]
+charset = utf-8
+end_of_line = crlf
