@@ -137,7 +137,7 @@ var CLI = struct {
 	InvalidMode, InvalidScope, ConfirmOverwrite, EntrySkipped, SetupDone, SetupHint string
 	UpgradeShort, UpgradeLong, LocateExe, CheckVersion, FetchFailed, AlreadyLatest  string
 	FoundVersion, DownloadFailed, DownloadChecksumFailed, VerifyFailed, ChecksumOK  string
-	ExtractFailed, ReplaceFailed, UpgradeDone                                       string
+	ExtractFailed, ReplaceFailed, UpgradeDone, CleanupLegacy                        string
 }{
 	RootShort:              T("SerialHub - 串口与网络连接的双向桥接器", "SerialHub - a bidirectional serial and network bridge"),
 	RootLong:               T("SerialHub 将 MCU 串口数据同时转发到 WebSocket（人工监视）和 MCP（AI 工具程序化访问）。", "SerialHub forwards MCU serial data to WebSocket (human monitoring) and MCP (AI tools)."),
@@ -183,6 +183,7 @@ var CLI = struct {
 	ExtractFailed:          T("解压 %s 失败：%w", "failed to extract %s: %w"),
 	ReplaceFailed:          T("替换二进制失败：%w", "failed to replace executable: %w"),
 	UpgradeDone:            T("[SerialHub] 已升级 %s → %s（配置与日志保留不动）。\n", "[SerialHub] Upgraded %s → %s (configuration and logs preserved).\n"),
+	CleanupLegacy:          T("[SerialHub] 已清理废弃旧启动脚本 %s\n", "[SerialHub] Removed obsolete legacy launcher %s\n"),
 }
 
 // Uninstall 是卸载向导及各动作的用户可见文案。

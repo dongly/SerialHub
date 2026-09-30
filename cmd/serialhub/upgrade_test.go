@@ -477,3 +477,34 @@ func TestUpgraderRun_APIError(t *testing.T) {
 		t.Fatal("期望 API 错误")
 	}
 }
+
+// TestCleanupLegacyLaunchers 验证升级成功后清理 exe 同目录的废弃旧启动
+// 脚本：两个旧名被删且输出提示，无关文件保留，目录内无旧名残留。
+func TestCleanupLegacyLaunchers(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"serialhub.ps1", "serialhub.bat", "sr.ps1", "sr.bat", "serialhub.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var buf bytes.Buffer
+	u := &upgrader{exePath: filepath.Join(dir, "serialhub.exe")}
+	u.cleanupLegacyLaunchers(&buf)
+
+	for _, name := range []string{"serialhub.ps1", "serialhub.bat"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s 应被清理", name)
+		}
+	}
+	for _, name := range []string{"sr.ps1", "sr.bat", "serialhub.exe"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s 不应被误删: %v", name, err)
+		}
+	}
+	out := buf.String()
+	for _, want := range []string{"serialhub.ps1", "serialhub.bat"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("输出应包含清理提示 %s: %q", want, out)
+		}
+	}
+}

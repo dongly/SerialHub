@@ -366,7 +366,8 @@ func TestRemoveInstallDirExtrasIn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, n := range []string{"serialhub.ps1", "serialhub.bat", "VERSION",
+	for _, n := range []string{"sr.ps1", "sr.bat",
+		"serialhub.ps1", "serialhub.bat", "VERSION",
 		"README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE"} {
 		mk(n, "x")
 	}
@@ -379,11 +380,12 @@ func TestRemoveInstallDirExtrasIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("removeInstallDirExtrasIn: %v", err)
 	}
-	if !strings.Contains(desc, "10") {
-		t.Errorf("应删除 10 个随包/残留文件，desc=%s", desc)
+	if !strings.Contains(desc, "12") {
+		t.Errorf("应删除 12 个随包/残留文件，desc=%s", desc)
 	}
 	// 随包文件与升级残留全部删除
-	for _, n := range []string{"serialhub.ps1", "serialhub.bat", "VERSION",
+	for _, n := range []string{"sr.ps1", "sr.bat",
+		"serialhub.ps1", "serialhub.bat", "VERSION",
 		"README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE",
 		"serialhub.exe.old-1719000000000000000", "serialhub.exe.0.6.0-old"} {
 		if ok, _ := pathExists(filepath.Join(dir, n)); ok {
@@ -540,7 +542,9 @@ func TestHasInstallLayout(t *testing.T) {
 		files []string
 		want  bool
 	}{
-		{"ps1 脚本", []string{"/x/serialhub.ps1", "/x/README.md"}, true},
+		{"新名 ps1 脚本", []string{"/x/sr.ps1", "/x/README.md"}, true},
+		{"新名 bat 脚本", []string{"/x/sr.bat"}, true},
+		{"旧名 ps1 脚本", []string{"/x/serialhub.ps1", "/x/README.md"}, true},
 		{"bat 脚本", []string{"/x/serialhub.bat"}, true},
 		{"sh 脚本", []string{"/x/serialhub.sh"}, true},
 		{"升级残留 exe.old", []string{"/x/serialhub.exe.old-0.6.0", "/x/serialhub.exe"}, true},

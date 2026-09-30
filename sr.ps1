@@ -1,6 +1,7 @@
 ﻿# SerialHub launcher script
-# Usage: .\serialhub.ps1 [args]
-# Example: .\serialhub.ps1 -p COM9 -D
+# Usage: .\sr.ps1 [args]
+# Example: .\sr.ps1 -p COM9 -D
+# Named sr (not serialhub) so it never shadows serialhub.exe on PATH.
 
 param(
     [string]$p = "",      # serial port name

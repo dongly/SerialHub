@@ -121,7 +121,20 @@ func (u *upgrader) run(out io.Writer) error {
 		return fmt.Errorf(i18n.CLI.ReplaceFailed, err)
 	}
 	fmt.Fprintf(out, i18n.CLI.UpgradeDone, appVersion, latestVer)
+	u.cleanupLegacyLaunchers(out)
 	return nil
+}
+
+// cleanupLegacyLaunchers 清理与 exe 同名的废弃旧启动脚本（v0.5.1 及之前
+// 的发布包带有 serialhub.ps1/serialhub.bat，会遮蔽 serialhub 命令本身；
+// 现行脚本已改名 sr.ps1/sr.bat）。文件不存在或删除失败均静默跳过。
+func (u *upgrader) cleanupLegacyLaunchers(out io.Writer) {
+	for _, name := range []string{"serialhub.ps1", "serialhub.bat"} {
+		p := filepath.Join(filepath.Dir(u.exePath), name)
+		if err := os.Remove(p); err == nil {
+			fmt.Fprintf(out, i18n.CLI.CleanupLegacy, name)
+		}
+	}
 }
 
 func (u *upgrader) fetchLatestRelease() (*ghRelease, error) {

@@ -27,8 +27,8 @@ irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
 serialhub-x.x.x-windows-amd64/
 ├── serialhub.exe    # 主程序（Linux 为 serialhub）
 ├── config.toml      # 配置文件模板
-├── serialhub.ps1     # Windows 启动脚本（PowerShell，自动杀旧进程+最小化）
-├── serialhub.bat     # Windows 启动脚本（转调 serialhub.ps1）
+├── sr.ps1     # Windows 启动脚本（PowerShell，自动杀旧进程+最小化）
+├── sr.bat     # Windows 启动脚本（转调 sr.ps1）
 ├── README.md / README.en.md
 ├── MCP.md           # MCP 使用指南
 ├── QUICKSTART.md
@@ -81,9 +81,9 @@ WSL 默认看不到 Windows 宿主的 USB 串口，需要 usbipd 挂载。推荐
 
 ```powershell
 # 方式 1: 使用启动脚本
-.\serialhub.ps1
+.\sr.ps1
 
-# 方式 2: 双击 serialhub.bat（转调 serialhub.ps1）
+# 方式 2: 双击 sr.bat（转调 sr.ps1）
 
 # 方式 3: 直接运行
 .\serialhub.exe -p COM9

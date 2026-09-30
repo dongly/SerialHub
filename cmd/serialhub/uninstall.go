@@ -446,7 +446,7 @@ func removeUserState() (string, error) {
 // installBundledNames 是发布包随附、卸载时应一并清理的文件名；
 // upgradeOldGlobs 匹配自升级留下的旧二进制残留（.old-<ns> 及历史命名）。
 var installBundledNames = []string{
-	"serialhub.ps1", "serialhub.bat", "serialhub.sh",
+	"sr.ps1", "sr.bat", "serialhub.ps1", "serialhub.bat", "serialhub.sh",
 	"VERSION", "README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE",
 }
 
@@ -455,7 +455,8 @@ var upgradeOldGlobs = []string{"serialhub.exe.old-*", "serialhub.old-*", "serial
 // isLaunchScriptName 判断单个文件名是否启动脚本。
 func isLaunchScriptName(base string) bool {
 	switch base {
-	case "serialhub.ps1", "serialhub.bat", "serialhub.sh":
+	case "sr.ps1", "sr.bat",
+		"serialhub.ps1", "serialhub.bat", "serialhub.sh":
 		return true
 	}
 	return false
@@ -465,7 +466,7 @@ func isLaunchScriptName(base string) bool {
 func hasLaunchScript(files []string) bool {
 	for _, f := range files {
 		base := filepath.Base(f)
-		if base == "serialhub.ps1" || base == "serialhub.bat" || base == "serialhub.sh" {
+		if isLaunchScriptName(base) {
 			return true
 		}
 	}

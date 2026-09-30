@@ -52,8 +52,14 @@ try {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
     Copy-Item $bin (Join-Path $installDir 'serialhub.exe') -Force
     # Install bundled launcher scripts when present.
-    Get-ChildItem (Join-Path $tmp $pkg) -Filter 'serialhub-*.ps1' -ErrorAction SilentlyContinue |
+    # -Include 只在路径带通配符或配合 -Recurse 时生效，路径须以 \* 结尾。
+    Get-ChildItem (Join-Path $tmp "$pkg\*") -Include 'sr.ps1', 'sr.bat' -File -ErrorAction SilentlyContinue |
         ForEach-Object { Copy-Item $_.FullName $installDir -Force }
+    # Remove obsolete legacy launchers that shadow the exe name (older releases shipped them).
+    foreach ($legacy in 'serialhub.ps1', 'serialhub.bat') {
+        $old = Join-Path $installDir $legacy
+        if (Test-Path $old) { Remove-Item $old -Force; Write-Host ">> Removed obsolete launcher: $legacy" }
+    }
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

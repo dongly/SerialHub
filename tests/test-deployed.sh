@@ -185,7 +185,7 @@ mk_layout() { # mk_layout <install-dir> <data-dir>
   local d="$1" data="$2"
   mkdir -p "$d" "$data/home/.config/opencode" "$data/local"
   cp "$WORK/serialhub.exe" "$d/serialhub.exe"
-  for f in serialhub.ps1 serialhub.bat README.md README.en.md QUICKSTART.md MCP.md LICENSE VERSION; do
+  for f in sr.ps1 sr.bat README.md README.en.md QUICKSTART.md MCP.md LICENSE VERSION; do
     echo "stub" > "$d/$f"
   done
   echo "stub" > "$d/serialhub.exe.old-0.5.0"
@@ -227,7 +227,7 @@ SB="$SB_BASE-a"; SBX="$SB_BASE-xa"
 OUT=$(run_sandbox "$SBX" "" "$(to_win "$SB")\\serialhub.exe uninstall -y")
 wait_delayed
 assert_gone "B1 exe 延迟自删" "$SB/serialhub.exe"
-assert_gone "B2 随包脚本清理（ps1）" "$SB/serialhub.ps1"
+assert_gone "B2 随包脚本清理（sr.ps1）" "$SB/sr.ps1"
 assert_gone "B3 随包文档清理（README）" "$SB/README.md"
 assert_gone "B4 升级残留清理（.old-0.5.0）" "$SB/serialhub.exe.old-0.5.0"
 assert_gone "B5 平铺 config.toml 清理" "$SB/config.toml"

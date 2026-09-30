@@ -60,7 +60,7 @@ tar -xzf serialhub-*-linux-amd64.tar.gz
 sudo cp serialhub-*-linux-amd64/serialhub /usr/local/bin/ && serialhub --version
 ```
 
-**Windows**：下载 `.zip` 解压到任意目录（如 `D:\Tools\serialhub`，包内含 `serialhub.ps1`/`serialhub.bat` 启动脚本），加入 PATH（PowerShell）：
+**Windows**：下载 `.zip` 解压到任意目录（如 `D:\Tools\serialhub`，包内含 `sr.ps1`/`sr.bat` 启动脚本），加入 PATH（PowerShell）：
 
 ```powershell
 [Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\Tools\serialhub", "User")

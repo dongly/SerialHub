@@ -61,7 +61,7 @@ tar -xzf serialhub-*-linux-amd64.tar.gz
 sudo cp serialhub-*-linux-amd64/serialhub /usr/local/bin/ && serialhub --version
 ```
 
-**Windows**: download the `.zip`, extract to any directory (e.g. `D:\Tools\serialhub`; ships `serialhub.ps1` / `serialhub.bat` launcher scripts), then add it to PATH (PowerShell):
+**Windows**: download the `.zip`, extract to any directory (e.g. `D:\Tools\serialhub`; ships `sr.ps1` / `sr.bat` launcher scripts), then add it to PATH (PowerShell):
 
 ```powershell
 [Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\Tools\serialhub", "User")
