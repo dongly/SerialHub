@@ -314,6 +314,10 @@
             let ws;
             let reconnectDelay = 1000;
             let reconnectTimer = null;
+            // 主动退出（点退出/收到 shutting_down）后有限重连：给前台代理
+            // 接管留窗口；超时无接管则停止，避免最后实例退出后无限刷屏。
+            let shutdownPending = false;
+            let shutdownRetries = 0;
 
             let isConnected = false;
             let lastStatusPort = null; // status 公告去重：同端口不重复打印「已连接」
@@ -375,6 +379,8 @@
 
             function handleWSOpen() {
                 reconnectDelay = 1000;
+                shutdownPending = false;
+                shutdownRetries = 0;
                 exitBtn.disabled = false; // 退出按钮在关闭/接管流程中被禁用，重连成功后恢复
                 terminal.writeln('\x1b[32m[SerialHub] ' + t('terminalConnected') + '\x1b[0m');
                 sendCommand('get_ports');
@@ -438,6 +444,7 @@
                         updateConnectionStatus(false);
                         break;
                     case 'shutting_down':
+                        shutdownPending = true;
                         terminal.writeln('\x1b[33m[SerialHub] ' + t('shuttingDown') + '\x1b[0m');
                         exitBtn.disabled = true;
                         break;
@@ -514,10 +521,19 @@
                 if (event.target !== ws) return;
                 terminal.writeln('\x1b[31m[SerialHub] ' + t('connectionClosed') + '\x1b[0m');
                 updateConnectionStatus(false);
-                // 一律重连：主实例退出后前台代理会原地接管（同端口），
-                // 浏览器须自动接回并收到「新实例已接管」提示；彻底退出
-                // 场景由用户关闭页面终止重连。
+                // 断线重连：主实例退出后前台代理会原地接管（同端口），
+                // 浏览器自动接回并收到「新实例已接管」提示。主动退出后的
+                // 重连有次数上限——最后实例退出、无人接管时不再刷屏。
                 if (reconnectTimer === null) {
+                    if (shutdownPending) {
+                        shutdownRetries++;
+                        // 退避 1,2,4,5,5,5 共 6 次，间隔总和约 22s（不含握手
+                        // 耗时），覆盖前台代理接管流程（实测约 4-6s）
+                        if (shutdownRetries > 6) {
+                            terminal.writeln('\x1b[31m[SerialHub] ' + t('serviceExited') + '\x1b[0m');
+                            return;
+                        }
+                    }
                     terminal.writeln('\x1b[33m[SerialHub] ' + t('reconnecting') + '\x1b[0m');
                     reconnectTimer = setTimeout(function() {
                         reconnectTimer = null;
@@ -571,6 +587,7 @@
 
             exitBtn.onclick = function() {
                 if (confirm(t('confirmExit'))) {
+                    shutdownPending = true; // 发送失败=服务已死，同样按等待接管处理
                     if (sendCommand('shutdown')) {
                         // 发送成功才禁用并提示；shutting_down 响应属尽力送达
                         // （广播仅入队，进程退出时可能丢失），故不依赖响应
