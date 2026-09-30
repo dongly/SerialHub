@@ -312,7 +312,6 @@
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host + '/ws';
             let ws;
-            let intentionalClose = false;
             let reconnectDelay = 1000;
             let reconnectTimer = null;
 
@@ -376,6 +375,7 @@
 
             function handleWSOpen() {
                 reconnectDelay = 1000;
+                exitBtn.disabled = false; // 退出按钮在关闭/接管流程中被禁用，重连成功后恢复
                 terminal.writeln('\x1b[32m[SerialHub] ' + t('terminalConnected') + '\x1b[0m');
                 sendCommand('get_ports');
                 sendCommand('get_status');
@@ -438,7 +438,6 @@
                         updateConnectionStatus(false);
                         break;
                     case 'shutting_down':
-                        intentionalClose = true;
                         terminal.writeln('\x1b[33m[SerialHub] ' + t('shuttingDown') + '\x1b[0m');
                         exitBtn.disabled = true;
                         break;
@@ -515,7 +514,10 @@
                 if (event.target !== ws) return;
                 terminal.writeln('\x1b[31m[SerialHub] ' + t('connectionClosed') + '\x1b[0m');
                 updateConnectionStatus(false);
-                if (!intentionalClose && reconnectTimer === null) {
+                // 一律重连：主实例退出后前台代理会原地接管（同端口），
+                // 浏览器须自动接回并收到「新实例已接管」提示；彻底退出
+                // 场景由用户关闭页面终止重连。
+                if (reconnectTimer === null) {
                     terminal.writeln('\x1b[33m[SerialHub] ' + t('reconnecting') + '\x1b[0m');
                     reconnectTimer = setTimeout(function() {
                         reconnectTimer = null;
@@ -570,7 +572,6 @@
             exitBtn.onclick = function() {
                 if (confirm(t('confirmExit'))) {
                     if (sendCommand('shutdown')) {
-                        intentionalClose = true;
                         // 发送成功才禁用并提示；shutting_down 响应属尽力送达
                         // （广播仅入队，进程退出时可能丢失），故不依赖响应
                         exitBtn.disabled = true;
