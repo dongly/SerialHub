@@ -1,4 +1,4 @@
-﻿# SerialHub online installer (Windows x64).
+# SerialHub online installer (Windows x64).
 # Usage: irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
 # Environment variables:
 #   SERIALHUB_GITHUB_API   GitHub API base URL (default: https://api.github.com)
@@ -54,7 +54,7 @@ try {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
     Copy-Item $bin (Join-Path $installDir 'serialhub.exe') -Force
     # Install bundled launcher scripts when present.
-    # -Include 只在路径带通配符或配合 -Recurse 时生效，路径须以 \* 结尾。
+    # -Include only matches when the path has a wildcard; the path must end with \*.
     Get-ChildItem (Join-Path $tmp "$pkg\*") -Include 'sr.ps1', 'sr.bat' -File -ErrorAction SilentlyContinue |
         ForEach-Object { Copy-Item $_.FullName $installDir -Force }
     # Remove obsolete legacy launchers that shadow the exe name (older releases shipped them).
