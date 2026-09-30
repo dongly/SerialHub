@@ -22,7 +22,9 @@ try {
 }
 $ver = $tag.TrimStart('v')
 $pkg = "serialhub-$ver-windows-amd64"
-$dlBase = "https://github.com/$repo/releases/download/$tag"
+# SERIALHUB_DOWNLOAD_BASE lets mirrors/CI redirect asset downloads.
+$dlBase = if ($env:SERIALHUB_DOWNLOAD_BASE) { $env:SERIALHUB_DOWNLOAD_BASE } else { "https://github.com/$repo/releases/download" }
+$dlBase = "$dlBase/$tag"
 
 # A running process keeps the executable open; stop it before installing.
 $running = Get-Process serialhub -ErrorAction SilentlyContinue
@@ -64,11 +66,18 @@ try {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Add the installation directory to user PATH if it is not already present.
+# Add the installation directory to user PATH, but only for the default
+# location; custom (e.g. sandboxed) installs just get a note, mirroring
+# install.sh behaviour and avoiding surprise registry writes.
+$defaultDir = "$env:LOCALAPPDATA\Programs\serialhub"
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$installDir*") {
-    [Environment]::SetEnvironmentVariable('Path', "$userPath;$installDir", 'User')
-    Write-Host '>> Added to user PATH (open a new terminal to use it)'
+if ($installDir -ieq $defaultDir) {
+    if ($userPath -notlike "*$installDir*") {
+        [Environment]::SetEnvironmentVariable('Path', "$userPath;$installDir", 'User')
+        Write-Host '>> Added to user PATH (open a new terminal to use it)'
+    }
+} else {
+    Write-Host ">> Note: $installDir is not on your PATH; add it manually"
 }
 
 & (Join-Path $installDir 'serialhub.exe') --version

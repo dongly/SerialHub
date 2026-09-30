@@ -26,7 +26,9 @@ echo ">> Latest release: $TAG"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-BASE="https://github.com/$REPO/releases/download/$TAG"
+# SERIALHUB_DOWNLOAD_BASE lets mirrors/CI redirect asset downloads
+# (the GitHub API override above only covers release lookup).
+BASE="${SERIALHUB_DOWNLOAD_BASE:-https://github.com/$REPO/releases/download}/$TAG"
 PKG="serialhub-$VER-linux-amd64"
 cd "$TMP"
 
