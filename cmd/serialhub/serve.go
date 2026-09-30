@@ -197,7 +197,7 @@ func runMaster(cfg *config.Config) error {
 	// --no-browser 跳过自动打开浏览器；--minimized 仅控制窗口最小化，不再抑制浏览器。
 	// 接管路径不开浏览器（服务面无交互，与 stdio 接管语义一致）。
 	autoOpenBrowser := !noBrowser && !tookOver
-	return runWithoutTray(cfg, sm, buf, autoOpenBrowser)
+	return runWithoutTray(cfg, sm, buf, autoOpenBrowser, tookOver)
 }
 
 // autoConnectSerial 启动时自动连接配置中记录的串口（上次使用/连接的端口）。
@@ -387,7 +387,7 @@ func flushBoundedLog(level logrus.Level, msg string) {
 
 // runWithoutTray 无托盘前台主实例（Linux/WSL）。
 // autoOpenBrowser 控制启动后是否自动打开 xterm web。
-func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, autoOpenBrowser bool) error {
+func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataBuffer, autoOpenBrowser, tookOver bool) error {
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 
 	wsSrv, err := web.NewWebSocketServer(host, mcpPort, func() string {
@@ -398,6 +398,9 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	})
 	if err != nil {
 		return fmt.Errorf(i18n.ServeErrors.WebSocketFailed, err)
+	}
+	if tookOver {
+		wsSrv.SetTakeoverNotice()
 	}
 
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
@@ -642,6 +645,9 @@ func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff, port int)
 	})
 	if err != nil {
 		return fmt.Errorf(i18n.ServeErrors.WebSocketFailed, err)
+	}
+	if handoff != nil {
+		wsSrv.SetTakeoverNotice()
 	}
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))

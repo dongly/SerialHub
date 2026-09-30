@@ -18,18 +18,23 @@ import (
 // WebSocketServer 管理 WebSocket 服务器和客户端连接。
 // 支持多客户端同时连接。
 type WebSocketServer struct {
-	host          string
-	port          int
-	upgrader      websocket.Upgrader
-	clients       map[string]*WebSocketClient
-	dataChan      chan []byte
-	cmdChan       chan []byte
-	stopChan      chan struct{}
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
-	getSerialInfo func() string
+	host           string
+	port           int
+	upgrader       websocket.Upgrader
+	clients        map[string]*WebSocketClient
+	dataChan       chan []byte
+	cmdChan        chan []byte
+	stopChan       chan struct{}
+	mu             sync.RWMutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	getSerialInfo  func() string
+	takeoverNotice bool // 在 HTTP 监听开始前设置，之后只读
 }
+
+// SetTakeoverNotice 让本实例新接入的 Web 终端获知主实例已经接管。
+// 必须在 HTTP 服务启动前调用。
+func (s *WebSocketServer) SetTakeoverNotice() { s.takeoverNotice = true }
 
 // NewWebSocketServer 创建新的 WebSocket 服务器。
 func NewWebSocketServer(host string, port int, getSerialInfo ...func() string) (*WebSocketServer, error) {
@@ -137,6 +142,9 @@ func (s *WebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Request
 	}
 	welcomeMsg += "\n"
 	client.Send([]byte(welcomeMsg))
+	if s.takeoverNotice {
+		client.Send([]byte(`{"type":"system_event","data":{"code":"masterTakeover"}}`))
+	}
 
 	// 启动客户端读写循环
 	client.Start()

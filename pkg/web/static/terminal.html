@@ -311,10 +311,13 @@
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host + '/ws';
-            const ws = new WebSocket(wsUrl);
-            ws.binaryType = 'arraybuffer';
+            let ws;
+            let intentionalClose = false;
+            let reconnectDelay = 1000;
+            let reconnectTimer = null;
 
             let isConnected = false;
+            let lastStatusPort = null; // status 公告去重：同端口不重复打印「已连接」
             fetch('/version')
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
@@ -364,18 +367,19 @@
             }
 
             function sendCommand(type, data) {
-                if (ws.readyState === WebSocket.OPEN) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: type, data: data }));
                     return true;
                 }
                 return false;
             }
 
-            ws.onopen = function() {
+            function handleWSOpen() {
+                reconnectDelay = 1000;
                 terminal.writeln('\x1b[32m[SerialHub] ' + t('terminalConnected') + '\x1b[0m');
                 sendCommand('get_ports');
                 sendCommand('get_status');
-            };
+            }
 
             function shouldAutoScroll() {
                 return checkAtBottom() && !terminal.hasSelection();
@@ -391,7 +395,7 @@
                 }
             }
 
-            ws.onmessage = function(event) {
+            function handleWSMessage(event) {
                 if (event.data instanceof ArrayBuffer) {
                     writeAndScroll(new Uint8Array(event.data));
                 } else {
@@ -402,7 +406,7 @@
                         writeAndScroll(event.data);
                     }
                 }
-            };
+            }
 
             function handleMessage(msg) {
                 switch (msg.type) {
@@ -413,9 +417,16 @@
                     case 'status':
                         updateConnectionStatus(msg.data.connected);
                         if (msg.data.connected && msg.data.port) {
-                            terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data.port + '\x1b[0m');
+                            // 重连/接管时 onopen 与 masterTakeover 各查一次 status，
+                            // 同端口的重复公告去重（下拉框选择仍每次同步）。
+                            if (msg.data.port !== lastStatusPort) {
+                                terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data.port + '\x1b[0m');
+                                lastStatusPort = msg.data.port;
+                            }
                             // 自动选择已连接的串口
                             selectPortFromStatus(msg.data.port);
+                        } else if (!msg.data.connected) {
+                            lastStatusPort = null;
                         }
                         break;
                     case 'connected':
@@ -427,6 +438,7 @@
                         updateConnectionStatus(false);
                         break;
                     case 'shutting_down':
+                        intentionalClose = true;
                         terminal.writeln('\x1b[33m[SerialHub] ' + t('shuttingDown') + '\x1b[0m');
                         exitBtn.disabled = true;
                         break;
@@ -444,6 +456,14 @@
                             terminal.writeln('\x1b[33m[SerialHub] ' + t('disconnectedPort') + '\x1b[0m');
                         } else {
                             terminal.writeln('\x1b[31m[SerialHub] ' + t('serialError') + '\x1b[0m');
+                        }
+                        break;
+                    case 'system_event':
+                        if (msg.data && msg.data.code === 'masterTakeover') {
+                            terminal.writeln('\x1b[33m[SerialHub] ' + t('masterTakeover') + '\x1b[0m');
+                            // 同步刷新按键与状态灯到新主实际串口状态
+                            //（响应经 'status' 分支驱动 updateConnectionStatus）
+                            sendCommand('get_status');
                         }
                         break;
                     case 'serial_message':
@@ -486,18 +506,37 @@
                 }
             }
 
-            ws.onerror = function(error) {
+            function handleWSError() {
                 terminal.writeln('\x1b[31m[SerialHub] ' + t('wsError') + '\x1b[0m');
                 statusIndicator.className = 'error';
-            };
+            }
 
-            ws.onclose = function() {
+            function handleWSClose(event) {
+                if (event.target !== ws) return;
                 terminal.writeln('\x1b[31m[SerialHub] ' + t('connectionClosed') + '\x1b[0m');
                 updateConnectionStatus(false);
-            };
+                if (!intentionalClose && reconnectTimer === null) {
+                    terminal.writeln('\x1b[33m[SerialHub] ' + t('reconnecting') + '\x1b[0m');
+                    reconnectTimer = setTimeout(function() {
+                        reconnectTimer = null;
+                        connectWS();
+                    }, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+                }
+            }
+
+            function connectWS() {
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = 'arraybuffer';
+                ws.onopen = handleWSOpen;
+                ws.onmessage = handleWSMessage;
+                ws.onerror = handleWSError;
+                ws.onclose = handleWSClose;
+            }
+            connectWS();
 
             terminal.onData(function(data) {
-                if (ws.readyState === WebSocket.OPEN) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     const encoder = new TextEncoder();
                     const uint8Array = encoder.encode(data);
                     ws.send(uint8Array);
@@ -531,6 +570,7 @@
             exitBtn.onclick = function() {
                 if (confirm(t('confirmExit'))) {
                     if (sendCommand('shutdown')) {
+                        intentionalClose = true;
                         // 发送成功才禁用并提示；shutting_down 响应属尽力送达
                         // （广播仅入队，进程退出时可能丢失），故不依赖响应
                         exitBtn.disabled = true;

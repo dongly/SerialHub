@@ -22,7 +22,8 @@ window.serialHubTranslations = {
         disconnecting: 'Disconnecting serial port...', refreshing: 'Refreshing serial port list...',
         confirmExit: 'Shut down SerialHub?\nAll connections (including other clients) will be closed.',
         requestedExit: 'Shutdown requested; stopping service...', notSent: 'Connection not ready; shutdown request was not sent',
-        terminalConnected: 'Terminal Connected', wsError: 'WebSocket Error', connectionClosed: 'Connection Closed'
+        terminalConnected: 'Terminal Connected', wsError: 'WebSocket Error', connectionClosed: 'Connection Closed',
+        reconnecting: 'Reconnecting...', masterTakeover: 'New instance has taken over'
     },
     zh: {
         portLabel: '串口:', refreshPlaceholder: '-- 刷新列表 --', selectPlaceholder: '-- 选择串口 --',
@@ -44,6 +45,7 @@ window.serialHubTranslations = {
         disconnecting: '正在断开串口...', refreshing: '刷新串口列表...',
         confirmExit: '确定关闭 SerialHub 服务？\n所有连接（本页与其他客户端）都将断开。',
         requestedExit: '已发送关闭请求，正在退出服务...', notSent: '连接未就绪，关闭请求未发送',
-        terminalConnected: '终端已连接', wsError: 'WebSocket 错误', connectionClosed: '连接已关闭'
+        terminalConnected: '终端已连接', wsError: 'WebSocket 错误', connectionClosed: '连接已关闭',
+        reconnecting: '正在重连...', masterTakeover: '新实例已接管'
     }
 };

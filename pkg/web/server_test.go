@@ -1,7 +1,9 @@
 package web
 
 import (
+	"errors"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,6 +46,55 @@ func readWelcome(t *testing.T, conn *websocket.Conn) {
 	}
 	if !strings.HasPrefix(string(msg), "Connected to SerialHub") {
 		t.Fatalf("期望欢迎消息，收到: %q", string(msg))
+	}
+}
+
+func TestWebSocketServer_TakeoverNotice(t *testing.T) {
+	srv, ts := newTestServer(t)
+	defer srv.Stop()
+	srv.SetTakeoverNotice()
+
+	// 接管实例对每个（重）接入的终端都提示；未接管实例不应误报。
+	for i := 0; i < 2; i++ {
+		conn, err := dialWS(ts)
+		if err != nil {
+			t.Fatalf("第 %d 次连接失败: %v", i+1, err)
+		}
+		readWelcome(t, conn)
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var msg struct {
+			Type string `json:"type"`
+			Data struct {
+				Code string `json:"code"`
+			} `json:"data"`
+		}
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("读取接管通知失败: %v", err)
+		}
+		if msg.Type != "system_event" || msg.Data.Code != "masterTakeover" {
+			t.Fatalf("意外的接管通知: %+v", msg)
+		}
+		conn.Close()
+	}
+
+	// 负例：普通（非接管）实例只在欢迎消息后静默，不追加任何通知。
+	regular, regularTS := newTestServer(t)
+	defer regular.Stop()
+	conn, err := dialWS(regularTS)
+	if err != nil {
+		t.Fatalf("连接普通实例失败: %v", err)
+	}
+	defer conn.Close()
+	readWelcome(t, conn)
+	conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, extra, err := conn.ReadMessage(); err == nil {
+		t.Fatalf("普通实例不应追加消息，收到: %q", string(extra))
+	} else {
+		// 只接受读超时：其他错误（异常断连）说明负例本身出了问题。
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			t.Fatalf("期望读超时，实际错误: %v", err)
+		}
 	}
 }
 
