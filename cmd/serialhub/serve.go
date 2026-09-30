@@ -300,6 +300,7 @@ type runningServices struct {
 	bridge     *bridge.DataBridge
 	mcp        *mcp.MCPServer
 	httpServer *http.Server
+	wsSrv      *web.WebSocketServer
 }
 
 // gracefulShutdown 按序停机：数据桥 → MCP HTTP → 串口。
@@ -311,6 +312,13 @@ func gracefulShutdown(sm *serial.SerialManager, svcs *runningServices) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// 停机前先广播「实例即将关闭」再碰日志/服务清理：日志链卡死时
+		// （stdout 背压/文件锁）仍保证已连接终端收到预告。语言无关事件
+		// 码由前端按所选语言渲染；300ms 给写队列留出送达窗口再断开。
+		if svcs != nil && svcs.wsSrv != nil {
+			svcs.wsSrv.Broadcast([]byte(`{"type":"system_event","data":{"code":"serverStopping"}}`))
+			time.Sleep(300 * time.Millisecond)
+		}
 		logrus.Info("[SerialHub] 正在关闭...") // 卡死只阻塞本 goroutine，由下方超时兜底
 		if svcs != nil {
 			if svcs.bridge != nil {
@@ -741,7 +749,7 @@ func createSerialEventHandler(wsSrv *web.WebSocketServer) func(serial.Event) {
 // startServices 启动主实例服务面：数据桥 + MCP HTTP。
 // 返回服务句柄集合（stdio 模式需叠跑 stdio 传输）；启动失败返回 nil。
 func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool) *runningServices {
-	svcs := &runningServices{}
+	svcs := &runningServices{wsSrv: wsSrv}
 	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
 	if err != nil {
 		logrus.Warnf("[SerialHub] 创建数据桥接失败: %v", err)

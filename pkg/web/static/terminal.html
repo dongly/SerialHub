@@ -467,6 +467,9 @@
                             // 同步刷新按键与状态灯到新主实际串口状态
                             //（响应经 'status' 分支驱动 updateConnectionStatus）
                             sendCommand('get_status');
+                        } else if (msg.data && msg.data.code === 'serverStopping') {
+                            // 实例关闭前预告：随后连接断开、进入有限重连
+                            terminal.writeln('\x1b[33m[SerialHub] ' + t('serverStopping') + '\x1b[0m');
                         }
                         break;
                     case 'serial_message':

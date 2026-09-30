@@ -24,6 +24,7 @@ window.serialHubTranslations = {
         requestedExit: 'Shutdown requested; stopping service...', notSent: 'Connection not ready; shutdown request was not sent',
         terminalConnected: 'Terminal Connected', wsError: 'WebSocket Error', connectionClosed: 'Connection Closed',
         reconnecting: 'Reconnecting...', masterTakeover: 'New instance has taken over',
+        serverStopping: 'Service instance is stopping; connection will close shortly',
         serviceExited: 'No service instance detected; refresh the page to reconnect'
     },
     zh: {
@@ -48,6 +49,7 @@ window.serialHubTranslations = {
         requestedExit: '已发送关闭请求，正在退出服务...', notSent: '连接未就绪，关闭请求未发送',
         terminalConnected: '终端已连接', wsError: 'WebSocket 错误', connectionClosed: '连接已关闭',
         reconnecting: '正在重连...', masterTakeover: '新实例已接管',
+        serverStopping: '服务实例即将关闭，连接即将断开',
         serviceExited: '未检测到服务实例；如需重连请刷新页面'
     }
 };
