@@ -287,6 +287,22 @@ run_windows() {
       [ -z "$NOW5051" ] && ok "W3 原无实例且未被误启" || fail "W3 原无实例却出现监听"
     fi
   fi
+
+  # [4e] 字符串执行路径等价验证：irm|iex 场景 BOM 会混入首行导致解析错乱
+  # （文件执行路径 PS 自动剥 BOM，测不出此问题），故对 install.ps1 副本做
+  # 字节级无 BOM 断言 + Parser::ParseInput 等价 iex 首步解析 0 错误。
+  echo ">> [4e] install.ps1 字符串执行路径（irm|iex 等价）验证"
+  local ERRS BOM3
+  ERRS=$(timeout -k 5 30 powershell.exe -NoProfile -Command "\$t='$(to_win "$WORK/install.ps1")'; \$b=[System.IO.File]::ReadAllBytes(\$t); if (\$b[0] -eq 0xEF -and \$b[1] -eq 0xBB -and \$b[2] -eq 0xBF) { 'BOM-DETECTED' } else { 'NO-BOM' }; \$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseInput([System.IO.File]::ReadAllText(\$t), [ref]\$null, [ref]\$e); 'PARSE-ERRORS=' + \$e.Count" 2>/dev/null | tr -d '\r')
+  case "$ERRS" in
+    *NO-BOM*) ok "E1 install.ps1 无 UTF-8 BOM（irm|iex 兼容）" ;;
+    *BOM-DETECTED*) fail "E1 install.ps1 带 UTF-8 BOM，irm|iex 字符串执行会解析错乱" ;;
+    *) fail "E1 install.ps1 BOM 检查异常（输出: $ERRS）" ;;
+  esac
+  case "$ERRS" in
+    *PARSE-ERRORS=0*) ok "E2 install.ps1 字符串解析 0 错误（iex 等价）" ;;
+    *) fail "E2 install.ps1 字符串解析异常（输出: $ERRS）" ;;
+  esac
 }
 
 [ "$MODE" != linux ]   && run_windows

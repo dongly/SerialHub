@@ -8,3 +8,9 @@
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.tar.gz filter=lfs diff=lfs merge=lfs -text
 *.pdf filter=lfs diff=lfs merge=lfs -text
+# Windows 脚本检出强制 CRLF（git blob 仍存 LF，仅控制工作区；
+# BOM 字节属文件内容不受 text 影响）：cmd 对 LF 的 bat 有 label
+# 解析隐患；PS 5.1 兼容 CRLF。CI 检出与 release 打包同样生效。
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

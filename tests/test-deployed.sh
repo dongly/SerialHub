@@ -204,6 +204,36 @@ run_sandbox() { # run_sandbox <data-dir> <stdin> <cmd...>：环境重定向到�
 wait_delayed() { sleep 12; }  # PowerShell 延迟删除：2s 起步 + 3s×重试，12s 足够收敛
 
 run_windows() {
+# ---------- 0. 仓库启动脚本元数据（防 EOL/BOM 回归，直接对仓库文件断言） ----------
+echo "--- [0/6] Windows 启动脚本元数据 ---"
+if [ "$(grep -c $'\r' "$ROOT/sr.bat" 2>/dev/null || true)" -eq 0 ]; then
+  fail "B0 sr.bat 应为 CRLF（cmd 兼容），当前无 CR"
+else
+  pass "B0 sr.bat CRLF"
+fi
+B3=$(head -c 3 "$ROOT/sr.bat" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+if [ "$B3" = "efbbbf" ]; then
+  fail "B1 sr.bat 不应带 BOM（cmd 不剥 BOM，会拼进首行）"
+else
+  pass "B1 sr.bat 无 BOM"
+fi
+if [ "$(grep -c $'\r' "$ROOT/sr.ps1" 2>/dev/null || true)" -eq 0 ]; then
+  fail "B2 sr.ps1 应为 CRLF（.editorconfig ps1 规则）"
+else
+  pass "B2 sr.ps1 CRLF"
+fi
+B4=$(head -c 3 "$ROOT/sr.ps1" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+if [ "$B4" = "efbbbf" ]; then
+  pass "B3 sr.ps1 带 UTF-8 BOM（PS 5.1 兼容）"
+else
+  fail "B3 sr.ps1 应带 UTF-8 BOM"
+fi
+B5=$(head -c 3 "$ROOT/install.ps1" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+if [ "$B5" = "efbbbf" ]; then
+  fail "B4 install.ps1 不应带 BOM（irm|iex 解析错乱，fix 8434e7b）"
+else
+  pass "B4 install.ps1 无 BOM"
+fi
 # ---------- 3. 场景 A：uninstall dry-run ----------
 echo "--- [3/6] A. uninstall dry-run ---"
 SB="$SB_BASE-a"; SBX="$SB_BASE-xa"; mk_layout "$SB" "$SBX"
