@@ -555,7 +555,8 @@ func pathExists(path string) (bool, error) {
 
 // removeSelfBinary 删除自身二进制。Linux/macOS 直接删除；
 // Windows 下运行中的 exe 无法立即删除，先试直接删，失败则丢延迟删除命令
-// （用 ping 计时代替 timeout：timeout /t 在无交互 stdin 的子进程中会报错），
+// （用 ping 计时代替 timeout：timeout /t 在无交互 stdin 的子进程中会报错；
+// 多次重试、间隔递增，见 windowsDelayedRemoveScript），
 // 延迟删除也失败时打印路径请用户手动删。
 func removeSelfBinary() (string, error) {
 	exe, err := os.Executable()
@@ -577,8 +578,7 @@ func removeSelfBinary() (string, error) {
 		return "", fmt.Errorf(i18n.Uninstall.ManualRemove, exe, rmErr)
 	}
 	if runtime.GOOS == "windows" {
-		// 延迟命令尾部 rmdir 仅删空目录（无 /s，不会递归清空非空目录）
-		script := fmt.Sprintf("ping -n 3 127.0.0.1 >nul & del /f \"%s\" & rmdir \"%s\"", exe, filepath.Dir(exe))
+		script := windowsDelayedRemoveScript(exe, filepath.Dir(exe))
 		del := exec.Command("cmd", "/c", script)
 		// 延迟进程工作目录须避开安装目录：在安装目录内执行卸载时，
 		// cmd 自身占用目录会让尾部 rmdir 失败（此时 exe 已删，无法重跑补救）
@@ -592,4 +592,15 @@ func removeSelfBinary() (string, error) {
 		}
 	}
 	return "", fmt.Errorf(i18n.Uninstall.BinaryFailed, exe)
+}
+
+// windowsDelayedRemoveScript 构造 Windows 延迟删除自删脚本：先等 uninstall
+// 进程退出（首次约 2s），随后最多三轮「if exist 检查 → del → 等待」。用
+// if exist 显式验证而非 del 的退出码——文件被占用时 del 可能报错却返回 0，
+// 退出码重试（|| 链）会漏判；失败重试固定间隔约 3s，总窗口约 10s，覆盖退出慢与瞬时
+// 句柄。cmd /c 直接执行时循环变量写 %i（批处理文件内才是 %%i）。
+func windowsDelayedRemoveScript(exe, dir string) string {
+	return fmt.Sprintf(
+		`ping -n 3 127.0.0.1 >nul & for /l %%i in (1,1,3) do (if exist "%s" (del /f "%s" & ping -n 4 127.0.0.1 >nul)) & rmdir "%s"`,
+		exe, exe, dir)
 }

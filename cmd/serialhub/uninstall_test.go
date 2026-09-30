@@ -408,6 +408,34 @@ func TestRemoveInstallDirExtrasIn_AbortOnFailure(t *testing.T) {
 	}
 }
 
+func TestWindowsDelayedRemoveScript(t *testing.T) {
+	// 用例：中文与空格混合路径，验证引号包裹与脚本结构
+	exe := `D:\My Tools\serialhub\serialhub.exe`
+	dir := `D:\My Tools\serialhub`
+	got := windowsDelayedRemoveScript(exe, dir)
+
+	// 前置等待后进入 for /l 三轮循环；if exist 显式验证（不依赖 del 退出码）
+	if !strings.Contains(got, "ping -n 3 127.0.0.1 >nul & for /l %i in (1,1,3) do (") {
+		t.Errorf("缺少首轮等待+循环前缀: %q", got)
+	}
+	if !strings.Contains(got, `if exist "D:\My Tools\serialhub\serialhub.exe" (del /f "D:\My Tools\serialhub\serialhub.exe" & ping -n 4 127.0.0.1 >nul)`) {
+		t.Errorf("循环体应为 if exist 检查+删除+间隔等待: %q", got)
+	}
+	// 尾部 rmdir 安装目录，且无 /s（非空目录不动）
+	if !strings.HasSuffix(got, `& rmdir "D:\My Tools\serialhub"`) {
+		t.Errorf("应以 rmdir 安装目录结尾: %q", got)
+	}
+	// %q 转义回归检查：Go 的 %q 会把反斜杠写成双份，cmd 不识别
+	if strings.Contains(got, `\\`) {
+		t.Errorf("路径出现 Go 转义反斜杠（应显式引号包裹）: %q", got)
+	}
+	// 括号配对
+	open, close := strings.Count(got, "("), strings.Count(got, ")")
+	if open != close {
+		t.Errorf("括号不配对: open=%d close=%d", open, close)
+	}
+}
+
 func TestHasInstallLayout(t *testing.T) {
 	// 认定安装目录：启动脚本或升级残留任一在场；仅文档不算（防误伤）
 	cases := []struct {
