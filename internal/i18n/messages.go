@@ -192,6 +192,7 @@ var Uninstall = struct {
 	State, Binary, Exists, LockDir, ConfigAndLogs, NoFiles, RemovedFiles                string
 	LocateDir, CheckFailed, RemoveFailed, NoConfigDir, NotFound, RemovedState           string
 	LocateSelf, RemovedBinary, DelayedBinary, BinaryFailed, ManualRemove                string
+	InstallFiles, RemovedInstallFiles, RemovedEmptyDir                                  string
 }{
 	Short:          T("卸载 SerialHub（清理 MCP 接入条目、配置日志与二进制）", "Uninstall SerialHub (MCP entries, configuration, logs and executable)"),
 	Long:           T("卸载 SerialHub：\n  1. 移除各 MCP 客户端中的 serialhub 条目（OpenCode/Claude/Cursor/Windsurf/VS Code/Codex，\n     含当前目录的项目级配置；Codex 与 Claude 用户级经官方 CLI 移除，遵循该 CLI 行为）\n  2. 删除配置与日志目录（Linux/macOS: ~/.config/serialhub/；Windows: exe 同目录 config.toml 与 logs/ + 锁目录 %LOCALAPPDATA%\\serialhub\\）\n  3. 删除二进制本身（Windows 下经延迟删除命令）\n默认先列出将清理的项（dry-run），确认后执行；全程幂等，不存在的项自动跳过。\n运行实例检测覆盖默认端口与用户配置文件的地址端口（含 Windows exe 同目录配置）；\n其他自定义端口（-m/-c 临时指定）的实例请自行确认已退出。\n前置清理项失败时会跳过二进制删除并返回非零退出码，修复后重跑即可。\n注意：-c/--config 指定的自定义路径配置不在清理范围，需手动删除。", "Uninstall SerialHub:\n  1. Remove serialhub entries from MCP clients (including project entries in the current directory).\n     Codex and Claude user entries use their official CLIs.\n  2. Remove configuration and logs (on Windows, also remove the LOCALAPPDATA lock directory).\n  3. Remove the executable (delayed deletion on Windows).\nA preview is shown before confirmation; missing items are skipped. Running instances detected on the default and configured addresses block uninstall.\nStop instances using custom -m/-c settings yourself. On failure, executable deletion is skipped so you can retry.\nCustom -c/--config files are not removed."),
@@ -212,21 +213,24 @@ var Uninstall = struct {
 	Pending:        T("待检查", "to check"), FileExists: T("配置文件存在", "config file exists"),
 	State:  T("配置与日志目录（%s）", "Configuration and logs (%s)"),
 	Binary: T("二进制 %s", "Executable %s"), Exists: T("存在", "exists"),
-	LockDir:       T("，锁目录 %s", ", lock directory %s"),
-	ConfigAndLogs: T("%s 下 config.toml 与 logs/", "config.toml and logs/ in %s"),
-	NoFiles:       T("无配置与日志文件，跳过", "No configuration or log files; skipping"),
-	RemovedFiles:  T("已删除 %s 下 config.toml 与 logs/", "Removed config.toml and logs/ in %s"),
-	LocateDir:     T("无法定位二进制目录：%w", "cannot locate executable directory: %w"),
-	CheckFailed:   T("检查 %s 失败：%w", "failed to check %s: %w"),
-	RemoveFailed:  T("删除 %s 失败：%w", "failed to remove %s: %w"),
-	NoConfigDir:   T("无法定位用户配置目录，跳过", "Cannot locate user configuration directory; skipping"),
-	NotFound:      T("%s 不存在，跳过", "%s not found; skipping"),
-	RemovedState:  T("已删除 %s/（配置与日志）", "Removed %s/ (configuration and logs)"),
-	LocateSelf:    T("无法定位自身：%w", "cannot locate executable: %w"),
-	RemovedBinary: T("已删除二进制 %s", "Removed executable %s"),
-	DelayedBinary: T("已安排延迟删除二进制 %s（进程退出后生效）", "Scheduled deletion of %s after this process exits"),
-	BinaryFailed:  T("二进制删除失败（请手动删除 %s）", "Failed to remove executable; delete %s manually"),
-	ManualRemove:  T("删除 %s 失败：%w（请手动删除）", "failed to remove %s: %w (delete it manually)"),
+	LockDir:             T("，锁目录 %s", ", lock directory %s"),
+	ConfigAndLogs:       T("%s 下 config.toml 与 logs/", "config.toml and logs/ in %s"),
+	NoFiles:             T("无配置与日志文件，跳过", "No configuration or log files; skipping"),
+	RemovedFiles:        T("已删除 %s 下 config.toml 与 logs/", "Removed config.toml and logs/ in %s"),
+	LocateDir:           T("无法定位二进制目录：%w", "cannot locate executable directory: %w"),
+	CheckFailed:         T("检查 %s 失败：%w", "failed to check %s: %w"),
+	RemoveFailed:        T("删除 %s 失败：%w", "failed to remove %s: %w"),
+	NoConfigDir:         T("无法定位用户配置目录，跳过", "Cannot locate user configuration directory; skipping"),
+	NotFound:            T("%s 不存在，跳过", "%s not found; skipping"),
+	RemovedState:        T("已删除 %s/（配置与日志）", "Removed %s/ (configuration and logs)"),
+	LocateSelf:          T("无法定位自身：%w", "cannot locate executable: %w"),
+	RemovedBinary:       T("已删除二进制 %s", "Removed executable %s"),
+	DelayedBinary:       T("已安排延迟删除二进制 %s（进程退出后生效）", "Scheduled deletion of %s after this process exits"),
+	BinaryFailed:        T("二进制删除失败（请手动删除 %s）", "Failed to remove executable; delete %s manually"),
+	ManualRemove:        T("删除 %s 失败：%w（请手动删除）", "failed to remove %s: %w (delete it manually)"),
+	InstallFiles:        T("安装目录随包文件（启动脚本与文档，%s）", "Bundled install-dir files (launch scripts and docs, %s)"),
+	RemovedInstallFiles: T("已删除安装目录随包文件 %d 个", "Removed %d bundled install-dir file(s)"),
+	RemovedEmptyDir:     T("已删除空安装目录 %s", "Removed empty install directory %s"),
 }
 
 // UpgradeErrors 是下载、校验和替换阶段可能直接显示给用户的错误。

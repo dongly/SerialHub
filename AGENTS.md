@@ -88,7 +88,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 ### `serialhub upgrade` / `serialhub uninstall`
 
 - `upgrade`：查 GitHub Releases 最新 tag → 下载 `serialhub-<ver>-<os>-<arch>.tar.gz/.zip` → sha256 校验 → 同目录临时文件原子替换自身（Windows 先改 `.old` 再延迟删除）；配置与日志保留。发布由 `.github/workflows/release.yml` 自动完成（push tag 触发）。`SERIALHUB_GITHUB_API` 可覆盖 API 基址；代理遵从 `HTTPS_PROXY`。
-- `uninstall`：默认 dry-run 列清单确认后执行（`-y` 跳过）；依次移除 6 客户端 MCP 条目（文件合并逆操作：只删 serialhub 键、空容器连容器删；Codex/Claude 用户级经官方 CLI `mcp remove`）→ 删配置日志目录（Linux/macOS `~/.config/serialhub/`；Windows exe 同目录 config/logs + 锁目录 `%LOCALAPPDATA%\serialhub\`）→ 自删二进制（Windows 延迟删除）。卸载前探 `/health`，有运行实例则拒绝；全程幂等；`-c` 指定的自定义配置不在清理范围。
+- `uninstall`：默认 dry-run 列清单确认后执行（`-y` 跳过）；依次移除 6 客户端 MCP 条目（文件合并逆操作：只删 serialhub 键、空容器连容器删；Codex/Claude 用户级经官方 CLI `mcp remove`）→ 删配置日志目录（Linux/macOS `~/.config/serialhub/`；Windows exe 同目录 config/logs + 锁目录 `%LOCALAPPDATA%\serialhub\`）→ 清理安装目录随包文件（启动脚本/文档/自升级残留；仅当 exe 同目录含启动脚本或升级残留才认定为安装目录，防误伤）→ 自删二进制（Windows 延迟删除），安装目录清空后一并移除（非空不动）。卸载前探 `/health`，有运行实例则拒绝；全程幂等；`-c` 指定的自定义配置不在清理范围。
 
 配置文件格式见 `config.example.toml`。查找顺序（未指定 `-c`）：Linux/macOS 为 `./config.toml`（CWD）> `~/.config/serialhub/config.toml`（XDG_CONFIG_HOME），exe 同目录旧配置首次启动自动迁移（移动）过去；Windows 保持 exe 同目录。日志目录默认跟随用户配置目录（Linux/macOS）。
 

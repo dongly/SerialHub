@@ -297,7 +297,8 @@ func TestUserStateExists(t *testing.T) {
 
 func TestBuildUninstallActions(t *testing.T) {
 	actions := buildUninstallActions()
-	// 9 个 MCP 条目 + 配置目录 + 二进制
+	// 9 个 MCP 条目 + 配置目录 + 二进制（安装目录随包文件动作仅在
+	// exe 同目录检出启动脚本时追加，测试目录无启动脚本故为 11）
 	if len(actions) != 11 {
 		t.Fatalf("动作数量=%d want 11", len(actions))
 	}
@@ -319,6 +320,136 @@ func TestBuildUninstallActions(t *testing.T) {
 	for _, want := range []string{"OpenCode", "Claude", "Cursor", "Windsurf", "VS Code", "Codex", "配置与日志目录", "二进制"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("清单缺少 %q: %s", want, joined)
+		}
+	}
+}
+
+func TestRemoveInstallDirExtrasIn(t *testing.T) {
+	// 造一个发布包样式的安装目录：随包文件 + 升级残留 + 用户文件 + 假 exe
+	dir := t.TempDir()
+	mk := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []string{"serialhub.ps1", "serialhub.bat", "VERSION",
+		"README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE"} {
+		mk(n, "x")
+	}
+	mk("serialhub.exe.old-1719000000000000000", "old-bin")
+	mk("serialhub.exe.0.6.0-old", "legacy-old-bin")
+	mk("serialhub.exe", "fake-exe")
+	mk("mynote.txt", "用户自建文件")
+
+	desc, _, err := removeInstallDirExtrasIn(dir)
+	if err != nil {
+		t.Fatalf("removeInstallDirExtrasIn: %v", err)
+	}
+	if !strings.Contains(desc, "10") {
+		t.Errorf("应删除 10 个随包/残留文件，desc=%s", desc)
+	}
+	// 随包文件与升级残留全部删除
+	for _, n := range []string{"serialhub.ps1", "serialhub.bat", "VERSION",
+		"README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE",
+		"serialhub.exe.old-1719000000000000000", "serialhub.exe.0.6.0-old"} {
+		if ok, _ := pathExists(filepath.Join(dir, n)); ok {
+			t.Errorf("%s 应被删除", n)
+		}
+	}
+	// 用户文件与 exe 不受影响
+	for _, n := range []string{"mynote.txt", "serialhub.exe"} {
+		if ok, _ := pathExists(filepath.Join(dir, n)); !ok {
+			t.Errorf("%s 不应被删除", n)
+		}
+	}
+}
+
+func TestRemoveInstallDirExtrasIn_NonInstallDir(t *testing.T) {
+	// 无启动脚本 → 不是安装目录，什么都不删
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := removeInstallDirExtrasIn(dir)
+	if err != nil {
+		t.Fatalf("非安装目录应安全跳过: %v", err)
+	}
+	if ok, _ := pathExists(filepath.Join(dir, "README.md")); !ok {
+		t.Error("非安装目录的文件不应被删除")
+	}
+}
+
+// 部分删除失败必须中止：README.md 被占用（以非空目录模拟删除失败）时，
+// 后续的升级残留与启动脚本（安装目录认定特征）不得被删，保证重跑可续清。
+func TestRemoveInstallDirExtrasIn_AbortOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	// README.md 造成不可删除：非空目录
+	if err := os.MkdirAll(filepath.Join(dir, "README.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md", "keep.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"serialhub.ps1", "serialhub.exe.old-0.6.0"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := removeInstallDirExtrasIn(dir)
+	if err == nil {
+		t.Fatal("README.md 删除失败时必须返回错误")
+	}
+	// 特征文件（启动脚本与升级残留）必须原样保留
+	for _, name := range []string{"serialhub.ps1", "serialhub.exe.old-0.6.0"} {
+		if _, statErr := os.Stat(filepath.Join(dir, name)); statErr != nil {
+			t.Errorf("%s 应保留在场供重跑续清: %v", name, statErr)
+		}
+	}
+}
+
+func TestHasInstallLayout(t *testing.T) {
+	// 认定安装目录：启动脚本或升级残留任一在场；仅文档不算（防误伤）
+	cases := []struct {
+		name  string
+		files []string
+		want  bool
+	}{
+		{"ps1 脚本", []string{"/x/serialhub.ps1", "/x/README.md"}, true},
+		{"bat 脚本", []string{"/x/serialhub.bat"}, true},
+		{"sh 脚本", []string{"/x/serialhub.sh"}, true},
+		{"升级残留 exe.old", []string{"/x/serialhub.exe.old-0.6.0", "/x/serialhub.exe"}, true},
+		{"升级残留历史名", []string{"/x/serialhub.exe.0.6.0-old"}, true},
+		{"升级残留无扩展名", []string{"/x/serialhub.old-abc"}, true},
+		{"仅文档不算", []string{"/x/README.md", "/x/LICENSE", "/x/VERSION"}, false},
+		{"空列表", nil, false},
+	}
+	for _, c := range cases {
+		if got := hasInstallLayout(c.files); got != c.want {
+			t.Errorf("%s: hasInstallLayout=%v, 期望 %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestRemoveInstallDirExtrasIn_RetryAfterPartialFailure(t *testing.T) {
+	// 续清场景：首跑删掉了启动脚本后部分失败，目录里剩升级残留+文档，
+	// 重跑仍须认定为安装目录并清掉残留（升级残留参与认定）
+	dir := t.TempDir()
+	for _, f := range []string{"serialhub.exe.old-0.6.0", "README.md", "LICENSE"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msg, _, err := removeInstallDirExtrasIn(dir)
+	if err != nil {
+		t.Fatalf("续清应成功: %v", err)
+	}
+	if !strings.Contains(msg, "3") {
+		t.Errorf("应清理 3 个文件: %s", msg)
+	}
+	for _, f := range []string{"serialhub.exe.old-0.6.0", "README.md", "LICENSE"} {
+		if ok, _ := pathExists(filepath.Join(dir, f)); ok {
+			t.Errorf("%s 应被删除", f)
 		}
 	}
 }

@@ -181,7 +181,22 @@ func buildUninstallActions() []uninstallAction {
 		},
 	})
 
-	// 二进制本身（最后）
+	// 安装目录随包文件（发布包解压部署：启动脚本/文档/升级残留）
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
+	if hasInstallLayout(installBundledFiles(exeDir)) {
+		actions = append(actions, uninstallAction{
+			desc:  fmt.Sprintf(i18n.Uninstall.InstallFiles, exeDir),
+			probe: func() (bool, string) { return len(installBundledFiles(exeDir)) > 0, i18n.Uninstall.Exists },
+			run: func() (string, bool, error) {
+				return removeInstallDirExtrasIn(exeDir)
+			},
+		})
+	}
+
+	// 二进制本身（最后）；exe 删除后兜底删除可能已空的安装目录
 	actions = append(actions, uninstallAction{
 		desc:  fmt.Sprintf(i18n.Uninstall.Binary, currentExeDesc()),
 		probe: func() (bool, string) { return currentExeDesc() != "", i18n.Uninstall.Exists },
@@ -408,6 +423,122 @@ func removeUserState() (string, error) {
 	return fmt.Sprintf(i18n.Uninstall.RemovedState, dir), nil
 }
 
+// installBundledNames 是发布包随附、卸载时应一并清理的文件名；
+// upgradeOldGlobs 匹配自升级留下的旧二进制残留（.old-<ns> 及历史命名）。
+var installBundledNames = []string{
+	"serialhub.ps1", "serialhub.bat", "serialhub.sh",
+	"VERSION", "README.md", "README.en.md", "QUICKSTART.md", "MCP.md", "LICENSE",
+}
+
+var upgradeOldGlobs = []string{"serialhub.exe.old-*", "serialhub.old-*", "serialhub.exe.*-old"}
+
+// isLaunchScriptName 判断单个文件名是否启动脚本。
+func isLaunchScriptName(base string) bool {
+	switch base {
+	case "serialhub.ps1", "serialhub.bat", "serialhub.sh":
+		return true
+	}
+	return false
+}
+
+// hasLaunchScript 判断文件列表是否含启动脚本。
+func hasLaunchScript(files []string) bool {
+	for _, f := range files {
+		base := filepath.Base(f)
+		if base == "serialhub.ps1" || base == "serialhub.bat" || base == "serialhub.sh" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasInstallLayout 判断 exe 同目录是否发布包解压出的安装目录：
+// 启动脚本或自升级残留任一在场即认定。两者都是 serialhub 特征文件，
+// 不会误伤随手放置 exe 的普通目录；升级残留也参与认定，保证首跑删掉
+// 脚本但部分失败后重跑仍能续清（残留 .old 文件还在，目录仍被认定）。
+func hasInstallLayout(files []string) bool {
+	if hasLaunchScript(files) {
+		return true
+	}
+	for _, f := range files {
+		base := filepath.Base(f)
+		for _, g := range upgradeOldGlobs {
+			if ok, _ := filepath.Match(g, base); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// installBundledFiles 返回 dir 下实际存在的随包文件与升级残留路径。
+func installBundledFiles(dir string) []string {
+	var found []string
+	for _, name := range installBundledNames {
+		p := filepath.Join(dir, name)
+		if ok, _ := pathExists(p); ok {
+			found = append(found, p)
+		}
+	}
+	for _, g := range upgradeOldGlobs {
+		if m, _ := filepath.Glob(filepath.Join(dir, g)); m != nil {
+			found = append(found, m...)
+		}
+	}
+	return found
+}
+
+// removeInstallDirExtrasIn 删除安装目录（发布包解压部署）中的随包文件：
+// 启动脚本、文档与升级残留。用户自建文件不受影响；目录本身的删除由
+// removeSelfBinary 兜底（须等 exe 删除后目录才可能为空）。
+func removeInstallDirExtrasIn(dir string) (string, bool, error) {
+	files := installBundledFiles(dir)
+	if !hasInstallLayout(files) {
+		// 无启动脚本也无升级残留说明不是发布包安装目录，跳过（probe 已挡，防御）
+		return fmt.Sprintf(i18n.Uninstall.NotFound, dir), false, nil
+	}
+	// 保序删除：普通随包文档 → 升级残留 → 启动脚本。启动脚本与残留
+	// 是安装目录的认定特征，放在最后且遇错即中止——任何部分失败的
+	// 中间态都保有特征文件，重跑仍能认定为安装目录并续清剩余文件。
+	isResidue := func(base string) bool {
+		for _, g := range upgradeOldGlobs {
+			if ok, _ := filepath.Match(g, base); ok {
+				return true
+			}
+		}
+		return false
+	}
+	var docs, residues, scripts []string
+	for _, f := range files {
+		switch base := filepath.Base(f); {
+		case isLaunchScriptName(base):
+			scripts = append(scripts, f)
+		case isResidue(base):
+			residues = append(residues, f)
+		default:
+			docs = append(docs, f)
+		}
+	}
+	n := 0
+	for _, f := range append(append(docs, residues...), scripts...) {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			// 中止而非跳过：保住后续（特征）文件，留给重跑续清
+			return "", false, fmt.Errorf("%s: %v", filepath.Base(f), err)
+		}
+		n++
+	}
+	return fmt.Sprintf(i18n.Uninstall.RemovedInstallFiles, n), false, nil
+}
+
+// removeInstallDirExtras 是 removeInstallDirExtrasIn 的生产包装（exe 同目录）。
+func removeInstallDirExtras() (string, bool, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false, fmt.Errorf(i18n.Uninstall.LocateSelf, err)
+	}
+	return removeInstallDirExtrasIn(filepath.Dir(exe))
+}
+
 // pathExists 报告路径是否存在，并区分「不存在」与「检查失败」：
 // 仅 os.IsNotExist 视为不存在返回 (false, nil)，其他 Stat 错误（如权限）
 // 如实返回错误——布尔存在性检查会把这些错误吞掉当作不存在。
@@ -431,13 +562,31 @@ func removeSelfBinary() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf(i18n.Uninstall.LocateSelf, err)
 	}
+	// exe 删除后尝试移除此刻可能已空的安装目录：非空目录 os.Remove
+	// 自然失败、无副作用，故无需预先认定安装目录——认定的意义在防
+	// 误删随包白名单文件，删空目录没有该风险。
+	tryRmdir := func(note string) string {
+		if dir := filepath.Dir(exe); os.Remove(dir) == nil {
+			return note + "；" + fmt.Sprintf(i18n.Uninstall.RemovedEmptyDir, dir)
+		}
+		return note
+	}
 	if rmErr := os.Remove(exe); rmErr == nil {
-		return fmt.Sprintf(i18n.Uninstall.RemovedBinary, exe), nil
+		return tryRmdir(fmt.Sprintf(i18n.Uninstall.RemovedBinary, exe)), nil
 	} else if !os.IsNotExist(rmErr) && runtime.GOOS != "windows" {
 		return "", fmt.Errorf(i18n.Uninstall.ManualRemove, exe, rmErr)
 	}
 	if runtime.GOOS == "windows" {
-		del := exec.Command("cmd", "/c", fmt.Sprintf("ping -n 3 127.0.0.1 >nul & del /f %q", exe))
+		// 延迟命令尾部 rmdir 仅删空目录（无 /s，不会递归清空非空目录）
+		script := fmt.Sprintf("ping -n 3 127.0.0.1 >nul & del /f \"%s\" & rmdir \"%s\"", exe, filepath.Dir(exe))
+		del := exec.Command("cmd", "/c", script)
+		// 延迟进程工作目录须避开安装目录：在安装目录内执行卸载时，
+		// cmd 自身占用目录会让尾部 rmdir 失败（此时 exe 已删，无法重跑补救）
+		if dir := os.Getenv("SystemRoot"); dir != "" {
+			del.Dir = dir
+		} else {
+			del.Dir = os.Getenv("SystemDrive") + "\\"
+		}
 		if err := del.Start(); err == nil {
 			return fmt.Sprintf(i18n.Uninstall.DelayedBinary, exe), nil
 		}
