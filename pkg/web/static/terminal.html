@@ -311,16 +311,25 @@
 
             // 记忆上次连接的端口与参数（localStorage，同语言设置先例）：
             // 连接前保存；页面启动恢复参数框，端口待列表到达后在
-            // updatePortList 中选中（仅当该端口仍可用）。
-            const lastPortKey = 'serialhub-last-port';
-            const lastParamsKey = 'serialhub-last-params';
+            // updatePortList 中选中（仅当该端口仍可用）。端口与参数
+            // 属同一次连接，合存单键 serialhub-last-conn（一个 JSON）。
+            const lastConnKey = 'serialhub-last-conn';
+            function getLastConn() {
+                try {
+                    const raw = localStorage.getItem(lastConnKey);
+                    if (!raw) return null;
+                    const conn = JSON.parse(raw);
+                    return (conn && typeof conn === 'object') ? conn : null;
+                } catch (_) { return null; }
+            }
             function getLastPort() {
-                try { return localStorage.getItem(lastPortKey) || ''; } catch (_) { return ''; }
+                const conn = getLastConn();
+                return (conn && typeof conn.port === 'string') ? conn.port : '';
             }
             function saveLastConn() {
                 try {
-                    localStorage.setItem(lastPortKey, portSelect.value);
-                    localStorage.setItem(lastParamsKey, JSON.stringify({
+                    localStorage.setItem(lastConnKey, JSON.stringify({
+                        port: portSelect.value,
                         baudRate: baudRateSelect.value,
                         dataBits: dataBitsSelect.value,
                         parity: paritySelect.value,
@@ -329,19 +338,14 @@
                 } catch (_) { /* private browsing */ }
             }
             function restoreLastParams() {
-                let raw = null;
-                try { raw = localStorage.getItem(lastParamsKey); } catch (_) { return; }
-                if (!raw) return;
-                let params;
-                try { params = JSON.parse(raw); } catch (_) { return; }
-                // 合法 JSON 但不是对象（如 null/数组字面量的标量）同样视为损坏
-                if (!params || typeof params !== 'object') return;
+                const conn = getLastConn();
+                if (!conn) return;
                 // 仅当保存值仍是现有选项才应用，否则保留 HTML 默认选中项
-                [[baudRateSelect, params.baudRate], [dataBitsSelect, params.dataBits],
-                 [paritySelect, params.parity], [stopBitsSelect, params.stopBits]
+                [[baudRateSelect, conn.baudRate], [dataBitsSelect, conn.dataBits],
+                 [paritySelect, conn.parity], [stopBitsSelect, conn.stopBits]
                 ].forEach(function(pair) {
                     const select = pair[0], value = pair[1];
-                    if (value == null) return;
+                    if (typeof value !== 'string') return;
                     for (let i = 0; i < select.options.length; i++) {
                         if (select.options[i].value === value) {
                             select.value = value;
@@ -532,8 +536,9 @@
                 });
                 // 恢复选中：当前值仍在列表则保留（刷新不打断手选），
                 // 否则回落上次连接的端口——仅当它此刻可用（若串口可用）
+                const lastPort = getLastPort();
                 const want = (prev && ports.indexOf(prev) >= 0) ? prev
-                    : (getLastPort() && ports.indexOf(getLastPort()) >= 0) ? getLastPort() : '';
+                    : (lastPort && ports.indexOf(lastPort) >= 0) ? lastPort : '';
                 if (want) {
                     portSelect.value = want;
                 }

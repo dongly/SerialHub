@@ -3,7 +3,7 @@
 ## web-last-conn — Web 终端记住上次串口与连接参数（用户需求："xterm.js ,若串口可用,串口选择框默认选中上次端口" + "其他参数也是"）
 
 - [x] 1. `pkg/web/static/terminal.html`：
-  - 保存：`connectBtn.onclick` 发 connect 前写 `localStorage`——`serialhub-last-port`（端口字符串）+ `serialhub-last-params`（JSON：baudRate/dataBits/parity/stopBits），try/catch 包裹（同 `serialhub-language` 先例）
+  - 保存：`connectBtn.onclick` 发 connect 前写 `localStorage`——单键 `serialhub-last-conn`（一个 JSON：port/baudRate/dataBits/parity/stopBits，端口与参数属同一次连接合存），try/catch 包裹（同 `serialhub-language` 先例）
   - 恢复参数：脚本启动时读 last-params，逐框仅当值是现有 option 时应用（非法/旧值回落 HTML 默认 selected）
   - 恢复端口：`updatePortList` 重建后——当前已选值在新列表中优先保留，否则选 last-port（在列表中才选，不在留占位项，即"若串口可用"）
   - 不动 `selectPortFromStatus`（连接后 status 驱动选中仍生效）

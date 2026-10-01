@@ -15,9 +15,9 @@ def _goto_terminal(page: Page, base_url: str, init_script: str = ""):
     page.wait_for_timeout(500)  # 等待 get_ports 响应与 updatePortList 执行
 
 
-def _params_init_script(raw: str) -> str:
-    """构造写入 serialhub-last-params 的初始化脚本（raw 为存入的原始字符串）"""
-    return "localStorage.setItem('serialhub-last-params', " + json.dumps(raw) + ");"
+def _conn_init_script(raw: str) -> str:
+    """构造写入 serialhub-last-conn 的初始化脚本（raw 为存入的原始字符串）"""
+    return "localStorage.setItem('serialhub-last-conn', " + json.dumps(raw) + ");"
 
 
 def _select_options(page: Page, select_id: str) -> list:
@@ -32,7 +32,7 @@ def test_params_restored_from_localstorage(page: Page, serialhub_server):
     _goto_terminal(
         page,
         serialhub_server["url"],
-        init_script=_params_init_script(json.dumps(params)),
+        init_script=_conn_init_script(json.dumps(params)),
     )
     assert page.input_value("#baud-rate") == "9600", "波特率未恢复为上次值"
     assert page.input_value("#data-bits") == "7", "数据位未恢复为上次值"
@@ -46,7 +46,7 @@ def test_invalid_params_keep_defaults(page: Page, serialhub_server):
     _goto_terminal(
         page,
         serialhub_server["url"],
-        init_script=_params_init_script(json.dumps(params)),
+        init_script=_conn_init_script(json.dumps(params)),
     )
     assert page.input_value("#baud-rate") == "115200", "非法波特率应回落默认值"
     assert page.input_value("#data-bits") == "8", "非法数据位应回落默认值"
@@ -71,7 +71,7 @@ def test_corrupted_storage_keeps_defaults(
     _goto_terminal(
         page,
         serialhub_server["url"],
-        init_script=_params_init_script(raw),
+        init_script=_conn_init_script(raw),
     )
     # 四个参数框全部保持 HTML 默认
     assert page.input_value("#baud-rate") == "115200", f"{desc} 时波特率应回落默认值"
@@ -95,7 +95,10 @@ def test_port_selected_when_available(page: Page, serialhub_server):
     if not ports:
         pytest.skip("当前环境无可用串口，跳过端口恢复用例")
     target = ports[0]
-    page.evaluate("t => localStorage.setItem('serialhub-last-port', t)", target)
+    page.evaluate(
+        "t => localStorage.setItem('serialhub-last-conn', JSON.stringify({port: t}))",
+        target,
+    )
     page.reload(wait_until="networkidle")
     page.wait_for_timeout(500)
     assert page.input_value("#port-select") == target, "上次可用端口未被默认选中"
@@ -106,7 +109,8 @@ def test_port_falls_back_to_placeholder(page: Page, serialhub_server):
     _goto_terminal(
         page,
         serialhub_server["url"],
-        init_script="localStorage.setItem('serialhub-last-port', '/dev/nonexistent');",
+        init_script="localStorage.setItem('serialhub-last-conn', "
+        '{"port": "/dev/nonexistent"});',
     )
     assert page.input_value("#port-select") == "", "不可用端口不应被选中"
 
@@ -143,10 +147,9 @@ def test_connect_saves_last_conn(page: Page, serialhub_server):
     page.select_option("#baud-rate", "9600")
     page.click("#connect-btn")
     page.wait_for_timeout(200)
-    saved_port = page.evaluate("localStorage.getItem('serialhub-last-port')")
-    saved_params = page.evaluate(
-        "JSON.parse(localStorage.getItem('serialhub-last-params') || 'null')"
+    saved = page.evaluate(
+        "JSON.parse(localStorage.getItem('serialhub-last-conn') || 'null')"
     )
-    assert saved_port == ports[0], "连接时未保存端口"
-    assert saved_params and saved_params.get("baudRate") == "9600", "连接时未保存波特率"
-    assert saved_params.get("stopBits") == "1", "连接时未保存停止位"
+    assert saved and saved.get("port") == ports[0], "连接时未保存端口"
+    assert saved.get("baudRate") == "9600", "连接时未保存波特率"
+    assert saved.get("stopBits") == "1", "连接时未保存停止位"
