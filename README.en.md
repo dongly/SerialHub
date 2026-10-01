@@ -11,7 +11,7 @@ A two-way bridge between serial ports (MCU) and network clients (Web terminal / 
 SerialHub bridges a single MCU serial port to both humans and AI:
 
 - **Humans**: an xterm.js Web terminal in the browser for live viewing and input (opens automatically on startup; on WSL it opens the Windows host browser)
-- **AI**: a native MCP server (Streamable HTTP + stdio) exposing 7 tools — `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
+- **AI**: a native MCP server (Streamable HTTP + stdio) exposing 8 tools — `serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status` / `serial_script`
 - Both channels share **the same serial connection and data buffer** — humans and AI see the same bytes
 - **Single-instance lock**: one master instance per scope (Windows: one lock per user at `%LOCALAPPDATA%\serialhub\`; Linux/macOS: per user-config directory) enforced by an OS file lock; a duplicate launch transparently proxies to the running instance instead of failing; if the port is occupied (e.g. Windows/WSL localhost-forwarding conflict) it auto-increments
 - A single Go binary (frontend embedded); supports Windows (system tray) / Linux / macOS; everything configurable via TOML or CLI flags, data logging on demand (`--log-data`)
@@ -153,7 +153,7 @@ On Windows the system tray starts by default (icon color reflects serial state; 
 
 ### Web Terminal
 
-`http://localhost:5050/terminal`: live serial output, keyboard input forwarded to the serial port (Ctrl+C etc. supported), auto-reconnect. The UI follows the browser language; click “中文 / English” to switch and remember your choice. The "Exit" button remotely shuts down SerialHub (graceful shutdown; beware when exposed to LAN via `--host 0.0.0.0`, anyone who can open the page can stop the service).
+`http://localhost:5050/terminal`: live serial output, keyboard input forwarded to the serial port (Ctrl+C etc. supported), auto-reconnect. The UI follows the browser language; click “中文 / English” to switch and remember your choice. The serial port and connection parameters (baud rate/data bits/parity/stop bits) remember your last connection, and refreshing the port list returns to it. The "Exit" button remotely shuts down SerialHub (graceful shutdown; beware when exposed to LAN via `--host 0.0.0.0`, anyone who can open the page can stop the service).
 
 ### MCP Tools
 
@@ -166,6 +166,7 @@ On Windows the system tray starts by default (icon color reflects serial state; 
 | `serial_read` | Blocking read, returns when data arrives | `timeout?` (default 1000ms, 0 = wait forever), `maxSize?` (default 4096 bytes) |
 | `serial_clear` | Clear the read buffer, discard unread data | - |
 | `serial_status` | Get serial connection status | - |
+| `serial_script` | Run an interaction script: timed writes (multiple) + match writes (regex-triggered, optional delay), blocking until completion or timeout | `timeoutMs` (required, 100ms–30min), `writes[]`, `matches[]`, `returnData?` |
 
 Standard workflow: `serial_list` → `serial_connect` → `serial_write` → `serial_read` → `serial_disconnect`.
 cURL/Python examples, typical workflows, error handling, when-to-use-which and best practices see [MCP.md](./MCP.md) (Chinese).

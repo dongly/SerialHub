@@ -1,8 +1,8 @@
 # SerialHub 发布指南
 
-发布由 GitHub Actions 全自动完成：推送 `v*` 标签 → 质量门（vet + test）→ 六平台构建 → 自动创建 GitHub Release。
+发布由 GitHub Actions 全自动完成：推送 `v*` 标签 → 质量门（vet + test）→ 双平台构建（linux/windows amd64）→ 自动创建 GitHub Release。
 
-仓库：`github.com/dongly/SerialHub`（remote 名 `github`）
+仓库：`github.com/dongly/SerialHub`（remote 名 `origin`；另有备份远端 `home`）
 
 ## 发布流程
 
@@ -25,14 +25,14 @@ var (
 ```bash
 git add pkg/version/version.go
 git commit -m "chore: bump version to 0.6.0"
-git push github main
+git push origin main
 ```
 
 ### 3. 打标签并推送（触发发布）
 
 ```bash
 git tag -a v0.6.0 -m "Release version 0.6.0"
-git push github v0.6.0
+git push origin v0.6.0
 ```
 
 推送标签后，[Actions](https://github.com/dongly/SerialHub/actions) 自动执行：

@@ -11,7 +11,7 @@
 SerialHub 把 MCU 串口同时桥接给人和 AI：
 
 - **人**：浏览器里的 xterm.js Web 终端，实时查看与输入（启动后自动打开浏览器，WSL 下也能弹出 Windows 宿主浏览器）
-- **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 7 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status`
+- **AI**：原生 MCP 服务器（Streamable HTTP + stdio），提供 8 个工具——`serial_list` / `serial_connect` / `serial_write` / `serial_read` / `serial_clear` / `serial_disconnect` / `serial_status` / `serial_script`
 - 双通道共享**同一串口连接与数据缓冲**，人和 AI 看到的是同一串字节
 - **单实例互斥**：同一作用域（Windows 每用户一把锁；Linux/macOS 每个用户配置目录）只允许一个主实例（OS 文件锁）；重复启动自动转 stdio 代理到已运行实例，不报错；端口被占（如 Windows/WSL 双侧同端口转发冲突）时自动 +1 迁移
 - 单个 Go 二进制（前端内嵌），支持 Windows（系统托盘）/ Linux / macOS；所有参数均可通过 TOML 或命令行配置，数据流可按需记录（`--log-data`）
@@ -150,7 +150,7 @@ Windows 上默认启动系统托盘（图标颜色表示串口状态，右键菜
 
 ### Web 终端
 
-`http://localhost:5050/terminal`：实时显示串口输出、键盘输入发送到串口（支持 Ctrl+C 等控制字符）、断线自动重连；页面按浏览器语言选择中英文，可点击「中文 / English」切换并记住选择。「退出」按钮可远程关闭 SerialHub 服务（优雅停机；`--host 0.0.0.0` 暴露到局域网时注意任何能打开该页的人均可关闭）。
+`http://localhost:5050/terminal`：实时显示串口输出、键盘输入发送到串口（支持 Ctrl+C 等控制字符）、断线自动重连；页面按浏览器语言选择中英文，可点击「中文 / English」切换并记住选择；串口与连接参数（波特率/数据位/校验/停止位）会记住上次连接的值，刷新列表后默认回到上次连接。「退出」按钮可远程关闭 SerialHub 服务（优雅停机；`--host 0.0.0.0` 暴露到局域网时注意任何能打开该页的人均可关闭）。
 
 ### MCP 工具
 
@@ -163,6 +163,7 @@ Windows 上默认启动系统托盘（图标颜色表示串口状态，右键菜
 | `serial_read` | 阻塞式读取串口数据，等待数据到达后返回 | `timeout?`（默认 1000ms，0=无限等待），`maxSize?`（默认 4096 字节） |
 | `serial_clear` | 清空 read 缓冲区，丢弃尚未读取的数据 | - |
 | `serial_status` | 获取串口连接状态 | - |
+| `serial_script` | 执行交互脚本：定时写（多次）+ 匹配写（正则命中触发，支持延时），阻塞至完成或超时 | `timeoutMs`（必填，100ms～30min），`writes[]`，`matches[]`，`returnData?` |
 
 标准工作流：`serial_list` → `serial_connect` → `serial_write` → `serial_read` → `serial_disconnect`。
 cURL/Python 调用示例、典型工作流（命令-响应/持续监听）、错误处理、使用时机与最佳实践见 [MCP.md](./MCP.md)。
