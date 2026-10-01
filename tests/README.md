@@ -6,7 +6,7 @@
 | `instance-check.sh` | 实例状态自检（Linux/WSL 侧） | 只读检查 lock 文件、`/health`、MCP `serial_list` 完整握手；退出码 0=全部通过 / 1=未发现实例 / 2=MCP 检查失败 / 3=参数错误 |
 | `instance-check.ps1` | 实例状态自检（Windows 侧） | 同上（PowerShell 版，`-Port 5050,5098` 追加探测端口） |
 | `integration/` | Python 集成测试（pytest） | 覆盖 CLI、服务器生命周期、配置、MCP 工具、WebSocket、Web 终端、日志与串口硬件；详见 `integration/README.md` |
-| `integration/playwright/` | 浏览器 UI 测试 | pytest + Playwright |
+| `integration/playwright/` | 浏览器 UI 测试 | pytest + Playwright；`conftest.py` 自动构建路径下的 `bin/serialhub` **真实二进制**起独立实例（随机端口、隔离 XDG），用例含终端页面加载/静态资源/WebSocket、**上次端口与参数记忆**（恢复、损坏存储回落、刷新保持、连接保存）等；运行：`python3 -m pytest tests/integration/playwright/ -q`（需 pytest + playwright + chromium，缺失时整目录自动跳过） |
 
 ## test-deployed.sh — 编译产物端到端测试
 
