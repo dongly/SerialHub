@@ -109,8 +109,7 @@ def test_port_falls_back_to_placeholder(page: Page, serialhub_server):
     _goto_terminal(
         page,
         serialhub_server["url"],
-        init_script="localStorage.setItem('serialhub-last-conn', "
-        '{"port": "/dev/nonexistent"});',
+        init_script=_conn_init_script(json.dumps({"port": "/dev/nonexistent"})),
     )
     assert page.input_value("#port-select") == "", "不可用端口不应被选中"
 
@@ -125,6 +124,27 @@ def test_refresh_keeps_current_selection(page: Page, serialhub_server):
     page.click("#refresh-btn")
     page.wait_for_timeout(500)
     assert page.input_value("#port-select") == ports[0], "刷新后当前选中端口被重置"
+
+
+def test_current_selection_beats_last_port(page: Page, serialhub_server):
+    """列表重建后当前选中值优先于上次连接端口（两个可用端口时）"""
+    base_url = serialhub_server["url"]
+    _goto_terminal(page, base_url)
+    ports = [p for p in _select_options(page, "port-select") if p]
+    if len(ports) < 2:
+        pytest.skip("可用串口少于 2 个，无法构造当前选中与上次端口不同的场景")
+    last, other = ports[0], ports[1]
+    page.evaluate(
+        "v => localStorage.setItem('serialhub-last-conn', JSON.stringify({port: v}))",
+        last,
+    )
+    page.reload(wait_until="networkidle")
+    page.wait_for_timeout(500)
+    assert page.input_value("#port-select") == last, "加载时应选中上次端口"
+    page.select_option("#port-select", other)  # 手选另一个
+    page.click("#refresh-btn")
+    page.wait_for_timeout(500)
+    assert page.input_value("#port-select") == other, "刷新后当前选中未优先保留"
 
 
 def test_connect_saves_last_conn(page: Page, serialhub_server):
@@ -145,11 +165,17 @@ def test_connect_saves_last_conn(page: Page, serialhub_server):
         pytest.skip("当前环境无可用串口，跳过连接保存用例")
     page.select_option("#port-select", ports[0])
     page.select_option("#baud-rate", "9600")
+    page.select_option("#data-bits", "7")
+    page.select_option("#parity", "even")
+    page.select_option("#stop-bits", "2")
     page.click("#connect-btn")
     page.wait_for_timeout(200)
     saved = page.evaluate(
         "JSON.parse(localStorage.getItem('serialhub-last-conn') || 'null')"
     )
-    assert saved and saved.get("port") == ports[0], "连接时未保存端口"
+    assert saved, "连接时未写入 serialhub-last-conn"
+    assert saved.get("port") == ports[0], "连接时未保存端口"
     assert saved.get("baudRate") == "9600", "连接时未保存波特率"
-    assert saved.get("stopBits") == "1", "连接时未保存停止位"
+    assert saved.get("dataBits") == "7", "连接时未保存数据位"
+    assert saved.get("parity") == "even", "连接时未保存校验位"
+    assert saved.get("stopBits") == "2", "连接时未保存停止位"
