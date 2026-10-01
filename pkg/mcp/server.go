@@ -74,7 +74,7 @@ func (s *MCPServer) RegisterTools() error {
 	// Register serial_connect tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
 		Name:        "serial_connect",
-		Description: "Connect to a specified serial port with configurable baud rate, data bits, parity, and stop bits. Must be called before serial_write or serial_read. Returns success message with connection details or error if port is unavailable.",
+		Description: "Connect to a specified serial port with configurable baud rate, data bits, parity, and stop bits. Must be called before serial_write or serial_read. Returns success message with connection details or error if port is unavailable. Idempotent: calling it again for the same port that is already open returns success; a different port fails until serial_disconnect is called.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

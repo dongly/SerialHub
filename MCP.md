@@ -88,6 +88,8 @@ curl -X POST http://127.0.0.1:5050/mcp \
 }
 ```
 
+> 幂等：目标端口已处于打开状态时重复调用返回成功（携带当前连接信息）；已连接**其他**端口时返回失败，需先 `serial_disconnect`。
+
 #### serial_write
 
 ```json

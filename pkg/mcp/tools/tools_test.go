@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,12 +173,78 @@ func TestSerialConnect_AlreadyConnected(t *testing.T) {
 		t.Skipf("串口 %s 不可用: %s", port, result1.Message)
 	}
 
+	// 同端口重复连接：幂等成功
 	result2 := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
-	if result2.Success {
-		t.Error("已连接时再次连接应该失败")
+	if !result2.Success {
+		t.Errorf("同端口已连接时再次连接应成功: %s", result2.Message)
 	}
 	if !strings.Contains(result2.Message, "串口已连接") {
 		t.Errorf("预期包含 '串口已连接'，实际 '%s'", result2.Message)
+	}
+	data, ok := result2.Data.(map[string]any)
+	if !ok {
+		t.Fatal("重复连接结果 Data 类型不正确")
+	}
+	if data["port"] != port {
+		t.Errorf("预期端口 %s，实际 %v", port, data["port"])
+	}
+
+	// 不同端口：仍应失败并提示先断开
+	result3 := ExecuteSerialConnect(sm, ConnectInput{Port: port + "_OTHER", BaudRate: 115200})
+	if result3.Success {
+		t.Error("已连接其他端口时连接新端口应该失败")
+	}
+	if !strings.Contains(result3.Message, "请先断开") {
+		t.Errorf("预期包含 '请先断开'，实际 '%s'", result3.Message)
+	}
+
+	// 同端口但波特率不同：仍应幂等成功，且返回既有连接的实际波特率（不重连不改参）
+	result4 := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 9600})
+	if !result4.Success {
+		t.Errorf("同端口异波特率再次连接应成功: %s", result4.Message)
+	}
+	if data4, ok := result4.Data.(map[string]any); !ok {
+		t.Fatal("异波特率重复连接结果 Data 类型不正确")
+	} else if data4["baudRate"] != 115200 {
+		t.Errorf("预期返回实际波特率 115200，实际 %v", data4["baudRate"])
+	}
+}
+
+// TestSerialConnect_ConcurrentSamePort 验证同端口并发连接的原子性：
+// 全部请求要么同时成功（首个建立连接，其余走幂等分支），
+// 要么因硬件不可用全部失败（触发 Skip），不应出现部分失败。
+func TestSerialConnect_ConcurrentSamePort(t *testing.T) {
+	sm := newTestManager(t)
+	port := getTestPort()
+
+	const n = 4
+	results := make([]ToolResult, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i] = ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	success := 0
+	for _, r := range results {
+		if r.Success {
+			success++
+		}
+	}
+	if success == 0 {
+		t.Skipf("串口 %s 不可用: %s", port, results[0].Message)
+	}
+	for i, r := range results {
+		if !r.Success {
+			t.Errorf("并发同端口请求 %d 应成功: %s", i, r.Message)
+		}
 	}
 }
 
