@@ -114,25 +114,13 @@ def test_port_falls_back_to_placeholder(page: Page, serialhub_server):
     assert page.input_value("#port-select") == "", "不可用端口不应被选中"
 
 
-def test_refresh_keeps_current_selection(page: Page, serialhub_server):
-    """刷新列表后当前选中值仍在列表中则保留（不打断手选）"""
-    _goto_terminal(page, serialhub_server["url"])
-    ports = [p for p in _select_options(page, "port-select") if p]
-    if not ports:
-        pytest.skip("当前环境无可用串口，跳过刷新保持用例")
-    page.select_option("#port-select", ports[0])
-    page.click("#refresh-btn")
-    page.wait_for_timeout(500)
-    assert page.input_value("#port-select") == ports[0], "刷新后当前选中端口被重置"
-
-
-def test_current_selection_beats_last_port(page: Page, serialhub_server):
-    """列表重建后当前选中值优先于上次连接端口（两个可用端口时）"""
+def test_refresh_returns_to_last_conn(page: Page, serialhub_server):
+    """刷新列表后默认回到上次连接的端口（覆盖当前手选）"""
     base_url = serialhub_server["url"]
     _goto_terminal(page, base_url)
     ports = [p for p in _select_options(page, "port-select") if p]
     if len(ports) < 2:
-        pytest.skip("可用串口少于 2 个，无法构造当前选中与上次端口不同的场景")
+        pytest.skip("可用串口少于 2 个，无法构造手选与上次端口不同的场景")
     last, other = ports[0], ports[1]
     page.evaluate(
         "v => localStorage.setItem('serialhub-last-conn', JSON.stringify({port: v}))",
@@ -144,7 +132,48 @@ def test_current_selection_beats_last_port(page: Page, serialhub_server):
     page.select_option("#port-select", other)  # 手选另一个
     page.click("#refresh-btn")
     page.wait_for_timeout(500)
-    assert page.input_value("#port-select") == other, "刷新后当前选中未优先保留"
+    assert page.input_value("#port-select") == last, "刷新后未回到上次连接端口"
+
+
+def test_refresh_keeps_selection_without_last_conn(page: Page, serialhub_server):
+    """无上次连接记录或其不可用时刷新保留当前选中"""
+    _goto_terminal(page, serialhub_server["url"])
+    ports = [p for p in _select_options(page, "port-select") if p]
+    if not ports:
+        pytest.skip("当前环境无可用串口，跳过刷新保持用例")
+    page.select_option("#port-select", ports[0])
+    page.click("#refresh-btn")
+    page.wait_for_timeout(500)
+    assert page.input_value("#port-select") == ports[0], "无上次连接记录时刷新不应丢失当前选中"
+    # 有记录但端口不可用：同样保留当前手选
+    page.evaluate(
+        "() => localStorage.setItem('serialhub-last-conn', "
+        'JSON.stringify({port: "/dev/nonexistent"}))'
+    )
+    page.click("#refresh-btn")
+    page.wait_for_timeout(500)
+    assert page.input_value("#port-select") == ports[0], "上次端口不可用时刷新不应丢失当前选中"
+
+
+def test_refresh_restores_params(page: Page, serialhub_server):
+    """刷新列表同时把参数框恢复为上次连接值（手改后点刷新即回退）"""
+    params = {"baudRate": "9600", "dataBits": "7", "parity": "even", "stopBits": "2"}
+    _goto_terminal(
+        page,
+        serialhub_server["url"],
+        init_script=_conn_init_script(json.dumps(params)),
+    )
+    # 四项全部手改成非上次值
+    page.select_option("#baud-rate", "230400")
+    page.select_option("#data-bits", "5")
+    page.select_option("#parity", "odd")
+    page.select_option("#stop-bits", "1")
+    page.click("#refresh-btn")
+    page.wait_for_timeout(200)  # 参数恢复在点击时同步生效，不依赖列表响应
+    assert page.input_value("#baud-rate") == "9600", "刷新后波特率未恢复为上次连接值"
+    assert page.input_value("#data-bits") == "7", "刷新后数据位未恢复为上次连接值"
+    assert page.input_value("#parity") == "even", "刷新后校验位未恢复为上次连接值"
+    assert page.input_value("#stop-bits") == "2", "刷新后停止位未恢复为上次连接值"
 
 
 def test_connect_saves_last_conn(page: Page, serialhub_server):

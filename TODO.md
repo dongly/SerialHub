@@ -1,5 +1,17 @@
 # TODO
 
+## web-refresh-last-conn — 刷新串口列表后默认选中上次连接（用户需求："刷新串口列表后,应默认选中上次连接参数"）
+
+需求变更：覆盖此前"刷新保留当前手选"的共识——刷新后默认回到上次连接的那套（端口+参数）。
+
+- [x] 1. `pkg/web/static/terminal.html`：
+  - `updatePortList` 优先级反转：**未连接**（`!isConnected`）且 last-port 在列表 → 选 last-port（覆盖手选）；已连接（status 驱动选中）或 last-port 不可用 → 保留当前选中（在列表时）
+  - `refreshBtn.onclick` 调 `restoreLastParams()`：刷新同时把 4 个参数框恢复为上次连接值（手改后点刷新即回退）
+  - 页面加载路径不变（原本就是 last 优先，isConnected=false 走同分支）
+- [x] 2. 测试：改写 `test_current_selection_beats_last_port`/`test_refresh_keeps_current_selection`（语义反转：刷新→回 last-port）；新增"刷新恢复参数"用例；跑全量 playwright（21 passed）
+- [x] 3. `@code-review` 至无错误（双轴一轮通过；Spec 建议补测采纳：last-port 不可用保留手选、四参数全部手改后刷新恢复；已连接响应顺序时序为既存行为非本次引入、不阻塞）
+- [x] 4. 提交 + 重建二进制 + 重启实例部署
+
 ## web-last-conn — Web 终端记住上次串口与连接参数（用户需求："xterm.js ,若串口可用,串口选择框默认选中上次端口" + "其他参数也是"）
 
 - [x] 1. `pkg/web/static/terminal.html`：

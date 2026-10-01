@@ -534,11 +534,13 @@
                     option.textContent = port;
                     portSelect.appendChild(option);
                 });
-                // 恢复选中：当前值仍在列表则保留（刷新不打断手选），
-                // 否则回落上次连接的端口——仅当它此刻可用（若串口可用）
+                // 恢复选中：未连接时默认回到上次连接的端口（刷新即回退，
+                // 覆盖当前手选；仅当它此刻可用，即「若串口可用」）；
+                // 已连接时由 status 驱动选中，或上次端口不可用时保留当前选中
                 const lastPort = getLastPort();
-                const want = (prev && ports.indexOf(prev) >= 0) ? prev
-                    : (lastPort && ports.indexOf(lastPort) >= 0) ? lastPort : '';
+                const want = (!isConnected && lastPort && ports.indexOf(lastPort) >= 0)
+                    ? lastPort
+                    : (prev && ports.indexOf(prev) >= 0) ? prev : '';
                 if (want) {
                     portSelect.value = want;
                 }
@@ -636,6 +638,9 @@
             };
 
             refreshBtn.onclick = function() {
+                // 刷新即回到上次连接的那套设置：参数框立即恢复，
+                // 端口待列表响应在 updatePortList 中恢复
+                restoreLastParams();
                 terminal.writeln('\x1b[36m[SerialHub] ' + t('refreshing') + '\x1b[0m');
                 sendCommand('get_ports');
             };
