@@ -141,7 +141,7 @@ tools/                 开发辅助脚本（genicons.py 图标生成）
 
 | 工具 | 文件 | 说明 |
 |------|------|------|
-| `serial_list` | `serial_list.go` | 列出可用串口（无参数） |
+| `serial_list` | `serial_list.go` | 列出可用串口（无参数；Linux 下含 `/dev/pts/N` 伪终端） |
 | `serial_connect` | `serial_connect.go` | 连接串口（`port` 必填，`baudRate?`） |
 | `serial_disconnect` | `serial_disconnect.go` | 断开连接 |
 | `serial_write` | `serial_write.go` | 发送数据（`data` 必填，`addNewline?` 默认 true，自动追加换行符） |

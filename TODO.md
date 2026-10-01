@@ -1,5 +1,20 @@
 # TODO
 
+## serial-list-pts — serial_list 列出 /dev/pts 伪终端（用户需求："/dev/pts/13 等加入列表"）
+
+背景：库 `serial.GetPortsList` 枚举 `/dev` 直接子项且跳过目录，`/dev/pts`（目录）整目录被跳过 → pty 永不出现在列表；WSL 前缀过滤只留 ttyUSB/ttyACM。实测结论（保留现状部分）：WSL 下 serial8250 的 ttyS* 有 device 且全可 open，sysfs/试开探测均无法区分，前缀白名单维持不动；本次仅**追加 pts**。
+
+- [ ] 1. `pkg/serial/manager.go`：
+  - 注入点 `listPtsFn func() []string`（默认 `listPtsPorts`，同 `listPortsFn` 风格）
+  - `listPtsPorts()`：仅 Linux（`runtime.GOOS`），读 `/dev/pts` 取**纯数字**名 → `/dev/pts/N`，按数值升序；ReadDir 失败返回 nil（不报错，pts 缺失是正常情况）
+  - `ListPorts()`：库列表（WSL 前缀过滤**之后**）追加 pts——过滤逻辑不动（pts 由我们自己追加，不存在被白名单误杀的路径）
+  - 重连影响：`matchReconnectPort` 按精确名/VID·PID 匹配，pts 进列表只增不误配（已核实 manager.go:787）
+- [ ] 2. 测试 `pkg/serial/manager_test.go`：注入 `listPtsFn` 断言追加与排序；WSL 过滤分支不吞 pts（追加在过滤后）；`listPtsPorts` 真实 /dev/pts 非 Linux 跳过/失败容忍
+- [x] 3. 文档：AGENTS.md 工具表 serial_list 行微调（MCP.md 按用户指示不加专门说明）
+- [x] 4. 验证：gofmt、`go vet ./...`、`go test ./...` 全绿；本机实测：`serial_list` 返回 `/dev/pts/0~13`（含新建 pts/13，数值升序、WSL ttyS* 仍被屏蔽），`serial_connect /dev/pts/13` 成功、`serial_status` 正确，测毕恢复 ttyUSB1
+- [x] 5. `@code-review` 至无错误（R1 Standards=测试断言英文 → R2 Standards=残留 1 条英文断言+补边界用例、Spec 通过+2 建议（Atoi 放行 `+1`→提取 `parsePtsNum` 逐字符校验、可控边界测试→`ptsPortsFromNames` 纯函数+`TestListPtsFromNames`）→ R3 Standards 终审通过、Spec R2 通过）
+- [x] 6. 提交 `feat(serial): serial_list 列出 pts 伪终端`
+
 ## serial_script — MCP 定时写/匹配写脚本工具
 
 需求共识见 docs/CONTEXT.md（脚本/定时写/匹配写三术语）。状态：修复完成，待第 2 轮审查。

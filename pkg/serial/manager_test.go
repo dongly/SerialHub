@@ -4,6 +4,7 @@ package serial
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,6 +307,109 @@ func TestListPorts(t *testing.T) {
 	t.Logf("发现 %d 个串口", len(ports))
 	for _, port := range ports {
 		t.Logf("  - %s", port)
+	}
+}
+
+// TestListPortsAppendsPts 测试 pts 伪终端追加在串口列表尾部，
+// 且 WSL 前缀过滤发生在追加之前（pts 不经过白名单，不被误杀）
+func TestListPortsAppendsPts(t *testing.T) {
+	cfg := &Config{Port: getTestPort(), BaudRate: 115200}
+	sm, err := NewSerialManager(cfg)
+	if err != nil {
+		t.Fatalf("创建串口管理器失败: %v", err)
+	}
+	defer sm.Close()
+
+	// 注入可控数据：ttyUSB0 两个环境都保留；ttyS0 仅在 WSL 被过滤
+	sm.listPortsFn = func() ([]string, error) {
+		return []string{"/dev/ttyUSB0", "/dev/ttyS0"}, nil
+	}
+	sm.listPtsFn = func() []string {
+		return []string{"/dev/pts/13", "/dev/pts/2"}
+	}
+
+	ports, err := sm.ListPorts()
+	if err != nil {
+		t.Fatalf("列出串口失败: %v", err)
+	}
+
+	// pts 必须原样追加在尾部（顺序保持注入值，排序在 listPtsPorts 内做）
+	wantTail := []string{"/dev/pts/13", "/dev/pts/2"}
+	if len(ports) < len(wantTail) {
+		t.Fatalf("ListPorts() = %v, pts 未被追加", ports)
+	}
+	tail := ports[len(ports)-len(wantTail):]
+	for i, p := range wantTail {
+		if tail[i] != p {
+			t.Errorf("尾部 pts[%d] = %q, want %q (完整列表 %v)", i, tail[i], p, ports)
+		}
+	}
+
+	// ttyUSB0 必须保留（WSL 白名单内、非 WSL 不过滤）
+	if ports[0] != "/dev/ttyUSB0" {
+		t.Errorf("ports[0] = %q, want /dev/ttyUSB0 (完整列表 %v)", ports[0], ports)
+	}
+	// WSL 环境下 ttyS0 应被前缀过滤剔除（且过滤在 pts 追加之前）
+	if isWSL() {
+		for _, p := range ports {
+			if p == "/dev/ttyS0" {
+				t.Errorf("WSL 环境下 ttyS0 应被过滤，仍在列表: %v", ports)
+			}
+		}
+	}
+}
+
+// TestListPtsFromNames 测试 pts 节点名解析：纯数字过滤与数值升序
+func TestListPtsFromNames(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{"空输入", nil, []string{}},
+		{"数值升序（13<2 的字典序陷阱）", []string{"13", "2", "0"}, []string{"/dev/pts/0", "/dev/pts/2", "/dev/pts/13"}},
+		{"排除非数字与符号名", []string{"ptmx", "+1", "-0", "", "5"}, []string{"/dev/pts/5"}},
+		{"排除非ASCII数字与溢出串", []string{"１", "99999999999999999999999999", "12a"}, []string{}},
+		{"大编号稳定排序", []string{"100", "9", "20"}, []string{"/dev/pts/9", "/dev/pts/20", "/dev/pts/100"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ptsPortsFromNames(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("节点数量不符：ptsPortsFromNames(%v) = %v，期望 %v", tt.input, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("结果[%d] = %q, want %q（完整结果 %v）", i, got[i], tt.want[i], got)
+				}
+			}
+		})
+	}
+}
+
+// TestListPtsPorts 测试真实 /dev/pts 枚举：前缀、纯数字过滤与数值升序
+func TestListPtsPorts(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("pts 伪终端仅 Linux 存在")
+	}
+
+	pts := listPtsPorts()
+	// 当前进程可能没有挂起的 pty，允许为空；有则逐项校验
+	t.Logf("listPtsPorts() = %v", pts)
+	prev := -1
+	for _, p := range pts {
+		if !strings.HasPrefix(p, ptsFolder+"/") {
+			t.Errorf("端口 %q 不在 %s 下", p, ptsFolder)
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(p, ptsFolder+"/"))
+		if err != nil || n < 0 {
+			t.Errorf("端口 %q 非纯数字节点", p)
+			continue
+		}
+		if n <= prev {
+			t.Errorf("未按数值升序: %q 在 %d 之后", p, prev)
+		}
+		prev = n
 	}
 }
 
