@@ -35,6 +35,26 @@
   - R7：Standards 通过（1 条 judgement：Length 屏障命名倾向，已有注释说明，不阻断——为单一调用方新增屏障 API 属过度设计）；Spec 通过（建议：截止前回调暂停的确定性测试无法在不注入生产钩子的前提下构造，接受为设计推理+race 覆盖）
 - [x] 9. 提交 `feat(mcp): serial_script 定时写与匹配写脚本工具`
 
+## serial_script-match-delay — 匹配写触发后延时再写（用户需求："匹配模式,触发后应可设定一定延时再写"；"要有默认值"；"默认5ms吧"）
+
+状态：开发/测试/验证完成，待 @code-review。
+
+- [x] 1. `MatchRule` 加 `delayMs *int64`（指针区分未填/填 0：**未填=默认 5ms** `defaultMatchDelayMs`，显式 0=立即写；同 AddNewline 指针先例）；matchState 加规范化 `delayMs` 字段；校验非 nil 时负数/≤ scriptMaxAtMsValue 防溢出
+- [x] 2. `serial_script.go`：命中时 delayMs==0 走原有立即写；>0 排入延时队列（container/heap 小顶堆，fireAt=命中时刻+delayMs），到点后走与定时写相同的 ctx 检查 + WriteIfSameGen 路径；重复命中各自独立排队（与 repeat/maxCount 语义一致）
+- [x] 3. 完成条件加"延时队列清空"；超时/取消/断连丢弃队列中未发出条目；返回数据加 `delayedWritesQueued/Fired/Pending`；完成消息附"延时写 n/n"（queued>0 时）；事件循环 timer 融合定时写与延时写取最早
+- [x] 4. match 触发记录改为**命中时**追加（含 `delayMs` 字段，atMs=命中时刻）——与"延时未写出但已命中"的可观测性一致
+- [x] 5. server.go InputSchema matches 加 delayMs（Default 5；0=immediate）；MCP.md 参数示例/注释、完成条件（含延时写）、超时丢弃说明、返回字段 JSON、触发记录字段说明（match atMs=命中时刻）
+- [x] 6. 测试 6 个新用例全过：MatchDelayDefault（默认 5ms 计数+delayMs 值）、MatchDelayExplicit（300ms）、MatchDelayZero（显式 0 不入队）、MatchDelayDroppedOnTimeout（超时丢弃 pending=1 fired=0 + 命中计数保留）、MatchDelayRepeatIndependent（一 chunk 两命中独立入队写出）、DelayMsValidation（负/溢出，含于 DelayMsValidation t.Run）
+- [x] 7. 验证：gofmt 无输出、go vet ./... 通过、SERIALHUB_TEST_PORT=pty go test ./... 全 ok、-race ./pkg/mcp/... ./internal/buffer/ ./pkg/serial/ 全绿
+- [x] 8. @code-review 至无错误（R1 Standards 2 条建议+Spec 1 条高危 → R2 双轴通过；复审建议"慢写跨截止批次"回归测试需注入写耗时钩子不可构造，接受为设计推理+deadline 复核测试覆盖）
+- [x] 9. 提交 `feat(mcp): serial_script 匹配写支持触发后延时再写`
+
+微决策（按既有设计共识推导 + 用户默认值指示）：
+1. 延时写不阻塞匹配扫描：命中即计 fired（ruleFireCounts 反映命中），写出由延时队列负责
+2. 延时写到点若已超时/取消/断连 → 丢弃不写（与"截止后不写"一致），Pending 字段如实上报
+3. 队列上限 scriptScheduleMax（防极端 repeat+delay 积压 OOM，超出=脚本中止）
+4. trigger 记录=命中事实（含 delayMs），实际写出看 delayedWritesFired
+
 ### 实现中自行裁量的微决策（已与用户对齐）
 1. 周期写首拍在 `atMs`（默认 0）
 2. 空剧本 = 参数错误

@@ -781,3 +781,184 @@ func TestSerialScript_RealLinkEcho(t *testing.T) {
 	// 设备侧实际收到：PING 与 PONG 都写进了 responder 日志
 	waitForLogContent(t, logPath, "PING", "PONG")
 }
+
+// ==================== 匹配写：触发后延时再写（delayMs） ====================
+
+func int64Ptr(v int64) *int64 { return &v }
+
+// TestSerialScript_MatchDelayDefault 未指定 delayMs 时默认 5ms 延时再写
+func TestSerialScript_MatchDelayDefault(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	ch := runScript(context.Background(), sm, buf, ScriptInput{
+		TimeoutMs: 5000,
+		Matches:   []MatchRule{{Pattern: "READY", Data: "ACK"}},
+	})
+	time.Sleep(200 * time.Millisecond)
+	buf.Append([]byte("device READY"))
+
+	res := waitResult(t, ch)
+	if !res.Success {
+		t.Fatalf("预期成功，实际失败: %s", res.Message)
+	}
+	data := scriptData(t, res)
+	if q, _ := data["delayedWritesQueued"].(int); q != 1 {
+		t.Errorf("预期延时入队 1 次，实际 %v", data["delayedWritesQueued"])
+	}
+	if f, _ := data["delayedWritesFired"].(int); f != 1 {
+		t.Errorf("预期延时写出 1 次，实际 %v", data["delayedWritesFired"])
+	}
+	if p, _ := data["delayedWritesPending"].(int); p != 0 {
+		t.Errorf("预期延时写出后无残留，实际 pending=%v", data["delayedWritesPending"])
+	}
+	triggers, _ := data["triggers"].([]map[string]any)
+	if len(triggers) != 1 || triggers[0]["delayMs"] != int64(defaultMatchDelayMs) {
+		t.Errorf("预期触发记录 delayMs=%d（默认值），实际 %v", defaultMatchDelayMs, triggers)
+	}
+}
+
+// TestSerialScript_MatchDelayExplicit 显式 delayMs=300：写出确实延后且完成耗时 ≥ 命中+延时
+func TestSerialScript_MatchDelayExplicit(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	t0 := time.Now()
+	ch := runScript(context.Background(), sm, buf, ScriptInput{
+		TimeoutMs: 5000,
+		Matches:   []MatchRule{{Pattern: "READY", Data: "ACK", DelayMs: int64Ptr(300)}},
+	})
+	time.Sleep(200 * time.Millisecond) // 命中时刻 ≈ t0+200ms，写出应不早于 t0+500ms
+	buf.Append([]byte("device READY"))
+
+	res := waitResult(t, ch)
+	if !res.Success {
+		t.Fatalf("预期成功，实际失败: %s", res.Message)
+	}
+	// 时序断言：完成不早于命中+延时（t0+500ms），留 50ms 调度余量；
+	// 若实现错误地立即写出，完成时刻 ≈ t0+200ms，必不过此下界
+	if elapsed := time.Since(t0); elapsed < 450*time.Millisecond {
+		t.Errorf("延时写应使完成不早于 t0+450ms，实际 elapsed=%v", elapsed)
+	}
+	data := scriptData(t, res)
+	if f, _ := data["delayedWritesFired"].(int); f != 1 {
+		t.Errorf("预期延时写出 1 次，实际 %v", data["delayedWritesFired"])
+	}
+	triggers, _ := data["triggers"].([]map[string]any)
+	if len(triggers) != 1 || triggers[0]["delayMs"] != int64(300) {
+		t.Errorf("预期触发记录 delayMs=300，实际 %v", triggers)
+	}
+}
+
+// TestSerialScript_MatchDelayZero 显式 delayMs=0：命中立即写（不入延时队列）
+func TestSerialScript_MatchDelayZero(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	ch := runScript(context.Background(), sm, buf, ScriptInput{
+		TimeoutMs: 5000,
+		Matches:   []MatchRule{{Pattern: "READY", Data: "ACK", DelayMs: int64Ptr(0)}},
+	})
+	time.Sleep(200 * time.Millisecond)
+	buf.Append([]byte("device READY"))
+
+	res := waitResult(t, ch)
+	if !res.Success {
+		t.Fatalf("预期成功，实际失败: %s", res.Message)
+	}
+	data := scriptData(t, res)
+	if q, _ := data["delayedWritesQueued"].(int); q != 0 {
+		t.Errorf("显式 0 应走立即写、不入延时队列，实际 queued=%v", data["delayedWritesQueued"])
+	}
+	triggers, _ := data["triggers"].([]map[string]any)
+	if len(triggers) != 1 || triggers[0]["delayMs"] != int64(0) {
+		t.Errorf("预期触发记录 delayMs=0，实际 %v", triggers)
+	}
+}
+
+// TestSerialScript_MatchDelayDroppedOnTimeout 延时未到点即超时：丢弃不写，如实上报
+func TestSerialScript_MatchDelayDroppedOnTimeout(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	ch := runScript(context.Background(), sm, buf, ScriptInput{
+		TimeoutMs: 300,
+		Matches:   []MatchRule{{Pattern: "READY", Data: "ACK", DelayMs: int64Ptr(500)}},
+	})
+	time.Sleep(100 * time.Millisecond) // 命中 ≈ t0+100ms，fireAt ≈ t0+600ms > deadline 300ms
+	buf.Append([]byte("device READY"))
+
+	res := waitResult(t, ch)
+	if !res.Success {
+		t.Fatalf("超时应返回成功，实际失败: %s", res.Message)
+	}
+	data := scriptData(t, res)
+	if timedOut, _ := data["timedOut"].(bool); !timedOut {
+		t.Errorf("预期 timedOut=true")
+	}
+	if q, _ := data["delayedWritesQueued"].(int); q != 1 {
+		t.Errorf("预期命中已入队 1 次，实际 %v", data["delayedWritesQueued"])
+	}
+	if f, _ := data["delayedWritesFired"].(int); f != 0 {
+		t.Errorf("超时后延时写不应发出，实际 fired=%v", data["delayedWritesFired"])
+	}
+	if p, _ := data["delayedWritesPending"].(int); p != 1 {
+		t.Errorf("预期 pending=1，实际 %v", data["delayedWritesPending"])
+	}
+	// 命中事实已计入触发与规则计数
+	counts, _ := data["ruleFireCounts"].([]int)
+	if len(counts) != 1 || counts[0] != 1 {
+		t.Errorf("命中应计入 ruleFireCounts，实际 %v", counts)
+	}
+}
+
+// TestSerialScript_MatchDelayRepeatIndependent repeat 多次命中各自独立排队延时写出
+func TestSerialScript_MatchDelayRepeatIndependent(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	ch := runScript(context.Background(), sm, buf, ScriptInput{
+		TimeoutMs: 5000,
+		Matches: []MatchRule{{
+			Pattern:  "PING",
+			Data:     "PONG",
+			Repeat:   true,
+			MaxCount: 2,
+			DelayMs:  int64Ptr(100),
+		}},
+	})
+	time.Sleep(200 * time.Millisecond)
+	buf.Append([]byte("PING PING")) // 同一 chunk 两处命中：各自独立入队
+
+	res := waitResult(t, ch)
+	if !res.Success {
+		t.Fatalf("预期成功，实际失败: %s", res.Message)
+	}
+	data := scriptData(t, res)
+	if q, _ := data["delayedWritesQueued"].(int); q != 2 {
+		t.Errorf("预期两次命中独立入队，实际 queued=%v", data["delayedWritesQueued"])
+	}
+	if f, _ := data["delayedWritesFired"].(int); f != 2 {
+		t.Errorf("预期两次延时写全部发出，实际 fired=%v", data["delayedWritesFired"])
+	}
+	counts, _ := data["ruleFireCounts"].([]int)
+	if len(counts) != 1 || counts[0] != 2 {
+		t.Errorf("预期规则触发 2 次，实际 %v", counts)
+	}
+}
+
+// TestSerialScript_DelayMsValidation delayMs 负数与溢出校验（需已连接才走到规则校验）
+func TestSerialScript_DelayMsValidation(t *testing.T) {
+	sm, buf, _ := newPtyEnv(t)
+	for _, tc := range []struct {
+		name string
+		d    int64
+		want string
+	}{
+		{"负数", -1, "不能为负"},
+		{"溢出", scriptMaxAtMsValue + 1, "超出可表示范围"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := ExecuteSerialScript(context.Background(), sm, buf, ScriptInput{
+				TimeoutMs: 1000,
+				Matches:   []MatchRule{{Pattern: "READY", Data: "ACK", DelayMs: int64Ptr(tc.d)}},
+			}, testScriptLimits)
+			if res.Success {
+				t.Fatalf("delayMs=%d 应校验失败", tc.d)
+			}
+			if !strings.Contains(res.Message, tc.want) {
+				t.Errorf("错误消息应含 %q，实际: %s", tc.want, res.Message)
+			}
+		})
+	}
+}

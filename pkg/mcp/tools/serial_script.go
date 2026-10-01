@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -19,12 +20,13 @@ import (
 // 发送顺序会互相踩踏（剧本 A 的应答被剧本 B 的匹配抢先消费）。
 var scriptMu sync.Mutex
 
-// 定时/匹配扫描的内部上限
+// 定时/匹配扫描的内部上限与默认值
 const (
-	scriptWindowMax    = 8 * 1024                                       // 匹配滚动窗口上限（跨 chunk 拼接）
-	scriptRecvMax      = 1024 * 1024                                    // 回放数据上限（保留最新；截断时返回 receivedTruncated=true）
-	scriptScheduleMax  = 100000                                         // 展开后定时触发条目上限（防 count 膨胀 OOM）
-	scriptMaxAtMsValue = int64(math.MaxInt64 / int64(time.Millisecond)) // 触发时刻偏移上限（ms，防止 ×time.Millisecond 溢出成负时长）
+	scriptWindowMax     = 8 * 1024                                       // 匹配滚动窗口上限（跨 chunk 拼接）
+	scriptRecvMax       = 1024 * 1024                                    // 回放数据上限（保留最新；截断时返回 receivedTruncated=true）
+	scriptScheduleMax   = 100000                                         // 展开后定时触发条目上限（防 count 膨胀 OOM）
+	scriptMaxAtMsValue  = int64(math.MaxInt64 / int64(time.Millisecond)) // 触发时刻偏移上限（ms，防止 ×time.Millisecond 溢出成负时长）
+	defaultMatchDelayMs = 5                                              // 匹配写未指定 delayMs 时的默认延时（ms）；显式 0=命中立即写
 )
 
 // TimedWrite 定时写条目。
@@ -40,12 +42,15 @@ type TimedWrite struct {
 
 // MatchRule 匹配写规则：接收数据匹配 pattern（Go 正则）时自动发送。
 // 默认命中一次即失效；Repeat 持续生效，MaxCount>0 时限次。
+// DelayMs 未指定时默认 defaultMatchDelayMs（5ms）延时再写；显式 0=命中立即写；
+// 指针区分"未填"与"填 0"（同 AddNewline）。每次命中独立计时。
 type MatchRule struct {
 	Pattern    string `json:"pattern"`
 	Data       string `json:"data"`
 	AddNewline *bool  `json:"addNewline,omitempty"` // 默认 true
 	Repeat     bool   `json:"repeat,omitempty"`
 	MaxCount   int    `json:"maxCount,omitempty"` // Repeat=true 且 >0 时的最大触发次数
+	DelayMs    *int64 `json:"delayMs,omitempty"`  // 触发后延时再写（ms）；nil=默认 5ms，0=立即
 }
 
 // ScriptInput serial_script 工具输入。
@@ -60,6 +65,7 @@ type ScriptInput struct {
 type matchState struct {
 	rule     MatchRule
 	re       *regexp.Regexp
+	delayMs  int64 // 规范化后的延时（构造时解析：nil=defaultMatchDelayMs，非 nil 取值）
 	fired    int   // 已触发次数
 	scanFrom int64 // 该规则已扫描到的绝对偏移（防重复触发）
 	done     bool  // 触发次数耗尽（单发命中 / repeat 达 maxCount）
@@ -88,6 +94,29 @@ type scriptInbox struct {
 type inboxItem struct {
 	data []byte
 	at   time.Time
+}
+
+// delayedWrite 已命中但延时未到的写条目（小顶堆按 fireAt 升序）。
+// 命中即计 ruleFireCounts 与 trigger（含序号）；实际写出由事件循环到点执行。
+type delayedWrite struct {
+	fireAt  time.Time // 命中时刻 + delayMs
+	rule    int       // input.Matches 下标
+	payload []byte
+}
+
+// delayedWriteHeap container/heap 小顶堆（按 fireAt）。
+type delayedWriteHeap []delayedWrite
+
+func (h delayedWriteHeap) Len() int            { return len(h) }
+func (h delayedWriteHeap) Less(i, j int) bool  { return h[i].fireAt.Before(h[j].fireAt) }
+func (h delayedWriteHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *delayedWriteHeap) Push(x interface{}) { *h = append(*h, x.(delayedWrite)) }
+func (h *delayedWriteHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
 }
 
 func (in *scriptInbox) push(chunk []byte, at time.Time) {
@@ -163,7 +192,18 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 		if err != nil {
 			return ToolResult{Success: false, Message: fmt.Sprintf("匹配规则 #%d: 正则无效: %v", i, err)}
 		}
-		states = append(states, &matchState{rule: m, re: re})
+		// 延时到点时刻 = 命中时刻+delayMs 必须可表示（同定时写溢出防护）
+		var delayMs int64 = defaultMatchDelayMs
+		if m.DelayMs != nil {
+			if *m.DelayMs < 0 {
+				return ToolResult{Success: false, Message: fmt.Sprintf("匹配规则 #%d: delayMs 不能为负", i)}
+			}
+			if *m.DelayMs > scriptMaxAtMsValue {
+				return ToolResult{Success: false, Message: fmt.Sprintf("匹配规则 #%d: delayMs 超出可表示范围", i)}
+			}
+			delayMs = *m.DelayMs
+		}
+		states = append(states, &matchState{rule: m, re: re, delayMs: delayMs})
 	}
 
 	// 先订阅再展开：展开大剧本（最多 10 万条）耗时期间到达的数据
@@ -251,6 +291,11 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 		received []byte // 回放数据（保留最新 scriptRecvMax）
 		triggers []map[string]any
 		schIdx   int // 已触发的定时项数
+
+		// 延时写队列（delayMs>0 的命中）：命中即入堆，到点写出
+		delayed       delayedWriteHeap
+		delayedQueued int // 累计入队数
+		delayedFired  int // 累计写出数（超时/取消时 queued-fired = 丢弃数）
 	)
 
 	elapsedMs := func() int64 { return time.Since(start).Milliseconds() }
@@ -270,13 +315,16 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 			triggers = []map[string]any{}
 		}
 		d := map[string]any{
-			"timedOut":       timedOut,
-			"triggers":       triggers,
-			"ruleFireCounts": ruleCounts,
-			"pendingRules":   pendingRules,
-			"writesFired":    schIdx,
-			"writesTotal":    len(schedule),
-			"receivedBytes":  total,
+			"timedOut":             timedOut,
+			"triggers":             triggers,
+			"ruleFireCounts":       ruleCounts,
+			"pendingRules":         pendingRules,
+			"writesFired":          schIdx,
+			"writesTotal":          len(schedule),
+			"delayedWritesQueued":  delayedQueued,
+			"delayedWritesFired":   delayedFired,
+			"delayedWritesPending": delayedQueued - delayedFired,
+			"receivedBytes":        total,
 		}
 		if returnData {
 			d["received"] = string(received)
@@ -326,26 +374,48 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 						return ctx.Err() // 批量命中期间被取消：不再继续发送
 					}
 					payload := newPayload(st.rule.Data, st.rule.AddNewline)
+					occ := st.fired
+					// 触发记录 = 命中事实（延时写可能因超时/取消未发出，此处如实记录）
+					triggers = append(triggers, map[string]any{
+						"type":       "match",
+						"rule":       si,
+						"occurrence": occ,
+						"atMs":       elapsedMs(),
+						"data":       string(payload),
+						"matched":    string(window[loc[0]:loc[1]]),
+						"delayMs":    st.delayMs,
+					})
+					st.fired++
+					if !st.rule.Repeat || (st.rule.MaxCount > 0 && st.fired >= st.rule.MaxCount) {
+						st.done = true
+					}
+					st.scanFrom = absE
+					if st.delayMs > 0 {
+						// 延时写：入堆由事件循环到点写出（与定时写同校验路径）
+						if delayed.Len() >= scriptScheduleMax {
+							return fmt.Errorf("延时写队列超出上限 %d", scriptScheduleMax)
+						}
+						heap.Push(&delayed, delayedWrite{
+							fireAt:  time.Now().Add(time.Duration(st.delayMs) * time.Millisecond),
+							rule:    si,
+							payload: payload,
+						})
+						delayedQueued++
+						if st.done {
+							break
+						}
+						continue
+					}
+					// 立即写
 					if _, err := sm.WriteIfSameGen(connGen, payload); err != nil {
 						if errors.Is(err, serial.ErrStaleConnection) {
 							return err // 代次已变：交由事件循环判定断连中止
 						}
 						return fmt.Errorf("匹配规则 #%d 写入失败: %w", si, err)
 					}
-					triggers = append(triggers, map[string]any{
-						"type":       "match",
-						"rule":       si,
-						"occurrence": st.fired,
-						"atMs":       elapsedMs(),
-						"data":       string(payload),
-						"matched":    string(window[loc[0]:loc[1]]),
-					})
-					st.fired++
-					if !st.rule.Repeat || (st.rule.MaxCount > 0 && st.fired >= st.rule.MaxCount) {
-						st.done = true
+					if st.done {
 						break
 					}
-					st.scanFrom = absE
 				}
 			}
 
@@ -363,6 +433,9 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 	complete := func() bool {
 		if schIdx < len(schedule) {
 			return false
+		}
+		if delayed.Len() > 0 {
+			return false // 延时写未全部发出
 		}
 		for _, st := range states {
 			if st.fired == 0 {
@@ -389,9 +462,13 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 		if !sm.IsConnected() || sm.ConnectionGen() != connGen {
 			return staleAbort()
 		}
+		msg := fmt.Sprintf("脚本执行完成: 定时写 %d/%d, 匹配触发 %d/%d", schIdx, len(schedule), len(states), len(states))
+		if delayedQueued > 0 {
+			msg += fmt.Sprintf(", 延时写 %d/%d", delayedFired, delayedQueued)
+		}
 		return ToolResult{
 			Success: true,
-			Message: fmt.Sprintf("脚本执行完成: 定时写 %d/%d, 匹配触发 %d/%d", schIdx, len(schedule), len(states), len(states)),
+			Message: msg,
 			Data:    buildData(false),
 		}
 	}
@@ -471,9 +548,8 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 			return ToolResult{Success: true, Message: msg, Data: buildData(true)}
 		}
 
-		// 到点的定时写
-		now := time.Now()
-		for schIdx < len(schedule) && !fireAt(schIdx).After(now) {
+		// 到点的定时写（每轮复核截止时间：批次跨截止时剩余条目留待超时路径丢弃）
+		for schIdx < len(schedule) && !fireAt(schIdx).After(time.Now()) && !time.Now().After(deadline) {
 			if ctx.Err() != nil {
 				return cancelResult() // 批量到期期间被取消：不再继续发送
 			}
@@ -498,15 +574,45 @@ func ExecuteSerialScript(ctx context.Context, sm *serial.SerialManager, buf *buf
 			})
 			schIdx++
 		}
+		// 到点的延时写（命中已记录 trigger，此处只负责实际发出）。
+		// 每轮复核截止时间：微决策"到点若已超时→丢弃不写"——批次跨截止时
+		// 剩余条目不再发出，留在堆中由超时路径以 delayedWritesPending 上报
+		for delayed.Len() > 0 && !delayed[0].fireAt.After(time.Now()) && !time.Now().After(deadline) {
+			if ctx.Err() != nil {
+				return cancelResult() // 批量到期期间被取消：不再继续发送
+			}
+			item := heap.Pop(&delayed).(delayedWrite)
+			if _, err := sm.WriteIfSameGen(connGen, item.payload); err != nil {
+				if errors.Is(err, serial.ErrStaleConnection) {
+					return staleAbort()
+				}
+				return ToolResult{
+					Success: false,
+					Message: fmt.Sprintf("延时写 (匹配规则 #%d) 写入失败: %v", item.rule, err),
+					Data:    buildData(false),
+				}
+			}
+			delayedFired++
+		}
 		if complete() {
 			return completeResult()
 		}
 
-		// 等待：ctx 取消 / 新数据 / 下一定时点 / 断连检查
+		// 等待：ctx 取消 / 新数据 / 下一定时点（定时写与延时写取最早） / 断连检查
 		var timerC <-chan time.Time
 		var timer *time.Timer
+		var nextWake time.Time
+		hasWake := false
 		if schIdx < len(schedule) {
-			d := time.Until(fireAt(schIdx))
+			nextWake = fireAt(schIdx)
+			hasWake = true
+		}
+		if delayed.Len() > 0 && (!hasWake || delayed[0].fireAt.Before(nextWake)) {
+			nextWake = delayed[0].fireAt
+			hasWake = true
+		}
+		if hasWake {
+			d := time.Until(nextWake)
 			if d < 0 {
 				d = 0
 			}

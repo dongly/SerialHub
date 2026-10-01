@@ -226,6 +226,7 @@ func (s *MCPServer) RegisterTools() error {
 							"addNewline": map[string]any{"type": "boolean", "description": "Append newline (\\n). Default true."},
 							"repeat":     map[string]any{"type": "boolean", "description": "Fire on every match instead of once. Default false."},
 							"maxCount":   map[string]any{"type": "integer", "description": "With repeat=true, stop after this many fires. Unset = unlimited."},
+							"delayMs":    map[string]any{"type": "integer", "description": "Delay in milliseconds before the write is sent after a match. Default 5; 0 = send immediately. Each match schedules independently."},
 						},
 						"required": []string{"pattern", "data"},
 					},

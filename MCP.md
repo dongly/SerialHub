@@ -119,9 +119,10 @@ curl -X POST http://127.0.0.1:5050/mcp \
     {"atMs": 1000, "intervalMs": 500, "count": 3, "data": "ping"}  //   周期：首拍在 atMs，其后每 intervalMs 一次共 count 次
   ],
   "matches": [                    // 可选：匹配写（Go 正则，收到的数据命中即写）
-    {"pattern": "OK", "data": "next", "addNewline": true, "repeat": false, "maxCount": 0}
+    {"pattern": "OK", "data": "next", "addNewline": true, "repeat": false, "maxCount": 0, "delayMs": 0}
     //   repeat: false=单发（默认，命中一次后失效）；true=可重复触发
     //   maxCount: repeat=true 且 >0 时的最大触发次数，耗尽后失效
+    //   delayMs: 触发后再延时这么多毫秒才写出，默认 5ms；显式 0=命中立即写；每次命中独立计时
     //   多条规则按声明顺序对同一段数据全部执行
     //   零宽命中（如 "^" 空匹配）不触发；"^" 锚定当前扫描窗口起点，repeat 不会对后缀重新锚定
   ],
@@ -130,8 +131,8 @@ curl -X POST http://127.0.0.1:5050/mcp \
 ```
 
 - **语义**：观察式（Tee）——数据照常进入 read 缓冲，`serial_read`/Web 终端不受影响；只匹配脚本启动后新到的数据；数据以**到达时刻**判定，超时后才到达的不参与匹配也不计入回放；全局同时只能运行一个脚本；期间 `serial_write` 仍可并发调用。
-- **完成条件**：定时写全部发出 **且** 每条匹配规则至少命中 1 次 → 提前返回成功。
-- **超时**：返回成功且 `timedOut: true`，`pendingRules` 列出未命中的匹配规则下标（同 `serial_read` 超时先例）。
+- **完成条件**：定时写全部发出 **且** 每条匹配规则至少命中 1 次 **且** 已排延时写全部发出 → 提前返回成功。
+- **超时**：返回成功且 `timedOut: true`，`pendingRules` 列出未命中的匹配规则下标；到超时仍未到点的延时写丢弃不发，`delayedWritesPending` 如实上报（同 `serial_read` 超时先例）。
 - **失败**：串口断连（含断连后快速重连，按连接代次判定）、ctx 取消（"脚本已取消"）、写入失败、参数非法（空剧本、timeoutMs 越界、未连接、已有脚本在跑）。
 
 返回 `data` 字段：
@@ -139,17 +140,18 @@ curl -X POST http://127.0.0.1:5050/mcp \
 ```json
 {
   "timedOut": false,
-  "triggers": [{"type": "timed|match", "rule": 0, "occurrence": 0, "atMs": 12, "data": "...", "matched": "..."}],
+  "triggers": [{"type": "timed|match", "rule": 0, "occurrence": 0, "atMs": 12, "data": "...", "matched": "...", "delayMs": 0}],
   "ruleFireCounts": [2],
   "pendingRules": [],
   "writesFired": 4, "writesTotal": 4,
+  "delayedWritesQueued": 2, "delayedWritesFired": 2, "delayedWritesPending": 0,
   "receivedBytes": 128,
   "received": "...",               // returnData=true 时给出；回放仅保留最新 1MB
   "receivedTruncated": false       // 回放是否因超出 1MB 上限被截断（总接收量见 receivedBytes）
 }
 ```
 
-触发记录字段：`type`（`timed`/`match`）、`rule`（writes/matches 数组下标）、`occurrence`（timed=周期第 i 拍、match=该规则第几次命中，均从 0 起）、`atMs`（相对启动毫秒）、`data`（实际发送内容）、`matched`（仅 match：命中的文本片段）。
+触发记录字段：`type`（`timed`/`match`）、`rule`（writes/matches 数组下标）、`occurrence`（timed=周期第 i 拍、match=该规则第几次命中，均从 0 起）、`atMs`（相对启动毫秒；match 为**命中时刻**，delayMs 延时写的实际发出看 `delayedWritesFired`）、`data`（计划发送内容）、`matched`（仅 match：命中的文本片段）、`delayMs`（仅 match：该规则的延时配置）。
 
 ---
 
