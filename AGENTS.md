@@ -102,6 +102,13 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 - 测试函数名英文（`func TestXxxx(t *testing.T)`），用例内中文注释/断言消息描述意图
 - 日志前缀统一 `[SerialHub]`
 
+## 开发流程
+
+开发 → 测试 → 用 `@code-review` 审查（对照 `AGENTS.md`/`docs/CONTEXT.md` 标准与需求两轴）→ 修复问题 → 重复审查**直到无错误** → 提交。
+
+- **计划先写入 todo 文件**：动手前把实现计划落到 `TODO.md`（仓库根），完成后清理已勾选项。
+- 每步的验证命令见「测试」节；审查的固定基准点由用户指定（默认当前工作区/HEAD）。
+
 ## Git 提交
 
 `<type>(<scope>): <subject>`
@@ -116,7 +123,7 @@ cmd/serialhub/         CLI 入口（cobra）、serve 启动、配置加载、日
 pkg/serial/            串口管理（go.bug.st/serial）、事件系统、读写循环
 pkg/bridge/            DataBridge 事件总线（核心，双向数据转发）
 pkg/mcp/               MCP Streamable HTTP 服务（非流式 JSON 响应）、工具注册、stdio 代理
-pkg/mcp/tools/         MCP 工具实现（每工具一文件：serial_list/connect/write/read/disconnect/status）
+pkg/mcp/tools/         MCP 工具实现（每工具一文件：serial_list/connect/write/read/disconnect/status/script）
 pkg/web/               WebSocket 服务、xterm.js 终端（前端在 static/，embed 编译）
 pkg/tray/              Windows 系统托盘（菜单、图标状态、配置同步、自动重连）
 pkg/config/            TOML 配置（viper）、CLI 参数合并
@@ -141,6 +148,7 @@ tools/                 开发辅助脚本（genicons.py 图标生成）
 | `serial_read` | `serial_read.go` | 从缓冲区读取（`timeout?` 默认 1000ms，0=无限等待，`maxSize?` 默认 4096） |
 | `serial_clear` | `serial_clear.go` | 清空 read 缓冲区（丢弃未读取数据） |
 | `serial_status` | `serial_status.go` | 查询连接状态 |
+| `serial_script` | `serial_script.go` | 执行交互脚本（`timeoutMs` 必填；`writes[]` 定时写、`matches[]` 匹配写，阻塞至完成/超时，全局单实例） |
 
 ## 前端
 

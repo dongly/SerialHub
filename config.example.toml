@@ -29,3 +29,8 @@ stopBits = 1
 
 [mcp]
 httpPort = 5050
+
+[script]
+# MCP serial_script 工具允许的 timeoutMs 范围（毫秒），缺省或非法时回退默认
+timeoutMinMs = 100
+timeoutMaxMs = 1800000

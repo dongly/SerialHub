@@ -203,6 +203,15 @@ func (sm *SerialManager) connectLocked() error {
 	return nil
 }
 
+// ConnectionGen 返回当前连接代次：连接/断开/改配置或意外断开均会递增。
+// 调用方（如 serial_script）可在启动时记录代次并周期比较，
+// 检测"断连后快速重连"这类瞬态，避免旧任务继续写向新连接。
+func (sm *SerialManager) ConnectionGen() uint64 {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.reconnectGen
+}
+
 // Disconnect disconnects from the serial port
 // 幂等：未连接时同样使挂起的自动重连失效并返回成功（用户意图是"确保断开"）。
 // 端口关闭在锁外异步执行：USB 掉线（usbipd detach）时驱动 Close 可能
@@ -237,6 +246,10 @@ func (sm *SerialManager) Disconnect() error {
 	return nil
 }
 
+// ErrStaleConnection 表示写入时连接代次已变（期间发生过断连/重连/改配置）。
+// 供 WriteIfSameGen 返回，调用方以 errors.Is 判定"不得再写向当前连接"。
+var ErrStaleConnection = errors.New("连接代次已变")
+
 // Write writes data to the serial port
 func (sm *SerialManager) Write(data []byte) (int, error) {
 	sm.mu.RLock()
@@ -245,22 +258,46 @@ func (sm *SerialManager) Write(data []byte) (int, error) {
 		sm.mu.RUnlock()
 		return 0, errors.New(i18n.Serial.NotConnected)
 	}
+	n, err := sm.writeUnderLock(port, data)
+	sm.mu.RUnlock()
+	return sm.finishWrite(n, err, data)
+}
+
+// WriteIfSameGen 仅在连接代次仍等于 gen 时写入，否则返回 ErrStaleConnection。
+// 校验与写入处于同一读锁临界区：与 Disconnect/Connect 的代次递增互斥，
+// 消除"检查后、写入前连接被替换"的竞态（serial_script 断连语义依赖此保证）。
+func (sm *SerialManager) WriteIfSameGen(gen uint64, data []byte) (int, error) {
+	sm.mu.RLock()
+	port := sm.port
+	if port == nil || sm.reconnectGen != gen {
+		sm.mu.RUnlock()
+		return 0, ErrStaleConnection
+	}
+	n, err := sm.writeUnderLock(port, data)
+	sm.mu.RUnlock()
+	return sm.finishWrite(n, err, data)
+}
+
+// writeUnderLock 实际写入 + 错误投递；调用方须持有 sm.mu.RLock。
+// 错误投递必须与 Close 的通道关闭互斥：Close 在写锁内关闭 errChan，
+// 此处持读锁完成非阻塞发送（select+default 不会阻塞）；若在锁外
+// 发送，存在 send on closed channel 的 panic 窗口。
+func (sm *SerialManager) writeUnderLock(port Port, data []byte) (int, error) {
 	n, err := port.Write(data)
 	if err != nil {
-		// 错误投递必须与 Close 的通道关闭互斥：Close 在写锁内关闭 errChan，
-		// 此处持读锁完成非阻塞发送（select+default 不会阻塞）；若在锁外
-		// 发送，存在 send on closed channel 的 panic 窗口。
 		select {
 		case sm.errChan <- fmt.Errorf(i18n.Serial.WriteError, err):
 		default:
-			// 通道满时静默丢弃：下方 Errorf 仍会记录本次错误
+			// 通道满时静默丢弃：finishWrite 仍会记录本次错误
 		}
 	}
-	sm.mu.RUnlock()
+	return n, err
+}
 
+// finishWrite 锁外的数据日志与错误包装。
+func (sm *SerialManager) finishWrite(n int, err error, data []byte) (int, error) {
 	// 数据内容日志（聚合）在锁外输出，避免日志 I/O 拖住连接管理
 	logagg.Add(logagg.TagSerialWrite, data)
-
 	if err != nil {
 		logrus.Errorf("[SerialHub] 串口写入失败: %v", err)
 		return n, fmt.Errorf(i18n.Serial.WriteFailed, err)

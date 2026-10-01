@@ -15,6 +15,7 @@ import (
 
 	"github.com/dongly/serialhub/internal/buffer"
 	"github.com/dongly/serialhub/internal/instance"
+	"github.com/dongly/serialhub/pkg/config"
 	"github.com/dongly/serialhub/pkg/mcp/tools"
 	"github.com/dongly/serialhub/pkg/serial"
 	"github.com/dongly/serialhub/pkg/version"
@@ -30,6 +31,8 @@ type MCPServer struct {
 	dataBuffer    *buffer.DataBuffer
 	mcpServer     *mcpsdk.Server
 	wsServer      *web.WebSocketServer
+	// serial_script 允许的 timeoutMs 范围（来自 [script] 配置，缺省用默认值）
+	scriptLimits tools.ScriptLimits // serial_script 的 timeoutMs 允许范围（[script] 配置注入）
 }
 
 // NewMCPServer creates a new MCP server instance
@@ -50,6 +53,11 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, wsSrv ...*we
 		serialManager: sm,
 		dataBuffer:    buf,
 		mcpServer:     mcpServer,
+		// 默认范围取 config 包常量；startServices 可用 [script] 配置覆盖
+		scriptLimits: tools.ScriptLimits{
+			MinMs: config.DefaultScriptTimeoutMinMs,
+			MaxMs: config.DefaultScriptTimeoutMaxMs,
+		},
 	}
 
 	if len(wsSrv) > 0 && wsSrv[0] != nil {
@@ -59,7 +67,16 @@ func NewMCPServer(sm *serial.SerialManager, buf *buffer.DataBuffer, wsSrv ...*we
 	return s, nil
 }
 
-// RegisterTools registers all 7 serial port tools with the MCP server
+// SetScriptTimeoutRange 覆盖 serial_script 允许的 timeoutMs 范围
+// （由启动流程用 [script] 配置注入）；非法值（min<=0 或 min>max）忽略。
+func (s *MCPServer) SetScriptTimeoutRange(minMs, maxMs int) {
+	if minMs <= 0 || maxMs <= 0 || minMs > maxMs {
+		return
+	}
+	s.scriptLimits = tools.ScriptLimits{MinMs: minMs, MaxMs: maxMs}
+}
+
+// RegisterTools registers all 8 serial port tools with the MCP server
 func (s *MCPServer) RegisterTools() error {
 	// Register serial_list tool
 	s.mcpServer.AddTool(&mcpsdk.Tool{
@@ -172,7 +189,57 @@ func (s *MCPServer) RegisterTools() error {
 		},
 	}, s.handleSerialStatus)
 
-	logrus.Infoln("[SerialHub] MCP server registered 7 tools")
+	// Register serial_script tool
+	s.mcpServer.AddTool(&mcpsdk.Tool{
+		Name:        "serial_script",
+		Description: "Run a bounded serial interaction script: timed writes (scheduled once or periodically relative to script start) plus match writes (regex-triggered responses to received data). Blocks until all writes are sent and every match rule has fired, or until timeoutMs elapses; timeout still returns success with timedOut=true and pending rule indexes. Data received during the script remains readable via serial_read and the web terminal (tee). Only one script can run at a time; disconnect or cancellation aborts the script with an error.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"timeoutMs": map[string]any{
+					"type":        "integer",
+					"description": "Required. Maximum script duration in milliseconds, within the server-configured allowed range (default 100–1800000).",
+				},
+				"writes": map[string]any{
+					"type":        "array",
+					"description": "Timed writes. Each entry fires at atMs after script start; with intervalMs>0 it repeats count times at atMs + i*intervalMs (first fire at atMs).",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"atMs":       map[string]any{"type": "integer", "description": "Milliseconds after script start. Default 0."},
+							"intervalMs": map[string]any{"type": "integer", "description": "Repeat interval in ms. 0 or omitted = single shot."},
+							"count":      map[string]any{"type": "integer", "description": "Total fires when intervalMs>0. Default 1."},
+							"data":       map[string]any{"type": "string", "description": "Data to send."},
+							"addNewline": map[string]any{"type": "boolean", "description": "Append newline (\\n). Default true."},
+						},
+						"required": []string{"data"},
+					},
+				},
+				"matches": map[string]any{
+					"type":        "array",
+					"description": "Match writes: when received data matches pattern (Go regex), send data. Evaluated in declaration order; all matching rules fire. Default single-shot; repeat=true fires on every match, optionally capped by maxCount.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"pattern":    map[string]any{"type": "string", "description": "Go regular expression matched against data received after script start (8KB rolling window, cross-chunk)."},
+							"data":       map[string]any{"type": "string", "description": "Data to send when matched."},
+							"addNewline": map[string]any{"type": "boolean", "description": "Append newline (\\n). Default true."},
+							"repeat":     map[string]any{"type": "boolean", "description": "Fire on every match instead of once. Default false."},
+							"maxCount":   map[string]any{"type": "integer", "description": "With repeat=true, stop after this many fires. Unset = unlimited."},
+						},
+						"required": []string{"pattern", "data"},
+					},
+				},
+				"returnData": map[string]any{
+					"type":        "boolean",
+					"description": "Include all data received during the script in the response. Default true.",
+				},
+			},
+			"required": []string{"timeoutMs"},
+		},
+	}, s.handleSerialScript)
+
+	logrus.Infoln("[SerialHub] MCP server registered 8 tools")
 	return nil
 }
 
@@ -483,6 +550,16 @@ func (s *MCPServer) handleSerialStatus(ctx context.Context, req *mcpsdk.CallTool
 		m["side"] = instance.LocalSide()
 		m["sideDetail"] = instance.SideDetail()
 	}
+	return s.toolResultToMCPResult(result)
+}
+
+func (s *MCPServer) handleSerialScript(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+	var input tools.ScriptInput
+	if err := s.parseRequestParams(req, &input); err != nil {
+		return nil, s.invalidParamsError(err)
+	}
+	result := tools.ExecuteSerialScript(ctx, s.serialManager, s.dataBuffer, input,
+		s.scriptLimits)
 	return s.toolResultToMCPResult(result)
 }
 

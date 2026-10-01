@@ -261,7 +261,7 @@ func runWithTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.DataB
 		sm.SetEventHandler(createEventHandler(sm, trayMgr, wsSrv))
 
 		// --no-browser（脚本静默启动）不自动打开浏览器
-		svcs = startServices(sm, wsSrv, buf, !noBrowser)
+		svcs = startServices(sm, wsSrv, buf, !noBrowser, cfg.Script)
 		if svcs == nil {
 			startupErr = errors.New(i18n.ServeErrors.MasterStartFailed)
 			trayMgr.Quit() // MCP/HTTP 启动失败：退出托盘
@@ -415,7 +415,7 @@ func runWithoutTray(cfg *config.Config, sm *serial.SerialManager, buf *buffer.Da
 	autoConnectSerial(sm, cfg)
 
 	addr := fmt.Sprintf("%s:%d", host, mcpPort)
-	svcs := startServices(sm, wsSrv, buf, autoOpenBrowser)
+	svcs := startServices(sm, wsSrv, buf, autoOpenBrowser, cfg.Script)
 	if svcs == nil {
 		// 诚实失败：HTTP 监听失败（如端口被占）时明确退出，不做无服务的僵尸进程
 		return fmt.Errorf(i18n.ServeErrors.HTTPStartFailed, addr)
@@ -659,7 +659,7 @@ func serveAsStdioMaster(cfg *config.Config, handoff *mcp.StdioHandoff, port int)
 	}
 	sm.SetConfigChangeHandler(createSaveConfigFunc(cfg))
 	sm.SetEventHandler(createSerialEventHandler(wsSrv))
-	svcs := startServices(sm, wsSrv, buf, false)
+	svcs := startServices(sm, wsSrv, buf, false, cfg.Script)
 	if svcs == nil {
 		return errors.New(i18n.ServeErrors.MasterStartFailed)
 	}
@@ -748,7 +748,7 @@ func createSerialEventHandler(wsSrv *web.WebSocketServer) func(serial.Event) {
 
 // startServices 启动主实例服务面：数据桥 + MCP HTTP。
 // 返回服务句柄集合（stdio 模式需叠跑 stdio 传输）；启动失败返回 nil。
-func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool) *runningServices {
+func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *buffer.DataBuffer, autoOpenBrowser bool, scriptCfg config.ScriptConfig) *runningServices {
 	svcs := &runningServices{wsSrv: wsSrv}
 	bridgeSrv, err := bridge.NewDataBridge(sm, wsSrv, buf)
 	if err != nil {
@@ -765,6 +765,7 @@ func startServices(sm *serial.SerialManager, wsSrv *web.WebSocketServer, buf *bu
 		logrus.Errorf("[SerialHub] 创建 MCP 服务失败: %v", err)
 		return nil
 	}
+	mcpSrv.SetScriptTimeoutRange(scriptCfg.TimeoutMinMs, scriptCfg.TimeoutMaxMs)
 	if err := mcpSrv.RegisterTools(); err != nil {
 		logrus.Errorf("[SerialHub] 注册 MCP 工具失败: %v", err)
 		return nil

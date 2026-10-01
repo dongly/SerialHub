@@ -54,6 +54,7 @@ curl -X POST http://127.0.0.1:5050/mcp \
 | `serial_write` | 向串口写入数据 | `data` |
 | `serial_read` | 从串口读取数据（阻塞式） | 无 |
 | `serial_clear` | 清空 read 缓冲区（丢弃未消费数据） | 无 |
+| `serial_script` | 执行交互脚本：定时写 + 匹配写（阻塞至完成/超时） | `timeoutMs` |
 
 `serial_list` 返回结构（顶层 `side`/`sideDetail` 为本实例所在系统与具体来源；`ports` 数组每项含 `name`/`origin`/`side`/`port`）：
 
@@ -107,6 +108,48 @@ curl -X POST http://127.0.0.1:5050/mcp \
   "maxSize": 4096    // 可选：最大读取字节数，默认 4096
 }
 ```
+
+#### serial_script
+
+```json
+{
+  "timeoutMs": 10000,             // 必填：剧本总超时(ms)，允许范围由 config.toml [script] 决定（默认 100ms～30min）
+  "writes": [                     // 可选：定时写（相对脚本启动）
+    {"atMs": 0, "data": "help"},  //   单发：atMs 偏移（默认 0）
+    {"atMs": 1000, "intervalMs": 500, "count": 3, "data": "ping"}  //   周期：首拍在 atMs，其后每 intervalMs 一次共 count 次
+  ],
+  "matches": [                    // 可选：匹配写（Go 正则，收到的数据命中即写）
+    {"pattern": "OK", "data": "next", "addNewline": true, "repeat": false, "maxCount": 0}
+    //   repeat: false=单发（默认，命中一次后失效）；true=可重复触发
+    //   maxCount: repeat=true 且 >0 时的最大触发次数，耗尽后失效
+    //   多条规则按声明顺序对同一段数据全部执行
+    //   零宽命中（如 "^" 空匹配）不触发；"^" 锚定当前扫描窗口起点，repeat 不会对后缀重新锚定
+  ],
+  "returnData": true              // 可选：返回期间收到的回放数据，默认 true
+}
+```
+
+- **语义**：观察式（Tee）——数据照常进入 read 缓冲，`serial_read`/Web 终端不受影响；只匹配脚本启动后新到的数据；数据以**到达时刻**判定，超时后才到达的不参与匹配也不计入回放；全局同时只能运行一个脚本；期间 `serial_write` 仍可并发调用。
+- **完成条件**：定时写全部发出 **且** 每条匹配规则至少命中 1 次 → 提前返回成功。
+- **超时**：返回成功且 `timedOut: true`，`pendingRules` 列出未命中的匹配规则下标（同 `serial_read` 超时先例）。
+- **失败**：串口断连（含断连后快速重连，按连接代次判定）、ctx 取消（"脚本已取消"）、写入失败、参数非法（空剧本、timeoutMs 越界、未连接、已有脚本在跑）。
+
+返回 `data` 字段：
+
+```json
+{
+  "timedOut": false,
+  "triggers": [{"type": "timed|match", "rule": 0, "occurrence": 0, "atMs": 12, "data": "...", "matched": "..."}],
+  "ruleFireCounts": [2],
+  "pendingRules": [],
+  "writesFired": 4, "writesTotal": 4,
+  "receivedBytes": 128,
+  "received": "...",               // returnData=true 时给出；回放仅保留最新 1MB
+  "receivedTruncated": false       // 回放是否因超出 1MB 上限被截断（总接收量见 receivedBytes）
+}
+```
+
+触发记录字段：`type`（`timed`/`match`）、`rule`（writes/matches 数组下标）、`occurrence`（timed=周期第 i 拍、match=该规则第几次命中，均从 0 起）、`atMs`（相对启动毫秒）、`data`（实际发送内容）、`matched`（仅 match：命中的文本片段）。
 
 ---
 

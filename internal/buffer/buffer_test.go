@@ -3,6 +3,7 @@ package buffer
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestBuffer_Append(t *testing.T) {
@@ -235,5 +236,28 @@ func TestBuffer_NewDataBuffer(t *testing.T) {
 	buf3 := NewDataBuffer(0)
 	if buf3.maxSize != 65536 {
 		t.Errorf("零大小应使用默认 65536，实际 %d", buf3.maxSize)
+	}
+}
+
+func TestBuffer_Subscribe(t *testing.T) {
+	// 观察者收到数据副本与到达时刻（Append 观察点捕获），取消订阅后不再收到
+	b := NewDataBuffer(1024)
+	var got []byte
+	var arrivedAt time.Time
+	before := time.Now()
+	unsub := b.Subscribe(func(data []byte, at time.Time) {
+		got = append(got, data...)
+		arrivedAt = at
+	})
+
+	b.Append([]byte("hello"))
+	unsub()
+	b.Append([]byte("world")) // 已取消：不应收到
+
+	if string(got) != "hello" {
+		t.Errorf("观察者应只收到 hello，实际 %q", string(got))
+	}
+	if arrivedAt.IsZero() || arrivedAt.Before(before) {
+		t.Errorf("到达时刻应为 Append 观察点时刻，实际 %v", arrivedAt)
 	}
 }
