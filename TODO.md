@@ -1,5 +1,16 @@
 # TODO
 
+## web-last-conn — Web 终端记住上次串口与连接参数（用户需求："xterm.js ,若串口可用,串口选择框默认选中上次端口" + "其他参数也是"）
+
+- [x] 1. `pkg/web/static/terminal.html`：
+  - 保存：`connectBtn.onclick` 发 connect 前写 `localStorage`——`serialhub-last-port`（端口字符串）+ `serialhub-last-params`（JSON：baudRate/dataBits/parity/stopBits），try/catch 包裹（同 `serialhub-language` 先例）
+  - 恢复参数：脚本启动时读 last-params，逐框仅当值是现有 option 时应用（非法/旧值回落 HTML 默认 selected）
+  - 恢复端口：`updatePortList` 重建后——当前已选值在新列表中优先保留，否则选 last-port（在列表中才选，不在留占位项，即"若串口可用"）
+  - 不动 `selectPortFromStatus`（连接后 status 驱动选中仍生效）
+- [x] 2. 验证：提取内嵌 JS 跑 `node --check`（语法）+ 逻辑核对；可行则浏览器手工验证（重启实例后端口/参数默认值、刷新列表后选中行为）——playwright 全套 14 通过（既有 8 + 新增 6：参数恢复/非法值回落/端口可用选中/不可用占位/刷新保持/连接保存，connect 消息被 send 包装吞掉避免真实连接）
+- [x] 3. `@code-review` 至无错误（R1 Standards=测试构造重复→`_params_init_script`、Spec=P1 合法 JSON `null` 抛 TypeError 中断页面初始化→对象类型防护+5 参数化损坏存储用例；R2 双轴通过，Spec 建议"四框默认断言+数组/嵌套对象用例"已采纳）
+- [x] 4. 提交 `feat(web): 终端记住上次串口与连接参数`；重建二进制 + 重启实例部署
+
 ## serial-list-pts — serial_list 列出 /dev/pts 伪终端（用户需求："/dev/pts/13 等加入列表"）
 
 背景：库 `serial.GetPortsList` 枚举 `/dev` 直接子项且跳过目录，`/dev/pts`（目录）整目录被跳过 → pty 永不出现在列表；WSL 前缀过滤只留 ttyUSB/ttyACM。实测结论（保留现状部分）：WSL 下 serial8250 的 ttyS* 有 device 且全可 open，sysfs/试开探测均无法区分，前缀白名单维持不动；本次仅**追加 pts**。

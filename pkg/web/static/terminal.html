@@ -309,6 +309,49 @@
             const refreshBtn = document.getElementById('refresh-btn');
             const exitBtn = document.getElementById('exit-btn');
 
+            // 记忆上次连接的端口与参数（localStorage，同语言设置先例）：
+            // 连接前保存；页面启动恢复参数框，端口待列表到达后在
+            // updatePortList 中选中（仅当该端口仍可用）。
+            const lastPortKey = 'serialhub-last-port';
+            const lastParamsKey = 'serialhub-last-params';
+            function getLastPort() {
+                try { return localStorage.getItem(lastPortKey) || ''; } catch (_) { return ''; }
+            }
+            function saveLastConn() {
+                try {
+                    localStorage.setItem(lastPortKey, portSelect.value);
+                    localStorage.setItem(lastParamsKey, JSON.stringify({
+                        baudRate: baudRateSelect.value,
+                        dataBits: dataBitsSelect.value,
+                        parity: paritySelect.value,
+                        stopBits: stopBitsSelect.value
+                    }));
+                } catch (_) { /* private browsing */ }
+            }
+            function restoreLastParams() {
+                let raw = null;
+                try { raw = localStorage.getItem(lastParamsKey); } catch (_) { return; }
+                if (!raw) return;
+                let params;
+                try { params = JSON.parse(raw); } catch (_) { return; }
+                // 合法 JSON 但不是对象（如 null/数组字面量的标量）同样视为损坏
+                if (!params || typeof params !== 'object') return;
+                // 仅当保存值仍是现有选项才应用，否则保留 HTML 默认选中项
+                [[baudRateSelect, params.baudRate], [dataBitsSelect, params.dataBits],
+                 [paritySelect, params.parity], [stopBitsSelect, params.stopBits]
+                ].forEach(function(pair) {
+                    const select = pair[0], value = pair[1];
+                    if (value == null) return;
+                    for (let i = 0; i < select.options.length; i++) {
+                        if (select.options[i].value === value) {
+                            select.value = value;
+                            break;
+                        }
+                    }
+                });
+            }
+            restoreLastParams();
+
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.host + '/ws';
             let ws;
@@ -479,6 +522,7 @@
             }
 
             function updatePortList(ports) {
+                const prev = portSelect.value;
                 portSelect.replaceChildren(new Option(t('selectPlaceholder'), ''));
                 ports.forEach(function(port) {
                     const option = document.createElement('option');
@@ -486,6 +530,13 @@
                     option.textContent = port;
                     portSelect.appendChild(option);
                 });
+                // 恢复选中：当前值仍在列表则保留（刷新不打断手选），
+                // 否则回落上次连接的端口——仅当它此刻可用（若串口可用）
+                const want = (prev && ports.indexOf(prev) >= 0) ? prev
+                    : (getLastPort() && ports.indexOf(getLastPort()) >= 0) ? getLastPort() : '';
+                if (want) {
+                    portSelect.value = want;
+                }
             }
 
             // 在终端写一行串口列表提示（刷新与页面加载时都会触发）
@@ -569,6 +620,7 @@
                 const dataBits = parseInt(dataBitsSelect.value);
                 const parity = paritySelect.value;
                 const stopBits = parseInt(stopBitsSelect.value);
+                saveLastConn();
                 terminal.writeln('\x1b[36m[SerialHub] ' + t('connecting') + port + '@' + baudRate + '...\x1b[0m');
                 sendCommand('connect', { port: port, baudRate: baudRate, dataBits: dataBits, parity: parity, stopBits: stopBits });
             };
