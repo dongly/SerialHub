@@ -91,6 +91,13 @@ if [ "$MODE" != linux ]; then
 fi
 mkdir -p "$WORK"
 WSL_IP=$(hostname -I | awk '{print $1}')
+# mirrored 网络模式下 WSL 复用 Windows 网卡，WSL_IP 即 Windows 自身地址，
+# Windows 侧访问该 IP 不会回环进 WSL（连接超时）；mirrored 的 localhost
+# 双向共享，故 Windows 侧 URL 改用 127.0.0.1。NAT 模式保持 WSL IP。
+WIN_HOST="$WSL_IP"
+if timeout -k 5 10 wslinfo --networking-mode 2>/dev/null | grep -q mirrored; then
+  WIN_HOST="127.0.0.1"
+fi
 
 # ---------- 1. 编译 ----------
 echo "--- [1/6] 编译产物 ---"
@@ -163,7 +170,7 @@ h = hashlib.sha256(open(tpath, "rb").read()).hexdigest()
 open(tpath + ".sha256", "w").write(h + "  serialhub-9.9.9-linux-amd64.tar.gz\n")
 PYEOF
 fi
-python3 "$WORK/mockapi.py" "$WORK" "http://$WSL_IP:$PORT" "$PORT" &
+python3 "$WORK/mockapi.py" "$WORK" "http://$WIN_HOST:$PORT" "$PORT" &
 MOCK_PID=$!
 mock_ready=""
 for _ in 1 2 3 4 5; do
@@ -173,7 +180,7 @@ for _ in 1 2 3 4 5; do
   sleep 1
 done
 if [ -n "$mock_ready" ]; then
-  pass "mock API 就绪（$WSL_IP:$PORT）"
+  pass "mock API 就绪（$WIN_HOST:$PORT）"
 else
   fail "mock API 未就绪"
 fi
@@ -293,7 +300,7 @@ XW="$(to_win "$SBX")"
 CURV=$(probe_version timeout -k 5 "$T_CMD" cmd.exe /c "$SBW\\serialhub.exe --version")
 [ -n "$CURV" ] || fail "C2 升级前版本探测失败"
 CURV_RE=${CURV//./\\.}  # regex 中 '.' 转义，避免宽匹配误配
-OUT=$(timeout -k 5 "$T_CMD" cmd.exe /c "set USERPROFILE=$XW\\home&&set LOCALAPPDATA=$XW\\local&&set APPDATA=$XW\\appdata&&set SERIALHUB_GITHUB_API=http://$WSL_IP:$PORT&& $SBW\\serialhub.exe upgrade" 2>&1 | tr -d '\r')
+OUT=$(timeout -k 5 "$T_CMD" cmd.exe /c "set USERPROFILE=$XW\\home&&set LOCALAPPDATA=$XW\\local&&set APPDATA=$XW\\appdata&&set SERIALHUB_GITHUB_API=http://$WIN_HOST:$PORT&& $SBW\\serialhub.exe upgrade" 2>&1 | tr -d '\r')
 assert_contains "C1 upgrade 执行输出" "$OUT" "9.9.9"
 assert_regex "C2 从→到版本显示（$CURV → 9.9.9）" "$OUT" "${CURV_RE}.*→.*9\.9\.9"
 VOUT=$(timeout -k 5 "$T_CMD" cmd.exe /c "$SBW\\serialhub.exe --version" 2>&1 | tr -d '\r')

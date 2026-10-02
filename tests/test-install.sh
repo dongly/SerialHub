@@ -63,6 +63,7 @@ assert_gone()   { [ ! -e "$1" ] && ok "$2" || fail "$2 ($1 仍在)"; }
 probe_version() { # $@=版本命令；内部限时（防无参误启服务挂起）；输出裸版本（剥 SerialHub/v 前缀，免疫 stderr 噪音行）
   timeout -k 5 20 "$@" 2>&1 | tr -d '\r' | grep -oE 'SerialHub v?[0-9][^ ]*' | head -1 | sed 's/^SerialHub v\?//'
 }
+to_win() { timeout -k 5 20 wslpath -w "$1"; }  # WSL 路径 → Windows 路径（E1 字符串执行路径验证用）
 
 # ---------- 0. 环境检查 ----------
 if ! grep -qi microsoft /proc/version 2>/dev/null; then
@@ -189,6 +190,13 @@ run_windows() {
   echo ">> [4] Windows: install.ps1（interop 实跑）"
   local WSL_IP; WSL_IP=$(hostname -I | awk '{print $1}')
   [ -n "$WSL_IP" ] || { fail "取不到 WSL IP"; return; }
+  # mirrored 网络模式下 WSL 复用 Windows 网卡，WSL_IP 即 Windows 自身地址，
+  # Windows 侧访问该 IP 不会回环进 WSL（连接超时）；mirrored 的 localhost
+  # 双向共享，故 Windows 侧 URL 改用 127.0.0.1。NAT 模式保持 WSL IP。
+  local WIN_HOST="$WSL_IP"
+  if timeout -k 5 10 wslinfo --networking-mode 2>/dev/null | grep -q mirrored; then
+    WIN_HOST="127.0.0.1"
+  fi
   mkdir -p "$WIN_SB"
   local WIN_SB_WIN; WIN_SB_WIN=$(timeout -k 5 20 wslpath -w "$WIN_SB")
   # install.ps1 复制到 /mnt/d 沙箱再用 powershell -Command 内设环境变量调用：
@@ -249,10 +257,11 @@ run_windows() {
 
   echo ">> [4b] 沙箱安装"
   local LOG="$WORK/w2.log"; : > "$LOG"
-  if timeout -k 5 "$T_CMD" powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\$env:SERIALHUB_GITHUB_API='http://$WSL_IP:$PORT'; \$env:SERIALHUB_DOWNLOAD_BASE='http://$WSL_IP:$PORT/download'; \$env:SERIALHUB_INSTALL_DIR='$WIN_SB_WIN'; & '$PS_WIN'" > "$LOG" 2>&1; then
+  if timeout -k 5 "$T_CMD" powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\$env:SERIALHUB_GITHUB_API='http://$WIN_HOST:$PORT'; \$env:SERIALHUB_DOWNLOAD_BASE='http://$WIN_HOST:$PORT/download'; \$env:SERIALHUB_INSTALL_DIR='$WIN_SB_WIN'; & '$PS_WIN'" > "$LOG" 2>&1; then
     ok "W1 install.ps1 退出码 0"
   else
     fail "W1 install.ps1 退出码非 0"
+    echo "    └ 日志尾部:"; tail -15 "$LOG" | sed 's/^/      /'
   fi
   assert_contains "W1 提示 Latest release: v9.9.9"   "$LOG" 'Latest release: v9\.9\.9'
   assert_contains "W1 提示 Installation complete"     "$LOG" 'Installation complete'
@@ -297,7 +306,7 @@ run_windows() {
   # 字节级无 BOM 断言 + Parser::ParseInput 等价 iex 首步解析 0 错误。
   echo ">> [4e] install.ps1 字符串执行路径（irm|iex 等价）验证"
   local ERRS BOM3
-  ERRS=$(timeout -k 5 30 powershell.exe -NoProfile -Command "\$t='$(to_win "$WORK/install.ps1")'; \$b=[System.IO.File]::ReadAllBytes(\$t); if (\$b[0] -eq 0xEF -and \$b[1] -eq 0xBB -and \$b[2] -eq 0xBF) { 'BOM-DETECTED' } else { 'NO-BOM' }; \$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseInput([System.IO.File]::ReadAllText(\$t), [ref]\$null, [ref]\$e); 'PARSE-ERRORS=' + \$e.Count" 2>/dev/null | tr -d '\r')
+  ERRS=$(timeout -k 5 30 powershell.exe -NoProfile -Command "\$t='$(to_win "$WIN_SB/install.ps1")'; \$b=[System.IO.File]::ReadAllBytes(\$t); if (\$b[0] -eq 0xEF -and \$b[1] -eq 0xBB -and \$b[2] -eq 0xBF) { 'BOM-DETECTED' } else { 'NO-BOM' }; \$e=\$null; [void][System.Management.Automation.Language.Parser]::ParseInput([System.IO.File]::ReadAllText(\$t), [ref]\$null, [ref]\$e); 'PARSE-ERRORS=' + \$e.Count" 2>/dev/null | tr -d '\r')
   case "$ERRS" in
     *NO-BOM*) ok "E1 install.ps1 无 UTF-8 BOM（irm|iex 兼容）" ;;
     *BOM-DETECTED*) fail "E1 install.ps1 带 UTF-8 BOM，irm|iex 字符串执行会解析错乱" ;;
