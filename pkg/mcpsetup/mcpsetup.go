@@ -6,13 +6,14 @@
 package mcpsetup
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tailscale/hujson"
 
 	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/pkg/config"
@@ -134,13 +135,14 @@ func Install(opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := mergeJSON(path, key, "serialhub", entry, opts.ConfirmOverwrite); err != nil {
+	written, err := mergeJSON(path, key, "serialhub", entry, opts.ConfirmOverwrite)
+	if err != nil {
 		return "", err
 	}
 	if opts.Client == "opencode" {
-		removeLegacyOpenCodeFlat(path)
+		removeLegacyOpenCodeFlat(path) // 传原始目标：json/jsonc 并存时两个都清理
 	}
-	abs, _ := filepath.Abs(path)
+	abs, _ := filepath.Abs(written)
 	return abs, nil
 }
 
@@ -220,77 +222,70 @@ func target(opts Options) (path, topKey string, entry map[string]any, err error)
 	return path, topKey, entry, nil
 }
 
-// mergeJSON 读取 path（不存在则视为空对象），把 entry 写入 topKey.name，
-// 保留其他所有键。topKey 支持点分嵌套路径（如 "mcp.servers"，逐层创建）。
-// 条目已存在时经 confirm 决定是否覆盖。
-func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(string) bool) error {
-	root := map[string]any{}
-	if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
-		if err := json.Unmarshal(raw, &root); err != nil {
-			return fmt.Errorf(i18n.MCPSetupInstall.InvalidJSON, path, err)
-		}
-	}
-	cur := root
-	for _, part := range strings.Split(topKey, ".") {
-		next, _ := cur[part].(map[string]any)
-		if next == nil {
-			next = map[string]any{}
-			cur[part] = next
-		}
-		cur = next
-	}
-	section := cur
-	if _, exists := section[name]; exists {
-		if confirm == nil || !confirm(path) {
-			return ErrEntryExists
-		}
-	}
-	section[name] = entry
-
-	out, err := json.MarshalIndent(root, "", "  ")
+// mergeJSON 读取配置文件并把 entry 写入 topKey.name，保留其他所有键与注释。
+// 「存在才写」：文件缺失或内容空白时报 ErrNoConfig（NoConfigError 携带探测路径），不创建新文件；
+// OpenCode 且 json/jsonc 并存时写入 jsonc（findConfig 决定真实路径）。
+// topKey 支持点分嵌套路径（如 "mcp.servers"，缺失的中间层补齐）。
+// 条目已存在时经 confirm(realPath) 决定是否覆盖。返回实际写入的文件路径。
+func mergeJSON(path, topKey, name string, entry map[string]any, confirm func(string) bool) (string, error) {
+	real, raw, ok, err := findConfig(path)
 	if err != nil {
-		return err
+		return "", err
 	}
-	out = append(out, '\n')
-	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
+	if !ok {
+		return "", &NoConfigError{Paths: configCandidates(path)}
+	}
+	v, perr := hujson.Parse(raw)
+	if perr != nil {
+		return "", fmt.Errorf(i18n.MCPSetupInstall.InvalidJSON, real, perr)
+	}
+	unit := jsonIndentUnit(raw)
+	depth := len(strings.Split(topKey, ".")) + 1 // 条目成员所在层级（root 成员为 1）
+	obj, err := ensureContainer(&v, topKey, unit)
+	if err != nil {
+		return "", err
+	}
+	if idx := findMember(obj, name); idx >= 0 {
+		if confirm == nil || !confirm(real) {
+			return "", ErrEntryExists
 		}
 	}
-	return os.WriteFile(path, out, 0o644)
+	if err := setEntry(obj, name, entry, unit, depth); err != nil {
+		return "", err
+	}
+	return real, os.WriteFile(real, packWithNewline(&v), 0o644)
 }
 
 // removeLegacyOpenCodeFlat 迁移清理：v0.5.0 及以前写入过 V1 扁平结构
 // mcp.serialhub（OpenCode V2 不加载该位置），检测到即删除，尽力而为不报错。
+// json/jsonc 并存时两个文件都清理，注释经 hujson AST 保留。
 func removeLegacyOpenCodeFlat(path string) {
-	root := map[string]any{}
-	raw, err := os.ReadFile(path)
-	if err != nil || len(raw) == 0 {
-		return
-	}
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return
-	}
-	mcp, ok := root["mcp"].(map[string]any)
-	if !ok {
-		return
-	}
-	if _, exists := mcp["serialhub"]; !exists {
-		return
-	}
-	delete(mcp, "serialhub")
-	if len(mcp) == 0 {
-		delete(root, "mcp")
-	}
-	out, err := json.MarshalIndent(root, "", "  ")
+	files, err := findConfigAll(path)
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, append(out, '\n'), 0o644)
+	for _, f := range files {
+		v, perr := hujson.Parse(f.raw)
+		if perr != nil {
+			continue
+		}
+		if !removeEntry(&v, "mcp", "serialhub") {
+			continue
+		}
+		_ = os.WriteFile(f.path, packWithNewline(&v), 0o644)
+	}
 }
 
 // installCodexCLI 通过 codex 官方 CLI 写入（仅用户级，~/.codex/config.toml）。
+// 「存在才写」：配置缺失或空白时跳过（不先创建文件再写）。
 func installCodexCLI(opts Options) (string, error) {
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return "", fmt.Errorf(i18n.MCPSetupInstall.HomeDir, herr)
+	}
+	if err := requireConfigFile(filepath.Join(home, ".codex", "config.toml")); err != nil {
+		return "", err
+	}
 	bin, err := exec.LookPath("codex")
 	if err != nil {
 		return "", errors.New(i18n.MCPSetupInstall.MissingCodex)
@@ -310,7 +305,15 @@ func installCodexCLI(opts Options) (string, error) {
 }
 
 // installClaudeUserCLI 通过 claude 官方 CLI 写入用户级（~/.claude.json）。
+// 「存在才写」：配置缺失或空白时跳过（不先创建文件再写）。
 func installClaudeUserCLI(opts Options) (string, error) {
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return "", fmt.Errorf(i18n.MCPSetupInstall.HomeDir, herr)
+	}
+	if err := requireConfigFile(filepath.Join(home, ".claude.json")); err != nil {
+		return "", err
+	}
 	bin, err := exec.LookPath("claude")
 	if err != nil {
 		return "", errors.New(i18n.MCPSetupInstall.MissingClaude)

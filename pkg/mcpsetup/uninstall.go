@@ -3,14 +3,14 @@ package mcpsetup
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
+
+	"github.com/tailscale/hujson"
 
 	"github.com/dongly/serialhub/internal/i18n"
 )
@@ -53,7 +53,12 @@ func UninstallFrom(opts UninstallOptions) (string, bool, bool, error) {
 	if err != nil {
 		return "", false, false, err
 	}
-	abs, _ := filepath.Abs(path)
+	// 展示真实写入/移除的文件（OpenCode json/jsonc 并存时可能是 opencode.jsonc）。
+	real := path
+	if r, _, found, ferr := findConfig(path); ferr == nil && found {
+		real = r
+	}
+	abs, _ := filepath.Abs(real)
 	if removed {
 		return fmt.Sprintf(i18n.MCPSetupRemoval.Removed, abs), true, false, nil
 	}
@@ -74,63 +79,47 @@ func EntryExists(opts UninstallOptions) bool {
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(path)
-	return err == nil
+	_, _, ok, ferr := findConfig(path)
+	return ferr == nil && ok
 }
 
 // uninstallJSON 是 mergeJSON 的逆操作：从 topKey.name 删除条目，
 // 自深向浅清理空容器（如 mcp.servers 清空后连 mcp 一起删，root 本身保留）。
-// 文件不存在或条目不存在时返回 (false, nil)，幂等；其他读写错误如实返回。
-// 写回采用同目录临时文件 + 原子替换，避免截断原文件导致其他配置丢失；
-// 替换前重读比较做乐观冲突检测（与客户端并发写撞车时中止而非覆盖其改动）。
-// 符号链接配置（dotfiles 管理）会解析到真实目标上操作，不拆链接。
+// 文件不存在或内容空白、条目不存在时返回 (false, nil)，幂等；其他读写错误如实返回。
+// json/jsonc 并存时两个文件都探测（条目在哪个文件就从哪个移除）：先全部解析并删除、
+// 全部成功后才写回，避免半更新；写回用 hujson AST 保留注释，采用同目录临时文件 +
+// 原子替换，替换前重读比较做乐观冲突检测（与客户端并发写撞车时中止而非覆盖其改动）。
+// 符号链接配置（dotfiles 管理）在 findConfigAll 中解析到真实目标上操作，不拆链接。
 func uninstallJSON(path, topKey, name string) (bool, error) {
-	path = resolveSymlinkPath(path)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf(i18n.MCPSetupRemoval.Read, path, err)
-	}
-	if len(raw) == 0 {
-		return false, nil
-	}
-	root := map[string]any{}
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return false, fmt.Errorf(i18n.MCPSetupRemoval.Parse, path, err)
-	}
-	parts := strings.Split(topKey, ".")
-	cur := root
-	chain := []map[string]any{root}
-	for _, part := range parts {
-		next, ok := cur[part].(map[string]any)
-		if !ok {
-			return false, nil
-		}
-		cur = next
-		chain = append(chain, cur)
-	}
-	if _, exists := cur[name]; !exists {
-		return false, nil
-	}
-	// 乐观冲突检测：从读取到写回之间文件若被外部修改（客户端或另一个
-	// setup 进程新增了其他服务），中止卸载写回，避免用旧快照覆盖丢掉新改动。
-	// 检查在 writeFileAtomic 内紧邻 rename 处执行，窗口缩到最小；
-	// 仍是尽力而非完全并发安全（跨进程读-改-写锁不在本工具范围内）。
-	delete(cur, name)
-	// 自深向浅删除空容器；chain[i] 对应 parts[i-1] 键，root（chain[0]）不删。
-	for i := len(chain) - 1; i >= 1; i-- {
-		if len(chain[i]) != 0 {
-			break
-		}
-		delete(chain[i-1], parts[i-1])
-	}
-	out, err := json.MarshalIndent(root, "", "  ")
+	files, err := findConfigAll(path)
 	if err != nil {
 		return false, err
 	}
-	return true, writeFileAtomic(path, raw, append(out, '\n'))
+	type pending struct {
+		path string
+		orig []byte
+		next []byte
+	}
+	var edits []pending
+	for _, f := range files {
+		v, perr := hujson.Parse(f.raw)
+		if perr != nil {
+			return false, fmt.Errorf(i18n.MCPSetupRemoval.Parse, f.path, perr)
+		}
+		if !removeEntry(&v, topKey, name) {
+			continue
+		}
+		edits = append(edits, pending{path: f.path, orig: f.raw, next: packWithNewline(&v)})
+	}
+	removed := len(edits) > 0
+	for _, e := range edits {
+		// 乐观冲突检测在 writeFileAtomic 内紧邻 rename 处执行，窗口缩到最小；
+		// 仍是尽力而非完全并发安全（跨进程读-改-写锁不在本工具范围内）。
+		if err := writeFileAtomic(e.path, e.orig, e.next); err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
 }
 
 // resolveSymlinkPath 在 path 是符号链接时返回其指向的真实文件路径，

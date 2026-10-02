@@ -2,6 +2,7 @@ package mcpsetup
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,7 @@ func TestMergeJSON_KeepsExistingEntries(t *testing.T) {
 	}
 
 	called := false
-	err := mergeJSON(path, "mcpServers", "serialhub",
+	_, err := mergeJSON(path, "mcpServers", "serialhub",
 		map[string]any{"url": "http://127.0.0.1:5050/mcp"},
 		func(p string) bool { called = true; return true })
 	if err != nil {
@@ -57,8 +58,8 @@ func TestMergeJSON_RejectOverwrite(t *testing.T) {
 	orig := `{"mcp":{"serialhub":{"url":"http://old/mcp"}}}`
 	os.WriteFile(path, []byte(orig), 0o644)
 
-	err := mergeJSON(path, "mcp", "serialhub", map[string]any{"url": "new"}, func(string) bool { return false })
-	if err != ErrEntryExists {
+	_, err := mergeJSON(path, "mcp", "serialhub", map[string]any{"url": "new"}, func(string) bool { return false })
+	if !errors.Is(err, ErrEntryExists) {
 		t.Fatalf("期望 ErrEntryExists，得到 %v", err)
 	}
 	raw, _ := os.ReadFile(path)
@@ -67,19 +68,20 @@ func TestMergeJSON_RejectOverwrite(t *testing.T) {
 	}
 }
 
-// 文件不存在时应创建并建立嵌套目录
-func TestMergeJSON_CreatesNewFile(t *testing.T) {
+// 「存在才写」：文件不存在时报 ErrNoConfig 且不创建文件（不建立嵌套目录）
+func TestMergeJSON_NoConfigSkips(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "dir", "mcp.json")
-	err := mergeJSON(path, "servers", "serialhub", map[string]any{"type": "http"}, nil)
-	if err != nil {
-		t.Fatalf("mergeJSON: %v", err)
+	_, err := mergeJSON(path, "servers", "serialhub", map[string]any{"type": "http"}, nil)
+	if !errors.Is(err, ErrNoConfig) {
+		t.Fatalf("期望 ErrNoConfig，得到 %v", err)
 	}
-	raw, _ := os.ReadFile(path)
-	var got map[string]any
-	json.Unmarshal(raw, &got)
-	if _, ok := got["servers"].(map[string]any)["serialhub"]; !ok {
-		t.Fatal("条目未写入")
+	var nce *NoConfigError
+	if !errors.As(err, &nce) || len(nce.Paths) == 0 {
+		t.Fatalf("错误应携带探测路径列表: %#v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("配置不存在时不应创建文件或目录")
 	}
 }
 
@@ -205,6 +207,9 @@ func TestInstall_DefaultModeIsStdio(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir) // 项目级 Install 写入当前目录 opencode.json，需隔离
 	path := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil { // 「存在才写」：先有配置
+		t.Fatal(err)
+	}
 	if _, err := Install(Options{
 		Client: "opencode",
 		Scope:  ScopeProject,

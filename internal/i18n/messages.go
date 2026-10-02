@@ -134,6 +134,7 @@ var CLI = struct {
 	SetupShort, SetupLong                                                           string
 	SetupClient, SetupURL, SetupMode, SetupScope, SetupYes                          string
 	ChooseClient, ChooseNumber, InvalidNumber, ChooseMode, InvalidChoice            string
+	ChooseScope                                                                     string
 	InvalidMode, InvalidScope, ConfirmOverwrite, EntrySkipped, SetupDone, SetupHint string
 	UpgradeShort, UpgradeLong, LocateExe, CheckVersion, FetchFailed, AlreadyLatest  string
 	FoundVersion, DownloadFailed, DownloadChecksumFailed, VerifyFailed, ChecksumOK  string
@@ -162,6 +163,7 @@ var CLI = struct {
 	ChooseNumber:           T("请输入编号 [1]: ", "Enter number [1]: "),
 	InvalidNumber:          T("无效编号: %s", "Invalid number: %s"),
 	ChooseMode:             T("接入模式: 1) stdio（推荐，客户端自动拉起） 2) HTTP [1]: ", "Transport: 1) stdio (recommended, launched by client) 2) HTTP [1]: "),
+	ChooseScope:            T("写入层级: 1) project（项目级） 2) user（用户级/全局） [1]: ", "Scope: 1) project 2) user (global) [1]: "),
 	InvalidChoice:          T("无效选项 %q（可选 1/2）", "Invalid choice %q (choose 1 or 2)"),
 	InvalidMode:            T("无效模式 %q（可选 http/stdio）", "Invalid mode %q (choose http or stdio)"),
 	InvalidScope:           T("无效层级 %q（可选 project/user）", "Invalid scope %q (choose project or user)"),
@@ -268,6 +270,7 @@ var UpgradeErrors = struct {
 var MCPSetupInstall = struct {
 	EntryExists, UnknownClient, UnsupportedProject, UnsupportedUser, NoFileTarget                string
 	InvalidJSON, MissingCodex, CodexFailed, CodexAdded, MissingClaude, ClaudeFailed, ClaudeAdded string
+	NoConfig, ReadFile, RootNotObject, NotAnObject, HomeDir                                      string
 }{
 	EntryExists:        T("目标配置中已存在 serialhub 条目", "serialhub entry already exists in target configuration"),
 	UnknownClient:      T("未知客户端 %q（可选：%s）", "unknown client %q (choose %s)"),
@@ -275,6 +278,11 @@ var MCPSetupInstall = struct {
 	UnsupportedUser:    T("%s 不支持用户级配置", "%s does not support user scope"),
 	NoFileTarget:       T("客户端 %s 无文件配置面", "client %s has no file-based configuration"),
 	InvalidJSON:        T("解析 %s 失败（不是有效 JSON）：%w", "invalid JSON in %s: %w"),
+	NoConfig:           T("未找到配置文件（已探测: %s），跳过写入", "no configuration file found (probed: %s); nothing written"),
+	ReadFile:           T("读取 %s 失败：%w", "failed to read %s: %w"),
+	RootNotObject:      T("配置根不是 JSON 对象", "config root is not a JSON object"),
+	NotAnObject:        T("配置键 %s 不是对象", "config key %s is not an object"),
+	HomeDir:            T("无法获取用户目录：%w", "cannot resolve user home directory: %w"),
 	MissingCodex:       T("未找到 codex 命令，请先安装 Codex CLI；手动配置：~/.codex/config.toml 中添加 [mcp_servers.serialhub]", "codex command not found; install Codex CLI or add [mcp_servers.serialhub] to ~/.codex/config.toml manually"),
 	CodexFailed:        T("codex mcp add 失败：%v\n%s", "codex mcp add failed: %v\n%s"),
 	CodexAdded:         T("~/.codex/config.toml（经 codex mcp add 写入）", "~/.codex/config.toml (via codex mcp add)"),

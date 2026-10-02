@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -88,11 +89,25 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(i18n.CLI.InvalidMode, setupMode)
 	}
 
-	// 3. 层级（Codex 仅用户级）
+	// 3. 层级（Codex 仅用户级；仅支持单一层级的客户端强制该层级）；
+	// 交互向导且未显式指定 --scope 时询问，-y 或显式指定时直接采用 flag 值。
 	scope := mcpsetup.Scope(setupScope)
-	if def.OnlyUser {
+	if def.OnlyUser || (!def.Project && def.User) {
 		scope = mcpsetup.ScopeUser
-	} else if scope != mcpsetup.ScopeProject && scope != mcpsetup.ScopeUser {
+	} else if def.Project && !def.User {
+		scope = mcpsetup.ScopeProject
+	} else if !cmd.Flags().Changed("scope") && !setupAssumeYes {
+		pick := ask(i18n.CLI.ChooseScope, "1")
+		switch pick {
+		case "", "1":
+			scope = mcpsetup.ScopeProject
+		case "2":
+			scope = mcpsetup.ScopeUser
+		default:
+			return fmt.Errorf(i18n.CLI.InvalidChoice, pick)
+		}
+	}
+	if scope != mcpsetup.ScopeProject && scope != mcpsetup.ScopeUser {
 		return fmt.Errorf(i18n.CLI.InvalidScope, setupScope)
 	}
 
@@ -111,6 +126,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	target, err := mcpsetup.Install(opts)
+	if errors.Is(err, mcpsetup.ErrNoConfig) {
+		// 「存在才写」：未找到配置文件属正常跳过，提示探测路径后按成功退出。
+		fmt.Println(err)
+		return nil
+	}
 	if err == mcpsetup.ErrEntryExists {
 		fmt.Println(i18n.CLI.EntrySkipped)
 		return nil

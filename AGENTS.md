@@ -85,7 +85,7 @@ MCP `serial_read` 和 WebSocket 终端共享此缓冲区，避免数据竞争。
 
 ### `serialhub setup`
 
-为 MCP 客户端自动配置接入（交互向导，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不动其他服务条目；serialhub 自身条目已存在时交互模式会确认、`-y` 非交互直接更新（可用于切换 stdio/HTTP 接入模式）；Codex 与 Claude 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI 行为（实现于 `pkg/mcpsetup/`）。默认 **stdio 本地模式**（客户端拉起 `serialhub --stdio`，无需先启动服务）；HTTP 需显式 `--mode http`。
+为 MCP 客户端自动配置接入（交互向导：客户端 → 接入模式 → 写入层级，或 `--client/--mode/--scope/--url/-y` 非交互）：支持 OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex，合并写入不动其他服务条目；**存在才写**——目标配置缺失或空白时跳过并列出探测路径（exit 0，不创建文件，适用于全部客户端）；OpenCode 的 json/jsonc 并存时写 `opencode.jsonc`（注释经 hujson 保留，卸载双探）；serialhub 自身条目已存在时交互模式会确认、`-y` 非交互直接更新（可用于切换 stdio/HTTP 接入模式）；仅支持单一层级的客户端（windsurf 仅 user、vscode 仅 project、codex 仅 user）自动取该层级；Codex 与 Claude 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI 行为（实现于 `pkg/mcpsetup/`）。默认 **stdio 本地模式**（客户端拉起 `serialhub --stdio`，无需先启动服务）；HTTP 需显式 `--mode http`。
 
 ### `serialhub upgrade` / `serialhub uninstall`
 

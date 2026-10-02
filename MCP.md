@@ -242,19 +242,23 @@ SerialHub 是标准 MCP 服务器，任何支持 **Streamable HTTP** 或 **stdio
 
 **一键配置**：运行 `serialhub setup` 交互式向导（或非交互
 `serialhub setup --client cursor -y`），自动为 OpenCode / Claude Code / Cursor /
-Windsurf / VS Code / Codex 合并写入接入配置（不动其他服务条目；已有
-serialhub 条目时交互模式会确认，`-y` 直接更新——可借此切换 stdio/HTTP；
-Codex 与 Claude Code 用户级经官方 CLI 写入，已有条目的处理遵循该 CLI
-行为）。默认写入 **stdio 本地模式**
+Windsurf / VS Code / Codex 合并写入接入配置（**仅当配置文件已存在时写入**：
+缺失或内容空白会跳过并列出已探测的路径、以成功退出，不新建文件；jsonc 的注释
+与尾逗号经 hujson AST 写回原样保留；OpenCode 的 `opencode.json` 与
+`opencode.jsonc` 并存时写入 `opencode.jsonc`（后加载、优先级更高），卸载时两个
+文件都探测；不动其他服务条目；已有 serialhub 条目时交互模式会确认，`-y`
+直接更新——可借此切换 stdio/HTTP；Codex 与 Claude Code 用户级经官方 CLI 写入，
+已有条目的处理遵循该 CLI 行为）。默认写入 **stdio 本地模式**
 （客户端自动拉起、无需先启动 SerialHub 服务）；如需 HTTP 端点显式指定
-`--mode http`。
+`--mode http`。交互向导依次询问客户端、接入模式、写入层级（项目级/用户级，
+仅支持单一层级的客户端自动取该层级）。
 以下为各客户端的手动配置方法。
 
 **铁律：永远写 `127.0.0.1:5050`**。stdio 模式有已运行实例时自动代理（经 `instance.lock` 发现）；HTTP 直连就是实例本身。访问局域网其他机器上的 SerialHub 时才改地址，如 `http://192.168.1.100:5050/mcp`。
 
 #### OpenCode
 
-配置文件：用户级 `~/.config/opencode/opencode.json`，项目级 `opencode.json`（项目根目录，优先级更高）。
+配置文件：用户级 `~/.config/opencode/opencode.json`，项目级 `opencode.json`（项目根目录，优先级更高）；同目录并存 `opencode.jsonc` 时以 jsonc 为准（后加载，`serialhub setup` 也会优先写入它并保留注释）。
 OpenCode V2 要求 MCP 服务器嵌套在 `mcp.servers` 下：
 
 ```json
