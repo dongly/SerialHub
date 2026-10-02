@@ -58,7 +58,12 @@ irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
 serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
-Windows 推荐用安装目录下的启动脚本 `.\sr.ps1 [参数]`（如 `.\sr.ps1 -p COM9 -D`）：
+Windows 推荐用安装目录下的启动脚本 
+```
+.\sr.ps1 [参数]
+# 如: 
+.\sr.ps1 -p COM9 -D
+```
 
 - 启动前强制结束仍在运行的旧 serialhub 进程（重启免手工关旧实例）；
 - 以最小化窗口启动（自动附加 `--minimized`），并打印 PID、日志路径（exe 同目录 `logs\serialhub.log`）与停止命令；

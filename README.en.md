@@ -58,7 +58,12 @@ irm https://raw.githubusercontent.com/dongly/serialhub/main/install.ps1 | iex
 serialhub -p COM9 --host 0.0.0.0 -D
 ```
 
-On Windows prefer the launcher script in the install directory, `.\sr.ps1 [args]` (e.g. `.\sr.ps1 -p COM9 -D`):
+On Windows prefer the launcher script in the install directory
+```
+.\sr.ps1 [args]
+# e.g.
+.\sr.ps1 -p COM9 -D
+```
 
 - It first force-kills any still-running serialhub process, so restarting needs no manual cleanup;
 - It starts SerialHub minimized (adds `--minimized` automatically) and prints the PID, the log path (`logs\serialhub.log` next to the exe) and how to stop it;
