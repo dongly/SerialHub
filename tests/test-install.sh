@@ -167,6 +167,8 @@ run_linux() {
       bash install.sh > "$LOG" 2>&1; then ok "L1 install.sh 退出码 0"; else fail "L1 install.sh 退出码非 0"; fi
   assert_contains "L1 提示 Latest release: v9.9.9"   "$LOG" 'Latest release: v9\.9\.9'
   assert_contains "L1 提示 Installation complete"     "$LOG" 'Installation complete'
+  assert_contains "L1 提示下一步 setup"               "$LOG" 'serialhub setup'
+  assert_contains "L1 提示启动方式"                   "$LOG" 'Start: run'
   assert_exists "$SBX/bin/serialhub" "L1 二进制已安装"
   local V; V=$(probe_version "$SBX/bin/serialhub" --version)
   case "$V" in 9.9.9*) ok "L1 安装产物 --version = $V";; *) fail "L1 版本不符: $V";; esac
@@ -254,6 +256,8 @@ run_windows() {
   fi
   assert_contains "W1 提示 Latest release: v9.9.9"   "$LOG" 'Latest release: v9\.9\.9'
   assert_contains "W1 提示 Installation complete"     "$LOG" 'Installation complete'
+  assert_contains "W1 提示下一步 setup"               "$LOG" 'serialhub setup'
+  assert_contains "W1 提示启动方式"                   "$LOG" 'Start: run'
   assert_contains "W1 自定义目录不写 PATH（给出提示）" "$LOG" 'not on your PATH'
   assert_exists "$WIN_SB/serialhub.exe" "W1 exe 已安装"
   assert_exists "$WIN_SB/sr.ps1"        "W1 启动脚本 sr.ps1 已复制"

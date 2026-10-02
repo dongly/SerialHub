@@ -82,3 +82,5 @@ if ($installDir -ieq $defaultDir) {
 
 & (Join-Path $installDir 'serialhub.exe') --version
 Write-Host ">> Installation complete: $installDir\serialhub.exe (open a new terminal and run serialhub; configuration and the instance lock use fixed locations)"
+Write-Host ">> Start: run 'sr.ps1 -p COM7 -D' (recommended launcher: kills stale process, minimizes) or 'serialhub.exe'; web terminal: http://127.0.0.1:5050/terminal"
+Write-Host ">> Next: run 'serialhub setup' to add SerialHub to your AI client's MCP config (OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex)"

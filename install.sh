@@ -50,3 +50,5 @@ esac
 
 "$BIN_DIR/serialhub" --version
 echo ">> Installation complete: $BIN_DIR/serialhub (run serialhub -h for help; see README for quick start)"
+echo ">> Start: run 'serialhub' (add '-p <port>' to auto-connect a port, '-D' for debug); web terminal: http://127.0.0.1:5050/terminal"
+echo ">> Next: run 'serialhub setup' to add SerialHub to your AI client's MCP config (OpenCode / Claude Code / Cursor / Windsurf / VS Code / Codex)"
