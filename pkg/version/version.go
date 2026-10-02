@@ -7,7 +7,7 @@ import "runtime/debug"
 // 未注入时（本地构建）以本值为准，并由 buildvcs 追加 commit 哈希。
 var (
 	Name    = "serialhub"
-	Version = "0.7.0"
+	Version = "0.7.1"
 )
 
 func FullVersion() string {
