@@ -9,13 +9,16 @@ import (
 	"time"
 
 	"github.com/dongly/serialhub/internal/buffer"
+	"github.com/dongly/serialhub/internal/testutil"
 	"github.com/dongly/serialhub/pkg/serial"
 )
 
-func getTestPort() string {
-	port := os.Getenv("SERIALHUB_TEST_PORT")
-	if port == "" {
-		port = "COM9"
+// getTestPort 解析测试串口（env → 自动探测 pty/com0com），不可用时 Skip。
+func getTestPort(t *testing.T) string {
+	t.Helper()
+	port, ok, why := testutil.TestPort()
+	if !ok {
+		t.Skipf("无可用测试串口: %s", why)
 	}
 	return port
 }
@@ -27,7 +30,7 @@ func intPtr(v int) *int { return &v }
 func newTestManager(t *testing.T) *serial.SerialManager {
 	t.Helper()
 	cfg := serial.DefaultConfig()
-	cfg.Port = getTestPort()
+	cfg.Port = getTestPort(t)
 	sm, err := serial.NewSerialManager(cfg)
 	if err != nil {
 		t.Fatalf("创建 SerialManager 失败: %v", err)
@@ -65,11 +68,11 @@ func TestSerialList(t *testing.T) {
 
 func TestSerialConnect_Disconnect(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	result := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
 	if !result.Success {
-		if strings.Contains(result.Message, "打开串口失败") {
+		if strings.Contains(result.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, result.Message)
 		}
 		t.Fatalf("连接失败: %s", result.Message)
@@ -101,11 +104,11 @@ func TestSerialConnect_Disconnect(t *testing.T) {
 
 func TestSerialConnect_WithBaudRate(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	result := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 9600})
 	if !result.Success {
-		if strings.Contains(result.Message, "打开串口失败") {
+		if strings.Contains(result.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, result.Message)
 		}
 		t.Fatalf("连接失败: %s", result.Message)
@@ -119,12 +122,12 @@ func TestSerialConnect_WithBaudRate(t *testing.T) {
 
 func TestSerialConnect_DefaultBaudRate(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	// BaudRate=0 应使用默认值 115200
 	result := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 0})
 	if !result.Success {
-		if strings.Contains(result.Message, "打开串口失败") {
+		if strings.Contains(result.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, result.Message)
 		}
 		t.Fatalf("连接失败: %s", result.Message)
@@ -147,12 +150,12 @@ func TestSerialConnect_DefaultBaudRate(t *testing.T) {
 
 func TestSerialConnect_NegativeBaudRate(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	// 负数波特率应使用默认值 115200
 	result := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: -1})
 	if !result.Success {
-		if strings.Contains(result.Message, "打开串口失败") {
+		if strings.Contains(result.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, result.Message)
 		}
 		t.Fatalf("连接失败: %s", result.Message)
@@ -166,7 +169,7 @@ func TestSerialConnect_NegativeBaudRate(t *testing.T) {
 
 func TestSerialConnect_AlreadyConnected(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	result1 := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
 	if !result1.Success {
@@ -215,7 +218,7 @@ func TestSerialConnect_AlreadyConnected(t *testing.T) {
 // 要么因硬件不可用全部失败（触发 Skip），不应出现部分失败。
 func TestSerialConnect_ConcurrentSamePort(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	const n = 4
 	results := make([]ToolResult, n)
@@ -290,10 +293,10 @@ func TestSerialWrite_NotConnected(t *testing.T) {
 
 func connectTestPort(t *testing.T, sm *serial.SerialManager) {
 	t.Helper()
-	port := getTestPort()
+	port := getTestPort(t)
 	result := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
 	if !result.Success {
-		if strings.Contains(result.Message, "打开串口失败") {
+		if strings.Contains(result.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, result.Message)
 		}
 		t.Fatalf("连接失败: %s", result.Message)
@@ -718,12 +721,12 @@ func TestSerialStatus_NotConnected(t *testing.T) {
 
 func TestSerialStatus_Connected(t *testing.T) {
 	sm := newTestManager(t)
-	port := getTestPort()
+	port := getTestPort(t)
 
 	// 先连接
 	connectResult := ExecuteSerialConnect(sm, ConnectInput{Port: port, BaudRate: 115200})
 	if !connectResult.Success {
-		if strings.Contains(connectResult.Message, "打开串口失败") {
+		if strings.Contains(connectResult.Message, "连接失败") {
 			t.Skipf("串口 %s 不可用: %s", port, connectResult.Message)
 		}
 		t.Fatalf("连接失败: %s", connectResult.Message)
@@ -896,7 +899,7 @@ func TestSerialWriteRead_Hardware(t *testing.T) {
 		t.Skip("跳过硬件测试: SERIALHUB_HARDWARE_TEST 未设置")
 	}
 
-	testPort := getTestPort()
+	testPort := getTestPort(t)
 	sm := newTestManager(t)
 	buf := buffer.NewDataBuffer()
 

@@ -68,8 +68,6 @@ func newReconnectTestManager(t *testing.T, port string, ports []string, details 
 	}
 	sm.reconnectBaseDelay = 5 * time.Millisecond
 	sm.listPortsFn = func() ([]string, error) { return ports, nil }
-	// 隔离真实 /dev/pts：宿主机的 pty 节点不应混入重连测试的列表断言
-	sm.listPtsFn = func() []string { return nil }
 	sm.listDetailedPorts = func() []usbPortDetails { return details }
 	return sm
 }

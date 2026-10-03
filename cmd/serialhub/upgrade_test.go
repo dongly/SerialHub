@@ -17,6 +17,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/dongly/serialhub/internal/i18n"
+	"github.com/dongly/serialhub/internal/testutil"
 )
 
 func TestTrimVPrefix(t *testing.T) {
@@ -174,7 +177,7 @@ func TestExtractBinary(t *testing.T) {
 			{"dirA/serialhub.exe", "A"},
 			{"dirB/serialhub.exe", "B"},
 		})
-		if _, err := extractBinary(data, "windows"); err == nil || !strings.Contains(err.Error(), "拒绝自动选择") {
+		if _, err := extractBinary(data, "windows"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf(i18n.UpgradeErrors.MultipleCount, 2, "serialhub.exe")) {
 			t.Fatalf("应拒绝自动选择，err=%v", err)
 		}
 	})
@@ -183,7 +186,7 @@ func TestExtractBinary(t *testing.T) {
 		data := makeZip(t, []struct{ name, content string }{
 			{"serialhub-0.6.0-windows-amd64/serialhub.exe", ""},
 		})
-		if _, err := extractBinary(data, "windows"); err == nil || !strings.Contains(err.Error(), "为空") {
+		if _, err := extractBinary(data, "windows"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf(i18n.UpgradeErrors.EmptyEntry, "serialhub.exe")) {
 			t.Fatalf("空内容应报错，err=%v", err)
 		}
 	})
@@ -198,7 +201,7 @@ func TestExtractBinary(t *testing.T) {
 		data := makeTarGz(t, []struct{ name, content string }{
 			{"serialhub-0.6.0-linux-amd64/serialhub", "0123456789ABCDEF"}, // 16B > 8B
 		})
-		if _, err := extractBinary(data, "linux"); err == nil || !strings.Contains(err.Error(), "上限") {
+		if _, err := extractBinary(data, "linux"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf(i18n.UpgradeErrors.ExtractLimit, 8)) {
 			t.Fatalf("超限应报错，err=%v", err)
 		}
 	})
@@ -378,7 +381,7 @@ func TestUpgraderRun_FullUpgrade(t *testing.T) {
 	if string(got) != "NEW-BIN-9.9.9" {
 		t.Fatalf("二进制未替换: %q", got)
 	}
-	if strings.Contains(out.String(), "sha256 校验通过") == false {
+	if !strings.Contains(out.String(), i18n.CLI.ChecksumOK) {
 		t.Fatalf("输出应含校验通过: %s", out.String())
 	}
 	// 临时文件不残留
@@ -411,7 +414,7 @@ func TestUpgraderRun_AlreadyLatest(t *testing.T) {
 	if err := u.run(&out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "已是最新") {
+	if !strings.Contains(out.String(), testutil.I18nPrefix(i18n.CLI.AlreadyLatest)) {
 		t.Fatalf("输出: %s", out.String())
 	}
 	got, _ := os.ReadFile(exe)
@@ -455,7 +458,7 @@ func TestUpgraderRun_VerifyFailureKeepsBinary(t *testing.T) {
 		client: server.Client(),
 	}
 	err := u.run(io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "校验失败") {
+	if err == nil || !strings.Contains(err.Error(), testutil.I18nPrefix(i18n.CLI.VerifyFailed)) {
 		t.Fatalf("期望校验失败错误, got %v", err)
 	}
 	got, _ := os.ReadFile(exe)

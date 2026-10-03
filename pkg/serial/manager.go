@@ -8,8 +8,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,9 +27,6 @@ const (
 	defaultReconnectBaseDelay   = 1 * time.Second
 	defaultReconnectMaxDelay    = 30 * time.Second
 	defaultReconnectMaxAttempts = 30
-
-	// ptsFolder 伪终端节点目录（Linux devpts 挂载点）。
-	ptsFolder = "/dev/pts"
 )
 
 // usbPortDetails 抽象 enumerator.PortDetails，便于测试注入假 USB 身份。
@@ -99,7 +94,6 @@ type SerialManager struct {
 	openPort             func(name string, mode *serial.Mode) (Port, error)
 	listDetailedPorts    func() []usbPortDetails
 	listPortsFn          func() ([]string, error)
-	listPtsFn            func() []string
 	reconnectBaseDelay   time.Duration
 	reconnectMaxAttempts int
 }
@@ -124,7 +118,6 @@ func NewSerialManager(cfg *Config) (*SerialManager, error) {
 		},
 		listDetailedPorts:    listRealDetailedPorts,
 		listPortsFn:          serial.GetPortsList,
-		listPtsFn:            listPtsPorts,
 		reconnectBaseDelay:   defaultReconnectBaseDelay,
 		reconnectMaxAttempts: defaultReconnectMaxAttempts,
 	}, nil
@@ -340,74 +333,7 @@ func (sm *SerialManager) ListPorts() ([]string, error) {
 		}
 		ports = filtered
 	}
-	// 追加 /dev/pts 伪终端（pty）：库枚举 /dev 直接子项时 /dev/pts 是目录
-	// 被跳过，但 pty 是可连接的合法端点（测试、桥接对端常用）。
-	// 追加在 WSL 过滤之后，不经过白名单，不存在被误杀路径。
-	return append(ports, sm.listPtsFn()...), nil
-}
-
-// listPtsPorts 枚举 /dev/pts 下的伪终端节点（如 /dev/pts/13），
-// 按数值升序返回；仅 Linux 有效（Windows/macOS 返回空）。
-// 节点存在即视为可连接候选，不做打开探测——pts 生命周期短，
-// 列表本就是快照，打开失败由 serial_connect 报错更准确。
-func listPtsPorts() []string {
-	if runtime.GOOS != "linux" {
-		return nil
-	}
-	entries, err := os.ReadDir(ptsFolder)
-	if err != nil {
-		// /dev/pts 不存在或不可读属正常情况（非 Linux 环境、受限容器），静默返回空
-		return nil
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		names = append(names, e.Name())
-	}
-	return ptsPortsFromNames(names)
-}
-
-// ptsPortsFromNames 从 /dev/pts 目录项名提取节点路径：
-// 仅接受纯 ASCII 数字名（排除 ptmx、Atoi 会放行的 "+1" 等），按数值升序。
-func ptsPortsFromNames(names []string) []string {
-	type ptsEntry struct {
-		path string
-		num  int
-	}
-	matched := make([]ptsEntry, 0, len(names))
-	for _, name := range names {
-		n, ok := parsePtsNum(name)
-		if !ok {
-			continue
-		}
-		matched = append(matched, ptsEntry{path: ptsFolder + "/" + name, num: n})
-	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].num < matched[j].num })
-	out := make([]string, len(matched))
-	for i, m := range matched {
-		out[i] = m.path
-	}
-	return out
-}
-
-// parsePtsNum 解析纯 ASCII 数字节点名（至少一位，无符号位）。
-// strconv.Atoi 会接受 "+1"/"-0"，devpts 不会生成但此处从严拒绝。
-func parsePtsNum(name string) (int, bool) {
-	if name == "" {
-		return 0, false
-	}
-	for i := 0; i < len(name); i++ {
-		if name[i] < '0' || name[i] > '9' {
-			return 0, false
-		}
-	}
-	n, err := strconv.Atoi(name)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
+	return ports, nil
 }
 
 // isWSL 判断当前 Linux 是否运行在 WSL 下（/proc/version 含 microsoft 标记）。

@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/dongly/serialhub/internal/i18n"
+	"github.com/dongly/serialhub/internal/testutil"
 )
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -157,8 +160,8 @@ func TestUninstallFrom_ProjectScope(t *testing.T) {
 		if err != nil || removed {
 			t.Fatalf("removed=%v err=%v", removed, err)
 		}
-		if !strings.Contains(desc, "跳过") {
-			t.Fatalf("描述应含跳过: %s", desc)
+		if !strings.Contains(desc, testutil.I18nSuffix(i18n.MCPSetupRemoval.Absent)) {
+			t.Fatalf("描述应含跳过语义: %s", desc)
 		}
 	})
 
@@ -286,7 +289,7 @@ func TestWriteFileAtomic_ConflictDetection(t *testing.T) {
 	}
 
 	err := writeFileAtomic(path, orig, []byte(`{}`))
-	if err == nil || !strings.Contains(err.Error(), "被其他程序修改") {
+	if err == nil || !strings.Contains(err.Error(), testutil.I18nSuffix(i18n.MCPSetupRemoval.Modified)) {
 		t.Fatalf("应检测到外部修改并中止: %v", err)
 	}
 	got, _ := os.ReadFile(path)

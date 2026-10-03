@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dongly/serialhub/internal/i18n"
 	"github.com/dongly/serialhub/internal/instance"
+	"github.com/dongly/serialhub/internal/testutil"
 )
 
 func TestSerialhubInstanceAt(t *testing.T) {
@@ -280,7 +282,7 @@ func TestRemoveUserState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(desc, "已删除") {
+		if !strings.Contains(desc, testutil.I18nPrefix(i18n.Uninstall.RemovedState)) {
 			t.Fatalf("desc=%s", desc)
 		}
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -291,11 +293,12 @@ func TestRemoveUserState(t *testing.T) {
 	t.Run("不存在时幂等跳过", func(t *testing.T) {
 		tmp := t.TempDir()
 		t.Setenv("XDG_CONFIG_HOME", tmp)
+		dir := filepath.Join(tmp, "serialhub")
 		desc, err := removeUserState()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(desc, "跳过") {
+		if !strings.Contains(desc, fmt.Sprintf(i18n.Uninstall.NotFound, dir)) {
 			t.Fatalf("desc=%s", desc)
 		}
 	})
@@ -307,7 +310,7 @@ func TestRemoveUserState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(desc, "跳过") && !strings.Contains(desc, "无法定位") {
+		if !strings.Contains(desc, i18n.Uninstall.NoConfigDir) {
 			t.Fatalf("desc=%s", desc)
 		}
 	})
@@ -350,7 +353,11 @@ func TestBuildUninstallActions(t *testing.T) {
 		t.Fatalf("应恰有 1 个二进制自删项，实际 %d", selfCount)
 	}
 	joined := strings.Join(descs, "\n")
-	for _, want := range []string{"OpenCode", "Claude", "Cursor", "Windsurf", "VS Code", "Codex", "配置与日志目录", "二进制"} {
+	for _, want := range []string{
+		"OpenCode", "Claude", "Cursor", "Windsurf", "VS Code", "Codex",
+		testutil.I18nPrefix(i18n.Uninstall.State),
+		testutil.I18nPrefix(i18n.Uninstall.Binary),
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("清单缺少 %q: %s", want, joined)
 		}
