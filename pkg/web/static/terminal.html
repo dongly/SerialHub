@@ -500,11 +500,25 @@
                         break;
                     case 'serial_event':
                         // 服务端只发语言无关的事件码，未知码按通用串口错误处理。
+                        // 事件码直接推导工具栏状态（三码都刷新：MCP/托盘/自动重连/
+                        // 意外断开等非 Web 命令触发的状态变动也能同步到本客户端）。
                         if (msg.data && msg.data.code === 'serialConnected') {
                             terminal.writeln('\x1b[32m[SerialHub] ' + t('connectedPort') + msg.data.port + '\x1b[0m');
+                            updateConnectionStatus(true);
+                            if (msg.data.port) {
+                                selectPortFromStatus(msg.data.port);
+                            }
                         } else if (msg.data && msg.data.code === 'serialDisconnected') {
                             terminal.writeln('\x1b[33m[SerialHub] ' + t('disconnectedPort') + '\x1b[0m');
+                            updateConnectionStatus(false);
+                        } else if (msg.data && msg.data.code === 'serialError') {
+                            terminal.writeln('\x1b[31m[SerialHub] ' + t('serialError') + '\x1b[0m');
+                            // 错误断开：按钮启停复用未连接态，状态灯置红以区分
+                            // 用户主动断开（灰）——Connect 本就应恢复可用。
+                            updateConnectionStatus(false);
+                            statusIndicator.className = 'error';
                         } else {
+                            // 未知事件码：只提示不动工具栏，避免误判连接状态
                             terminal.writeln('\x1b[31m[SerialHub] ' + t('serialError') + '\x1b[0m');
                         }
                         break;
